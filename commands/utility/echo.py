@@ -1,8 +1,9 @@
+import os
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
 
-_ALLOWED_IDS = {802302625869594624, 1130531842655780884}
+_ALLOWED_IDS = {int(i) for i in os.getenv("ECHO_ALLOWED_IDS", "").split(",") if i.strip()}
 
 
 @app_commands.command(name="echo", description="Echo a message")
