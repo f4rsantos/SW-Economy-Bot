@@ -154,7 +154,13 @@ async def get_fleet_vehicles(fleet_id: int) -> list:
 
 
 async def get_fleet_vehicle_count(fleet_id: int) -> int:
-    row = await db.fetchrow("SELECT COALESCE(SUM(amount), 0) as total FROM fleet_vehicles WHERE fleet_id = $1", fleet_id)
+    row = await db.fetchrow("""
+        SELECT COALESCE(SUM(fv.amount), 0) as total
+        FROM fleet_vehicles fv
+        JOIN vehicles v ON fv.vehicle_id = v.id
+        LEFT JOIN vehicle_types vt ON v.type = vt.id
+        WHERE fv.fleet_id = $1 AND LOWER(COALESCE(vt.name, '')) != 'missile'
+    """, fleet_id)
     return row['total'] or 0
 
 
