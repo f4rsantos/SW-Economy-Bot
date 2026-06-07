@@ -1,0 +1,46 @@
+import discord
+from discord import app_commands
+from utils.checks import require_access_level
+from utils.embeds import success_embed, error_embed
+from utils.faction_utils import hex_to_int
+from services.war_service import leave_war as leave_war_service
+from services.validation_service import require_faction
+
+
+@app_commands.command(name="leave", description="Leave an active war")
+@app_commands.describe(war_id="ID of the war to leave", faction="Your faction name")
+@require_access_level(0)
+async def leave_war(interaction: discord.Interaction, war_id: int, faction: str):
+    await interaction.response.defer()
+
+    r_faction_data = await require_faction(faction)
+    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
+    faction_data = r_faction_data.data
+
+    faction_color = hex_to_int(faction_data['color'])
+
+    try:
+        result = await leave_war_service(war_id, faction_data['id'])
+    except ValueError as e:
+        await interaction.followup.send(embed=error_embed("Error", str(e)))
+        return
+
+    war_data = result['war']
+
+    if result['war_ended']:
+        embed = success_embed(
+            title="Left War & War Ended",
+            description=f"**{faction_data['display_name']}** has left **{war_data['name']}**.\nAs the last participant, the war has been automatically ended and deleted."
+        )
+    else:
+        embed = success_embed(
+            title="Left War",
+            description=f"**{faction_data['display_name']}** has left **{war_data['name']}** (War #{war_id}).\nRemaining participants: {result['remaining']}"
+        )
+
+    embed.color = faction_color
+    await interaction.followup.send(embed=embed)
+
+
+async def setup(bot):
+    bot.tree.add_command(leave_war)

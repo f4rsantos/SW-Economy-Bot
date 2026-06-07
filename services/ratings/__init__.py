@@ -1,0 +1,5 @@
+from .air_rating_service import rate_aircraft
+from .ground_rating_service import rate_ground_vehicle
+from .infantry_rating_service import rate_infantry
+from .missile_rating_service import rate_missile
+from .vehicle_rating_service import rate_spacecraft

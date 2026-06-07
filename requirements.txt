@@ -1,0 +1,13 @@
+discord.py==2.6.4
+asyncpg==0.31.0
+supabase==2.25.1
+python-dotenv
+httpx
+cryptography
+postgrest
+realtime
+storage3
+gotrue
+Pillow
+fastapi
+uvicorn[standard]
