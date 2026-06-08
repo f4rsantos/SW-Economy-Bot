@@ -53,8 +53,8 @@ class EventQueue:
         horizon = now + LOOKAHEAD
 
         transfers = await db.fetch(
-            "SELECT id, to_faction_id, to_world_id FROM resource_transfers WHERE status = 'in_transit' AND arrival_time BETWEEN $1 AND $2",
-            now, horizon
+            "SELECT id, to_faction_id, to_world_id FROM resource_transfers WHERE status = 'in_transit' AND arrival_time <= $1",
+            horizon
         )
         constructions = await db.fetch(
             "SELECT id, fleet_id, vehicle_id, quantity FROM vehicle_construction WHERE completion_date <= $1",
@@ -100,8 +100,8 @@ class EventQueue:
                 if moving_since.tzinfo is None:
                     moving_since = moving_since.replace(tzinfo=timezone.utc)
                 arrival = moving_since + travel_time
-                if now <= arrival <= horizon:
-                    await self.push(arrival, 'fleet_arrival', {'fleet_id': fleet['id'], 'to_world_id': fleet['moving_to']})
+                if arrival <= horizon:
+                    await self.push(max(arrival, now), 'fleet_arrival', {'fleet_id': fleet['id'], 'to_world_id': fleet['moving_to']})
             except Exception:
                 pass
 

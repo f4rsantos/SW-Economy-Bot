@@ -3,7 +3,7 @@ from discord import app_commands
 from utils.checks import require_access_level
 from utils.embeds import error_embed, create_embed
 from services.scripting.script_service import get_script_by_name, get_last_execution
-from ._helpers import resolve_faction_with_access
+from utils.scripting_helpers import resolve_faction_with_access
 
 
 @app_commands.command(name="info", description="Show details of a faction script")

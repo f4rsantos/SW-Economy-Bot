@@ -3,7 +3,7 @@ from discord import app_commands
 from utils.checks import require_access_level
 from utils.embeds import success_embed, error_embed
 from services.scripting.script_service import get_script_by_name, deactivate_script
-from ._helpers import resolve_faction_with_access
+from utils.scripting_helpers import resolve_faction_with_access
 
 
 class ConfirmDeleteView(discord.ui.View):

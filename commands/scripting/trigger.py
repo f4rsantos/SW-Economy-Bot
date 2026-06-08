@@ -4,7 +4,7 @@ from discord import app_commands
 from utils.embeds import error_embed, create_embed
 from services.scripting.script_service import get_manual_script_by_name, record_execution
 from services.scripting.executor import execute_script_manual
-from ._helpers import resolve_faction_with_access
+from utils.scripting_helpers import resolve_faction_with_access
 
 
 @app_commands.command(name="trigger", description="Manually run a TRIGGER script for a faction")
