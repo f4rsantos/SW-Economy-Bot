@@ -5,7 +5,7 @@ from services.scripting.parser import parse
 from services.scripting.type_checker import check as type_check
 from services.scripting.errors import FALSyntaxError, FALTypeError, FALSecurityError
 from services.scripting.script_service import create_script
-from ._helpers import resolve_faction_with_access, trigger_day_from_ast, trigger_type_from_ast
+from utils.scripting_helpers import resolve_faction_with_access, trigger_day_from_ast, trigger_type_from_ast
 
 
 class ScriptAddModal(discord.ui.Modal, title="Add Faction Script"):

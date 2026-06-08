@@ -1,4 +1,3 @@
-                                            
 from __future__ import annotations
 import discord
 from utils.faction_utils import get_faction_by_name
@@ -11,10 +10,6 @@ async def resolve_faction_with_access(
     interaction: discord.Interaction,
     faction_name: str,
 ) -> tuple:
-    """
-    Resolve faction and verify the user is the faction's leader or an admin.
-    Returns (faction_dict, None) on success, (None, error_message) on failure.
-    """
     faction = await get_faction_by_name(faction_name)
     if not faction:
         return None, f"Faction '{faction_name}' not found."
@@ -30,7 +25,6 @@ async def resolve_faction_with_access(
 
 
 def trigger_day_from_ast(ast) -> str | None:
-                                                                                             
     if ast.directives:
         day = ast.directives[0].day
         if day == "TRIGGER":
@@ -40,7 +34,6 @@ def trigger_day_from_ast(ast) -> str | None:
 
 
 def trigger_type_from_ast(ast) -> str | None:
-                                                                                                        
     if ast.directives:
         day = ast.directives[0].day
         if day == "TRIGGER":

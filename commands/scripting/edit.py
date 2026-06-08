@@ -5,7 +5,7 @@ from services.scripting.parser import parse
 from services.scripting.type_checker import check as type_check
 from services.scripting.errors import FALSyntaxError
 from services.scripting.script_service import get_script_by_name, update_script
-from ._helpers import resolve_faction_with_access, trigger_day_from_ast
+from utils.scripting_helpers import resolve_faction_with_access, trigger_day_from_ast
 
 
 class ScriptEditModal(discord.ui.Modal, title="Edit Faction Script"):
