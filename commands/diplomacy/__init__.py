@@ -7,17 +7,17 @@ class PactGroup(app_commands.Group):
 
 async def setup(bot):
     from commands.diplomacy import (
-        pacts, createPact, joinPact, leavePact, endPact, removeMember, pactTypes
+        pacts, create_pact, join_pact, leave_pact, end_pact, remove_member, pact_types
     )
-    
+
     pact_group = PactGroup()
-    
+
     pact_group.add_command(pacts.pacts)
-    pact_group.add_command(createPact.create_pact)
-    pact_group.add_command(joinPact.join_pact)
-    pact_group.add_command(leavePact.leave_pact)
-    pact_group.add_command(endPact.end_pact)
-    pact_group.add_command(removeMember.remove_member)
-    pact_group.add_command(pactTypes.pact_types)
+    pact_group.add_command(create_pact.create_pact)
+    pact_group.add_command(join_pact.join_pact)
+    pact_group.add_command(leave_pact.leave_pact)
+    pact_group.add_command(end_pact.end_pact)
+    pact_group.add_command(remove_member.remove_member)
+    pact_group.add_command(pact_types.pact_types)
     
     bot.tree.add_command(pact_group)

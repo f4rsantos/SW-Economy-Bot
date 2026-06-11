@@ -98,13 +98,17 @@ class RegisterVehicleView(OwnerOnlyView):
     async def register_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         from services.vehicle_service import register_vehicle, check_vehicle_exists, update_vehicle
         await interaction.response.defer()
-        existing = await check_vehicle_exists(self.faction_id, self.vehicle_name)
-        if existing:
-            await update_vehicle(existing['id'], self.designation, self.costs, self.vehicle_data)
-            title, label = f"{self.vehicle_type.title()} Replaced", "Replaced"
-        else:
-            await register_vehicle(self.faction_id, self.vehicle_name, self.designation, self.vehicle_type, self.costs, self.vehicle_data)
-            title, label = f"{self.vehicle_type.title()} Registered", "Registered"
+        try:
+            existing = await check_vehicle_exists(self.faction_id, self.vehicle_name)
+            if existing:
+                await update_vehicle(existing['id'], self.designation, self.costs, self.vehicle_data)
+                title, label = f"{self.vehicle_type.title()} Replaced", "Replaced"
+            else:
+                await register_vehicle(self.faction_id, self.vehicle_name, self.designation, self.vehicle_type, self.costs, self.vehicle_data)
+                title, label = f"{self.vehicle_type.title()} Registered", "Registered"
+        except Exception as e:
+            await interaction.followup.send(embed=error_embed("Registration Failed", str(e)), ephemeral=True)
+            return
         _.label = label
         _.disabled = True
         self.stop()

@@ -8,17 +8,17 @@ class FactionGroup(app_commands.Group):
 
 async def setup(bot):
     from commands.faction import (
-        listFactions, factionDetails, renameFaction, setLeader,
-        mergeAux, deleteFaction, createFaction
+        list_factions, faction_details, rename_faction, set_leader,
+        merge_aux, delete_faction, create_faction
     )
 
     faction_group = FactionGroup()
-    faction_group.add_command(listFactions.list_factions)
-    faction_group.add_command(factionDetails.faction_details)
-    faction_group.add_command(renameFaction.rename_faction)
-    faction_group.add_command(setLeader.set_leader)
-    faction_group.add_command(mergeAux.merge_aux)
-    faction_group.add_command(deleteFaction.delete_faction)
-    faction_group.add_command(createFaction.create_faction)
+    faction_group.add_command(list_factions.list_factions)
+    faction_group.add_command(faction_details.faction_details)
+    faction_group.add_command(rename_faction.rename_faction)
+    faction_group.add_command(set_leader.set_leader)
+    faction_group.add_command(merge_aux.merge_aux)
+    faction_group.add_command(delete_faction.delete_faction)
+    faction_group.add_command(create_faction.create_faction)
 
     bot.tree.add_command(faction_group)

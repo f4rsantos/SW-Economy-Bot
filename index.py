@@ -6,9 +6,8 @@ from pathlib import Path
 
 logging.basicConfig(
     level=logging.ERROR,
-    format='%(asctime)s %(name)s %(levelname)s %(message)s',
+    format='%(message)s',
     handlers=[
-        logging.FileHandler('bot.log', encoding='utf-8'),
         logging.StreamHandler(),
     ]
 )
@@ -57,7 +56,7 @@ _no_income = '--no-income' in sys.argv
 
 def print_header():
     version = os.getenv("BOT_VERSION", "")
-    byline = f"by Fer0 | v{version}" if version else "by Fer0"
+    byline = f"v{version}" if version else "v unknown"
     print("=" * 70)
     print("SOLAR ECONOMY".center(70))
     print(byline.center(70))

@@ -11,8 +11,6 @@ class DatabaseManager:
         self.database_url = os.getenv("DATABASE_URL")
         if not self.database_url:
             print("ERROR: DATABASE_URL environment variable not set!")
-        else:
-            print(f"DATABASE_URL loaded: {self.database_url[:50]}...")
 
     async def connect(self):
         if not self.pool:

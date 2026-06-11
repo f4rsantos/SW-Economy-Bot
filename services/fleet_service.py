@@ -63,7 +63,7 @@ async def get_fleet(fleet_id: int) -> Optional[dict]:
         SELECT f.id, f.name, f.faction_id, f.faction_fleet_number,
                f.health, f.total_cs, f.status_id, f.infantry_count,
                fs.name as status_name, w.name as position_name, f.position,
-               w2.name as moving_to_name, ft.name as type_name
+               w2.name as moving_to_name, f.moving_since, ft.name as type_name
         FROM fleets f
         JOIN fleet_status fs ON f.status_id = fs.id
         JOIN worlds w ON f.position = w.id
@@ -143,7 +143,7 @@ async def delete_fleet(fleet_id: int):
 async def get_fleet_vehicles(fleet_id: int) -> list:
     rows = await db.fetch("""
         SELECT v.id as vehicle_id, v.name as vehicle_name, v.designation,
-               v.faction_vehicle_number, fv.amount, vt.name as type
+               v.faction_vehicle_number, fv.amount, vt.name as type, v.vehicle_data
         FROM fleet_vehicles fv
         JOIN vehicles v ON fv.vehicle_id = v.id
         LEFT JOIN vehicle_types vt ON v.type = vt.id
@@ -206,14 +206,16 @@ async def get_fleets(faction_id: Optional[int] = None, world_id: Optional[int] =
     where = "WHERE " + " AND ".join(conditions) if conditions else ""
     rows = await db.fetch(
         f"""SELECT f.id, f.name, f.faction_fleet_number, fs.name as status,
-                  w.name as position, w2.name as moving_to_name,
+                  w.name as position, w2.name as moving_to_name, f.moving_since,
                   f.health, f.total_cs, f.faction_id,
+                  ft.name as type_name,
                   fac.name as faction_name, fac.color as faction_color
            FROM fleets f
            JOIN fleet_status fs ON f.status_id = fs.id
            JOIN worlds w ON f.position = w.id
            JOIN factions fac ON f.faction_id = fac.id
            LEFT JOIN worlds w2 ON f.moving_to = w2.id
+           LEFT JOIN fleet_types ft ON f.fleet_type_id = ft.id
            {where} ORDER BY f.faction_fleet_number""",
         *args
     )

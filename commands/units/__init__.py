@@ -13,33 +13,33 @@ class VehicleGroup(app_commands.Group):
 
 async def setup(bot):
     from commands.units import (
-        listUnits, unitCreate, deleteUnit, unitRename, unitMove, unitStatus,
-        buyVehicle, listVehicles, renameVehicle, deregisterVehicle, transferVehicle,
-        setVehicleType, factoryProgress, vehicleAdmin, repairUnit, damageUnit,
-        unitType
+        list_units, unit_create, delete_unit, unit_rename, unit_move, unit_status,
+        buy_vehicle, list_vehicles, rename_vehicle, deregister_vehicle, transfer_vehicle,
+        set_vehicle_type, factory_progress, vehicle_admin, repair_unit, damage_unit,
+        unit_type
     )
 
     unit_group = UnitGroup()
-    unit_group.add_command(listUnits.list_units)
-    unit_group.add_command(unitCreate.unit_create)
-    unit_group.add_command(deleteUnit.unit_delete)
-    unit_group.add_command(unitRename.unit_rename)
-    unit_group.add_command(unitMove.unit_move)
-    unit_group.add_command(unitStatus.unit_status_command)
-    unit_group.add_command(factoryProgress.factory_progress)
-    unit_group.add_command(repairUnit.repair_unit_cmd)
-    unit_group.add_command(damageUnit.damage_unit_cmd)
-    unit_group.add_command(unitType.unit_set_type)
+    unit_group.add_command(list_units.list_units)
+    unit_group.add_command(unit_create.unit_create)
+    unit_group.add_command(delete_unit.unit_delete)
+    unit_group.add_command(unit_rename.unit_rename)
+    unit_group.add_command(unit_move.unit_move)
+    unit_group.add_command(unit_status.unit_status_command)
+    unit_group.add_command(factory_progress.factory_progress)
+    unit_group.add_command(repair_unit.repair_unit_cmd)
+    unit_group.add_command(damage_unit.damage_unit_cmd)
+    unit_group.add_command(unit_type.unit_set_type)
 
     vehicle_group = VehicleGroup()
-    vehicle_group.add_command(buyVehicle.buy_vehicle_cmd)
-    vehicle_group.add_command(listVehicles.list_vehicles)
-    vehicle_group.add_command(renameVehicle.rename_vehicle)
-    vehicle_group.add_command(deregisterVehicle.deregister_vehicle)
-    vehicle_group.add_command(transferVehicle.transfer_vehicle_cmd)
-    vehicle_group.add_command(setVehicleType.set_vehicle_type)
-    vehicle_group.add_command(vehicleAdmin.buy_vehicle_free)
-    vehicle_group.add_command(vehicleAdmin.refund_vehicle_cmd)
+    vehicle_group.add_command(buy_vehicle.buy_vehicle_cmd)
+    vehicle_group.add_command(list_vehicles.list_vehicles)
+    vehicle_group.add_command(rename_vehicle.rename_vehicle)
+    vehicle_group.add_command(deregister_vehicle.deregister_vehicle)
+    vehicle_group.add_command(transfer_vehicle.transfer_vehicle_cmd)
+    vehicle_group.add_command(set_vehicle_type.set_vehicle_type)
+    vehicle_group.add_command(vehicle_admin.buy_vehicle_free)
+    vehicle_group.add_command(vehicle_admin.refund_vehicle_cmd)
 
     bot.tree.add_command(unit_group)
     bot.tree.add_command(vehicle_group)

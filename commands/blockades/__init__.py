@@ -6,12 +6,12 @@ class BlockadeGroup(app_commands.Group):
         super().__init__(name="blockade", description="Blockade management commands")
 
 async def setup(bot):
-    from commands.blockades import blockades, startBlockade, endBlockade
-    
+    from commands.blockades import blockades, start_blockade, end_blockade
+
     blockade_group = BlockadeGroup()
-    
+
     blockade_group.add_command(blockades.blockades)
-    blockade_group.add_command(startBlockade.start_blockade_cmd)
-    blockade_group.add_command(endBlockade.end_blockade_cmd)
+    blockade_group.add_command(start_blockade.start_blockade_cmd)
+    blockade_group.add_command(end_blockade.end_blockade_cmd)
     
     bot.tree.add_command(blockade_group)
