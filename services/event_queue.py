@@ -8,6 +8,8 @@ logger = logging.getLogger(__name__)
 
 LOOKAHEAD = timedelta(hours=2)
 
+DB_BACKED_EVENTS = {'transfer_arrival', 'construction_complete', 'recruitment_complete', 'fleet_arrival', 'income_cycle'}
+
 
 class EventQueue:
     def __init__(self):
@@ -21,11 +23,13 @@ class EventQueue:
         self._handlers[event_type] = handler
 
     async def push(self, due_at: datetime, event_type: str, payload: dict):
-        now = datetime.now(timezone.utc)
-        if due_at <= now + LOOKAHEAD:
-            async with self._lock:
-                self._counter += 1
-                heapq.heappush(self._heap, (due_at.timestamp(), self._counter, event_type, payload))
+        if event_type in DB_BACKED_EVENTS:
+            now = datetime.now(timezone.utc)
+            if due_at > now + LOOKAHEAD:
+                return
+        async with self._lock:
+            self._counter += 1
+            heapq.heappush(self._heap, (due_at.timestamp(), self._counter, event_type, payload))
 
     async def push_income_event(self):
         from database.db_manager import db
@@ -75,8 +79,8 @@ class EventQueue:
         )
 
         async with self._lock:
-            self._heap.clear()
-            self._counter = 0
+            self._heap = [e for e in self._heap if e[2] not in DB_BACKED_EVENTS]
+            heapq.heapify(self._heap)
 
         for t in transfers:
             arrival = await db.fetchval("SELECT arrival_time FROM resource_transfers WHERE id = $1", t['id'])
@@ -103,21 +107,36 @@ class EventQueue:
                 if arrival <= horizon:
                     await self.push(max(arrival, now), 'fleet_arrival', {'fleet_id': fleet['id'], 'to_world_id': fleet['moving_to']})
             except Exception:
-                pass
+                logger.exception(f"EventQueue: failed to schedule arrival for fleet #{fleet['id']}")
 
         await self.push_income_event()
 
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def queue_size(self) -> int:
+        return len(self._heap)
+
+    async def _safe_load_window(self) -> bool:
+        try:
+            await self.load_window()
+            return True
+        except Exception:
+            logger.exception("EventQueue: load_window failed, retrying in 60s")
+            return False
+
     async def worker(self):
         self._running = True
-        await self.load_window()
-        next_reload = datetime.now(timezone.utc) + LOOKAHEAD
+        ok = await self._safe_load_window()
+        next_reload = datetime.now(timezone.utc) + (LOOKAHEAD if ok else timedelta(seconds=60))
 
         while self._running:
             now = datetime.now(timezone.utc)
 
             if now >= next_reload:
-                await self.load_window()
-                next_reload = now + LOOKAHEAD
+                ok = await self._safe_load_window()
+                next_reload = now + (LOOKAHEAD if ok else timedelta(seconds=60))
 
             due_item = None
             async with self._lock:

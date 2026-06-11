@@ -7,19 +7,19 @@ class MapGroup(app_commands.Group):
 
 async def setup(bot):
     from commands.map import (
-        land, claimHex, unclaimHex, view,
-        addPlace, deletePlace, renamePlace, modifyPlace
+        land, claim_hex, unclaim_hex, view,
+        add_place, delete_place, rename_place, modify_place
     )
-    
+
     map_group = MapGroup()
-    
+
     map_group.add_command(land.land)
-    map_group.add_command(claimHex.claim_hex)
-    map_group.add_command(unclaimHex.unclaim_hex)
+    map_group.add_command(claim_hex.claim_hex)
+    map_group.add_command(unclaim_hex.unclaim_hex)
     map_group.add_command(view.view)
-    map_group.add_command(addPlace.add_place)
-    map_group.add_command(deletePlace.delete_place)
-    map_group.add_command(renamePlace.rename_place)
-    map_group.add_command(modifyPlace.modify_place)
+    map_group.add_command(add_place.add_place)
+    map_group.add_command(delete_place.delete_place)
+    map_group.add_command(rename_place.rename_place)
+    map_group.add_command(modify_place.modify_place)
     
     bot.tree.add_command(map_group)

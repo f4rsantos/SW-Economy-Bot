@@ -101,10 +101,24 @@ def start_bot(supabase_client, supabase_user_uuid: str, continuity_mode: bool, n
         await static_cache.load()
         logger.info("Loading dynamic cache...")
         await cache.load_full_cache()
+        def _log_task_crash(name):
+            def callback(task):
+                if task.cancelled():
+                    return
+                exc = task.exception()
+                if exc:
+                    logger.error(f"Background task '{name}' crashed: {type(exc).__name__}: {exc}", exc_info=exc)
+            return callback
+
+        bot._bg_tasks = []
         logger.info("Starting cache refresh loop...")
-        bot.loop.create_task(cache.start_refresh_loop())
+        cache_task = bot.loop.create_task(cache.start_refresh_loop())
+        cache_task.add_done_callback(_log_task_crash("cache refresh loop"))
+        bot._bg_tasks.append(cache_task)
         logger.info("Starting background tasks...")
-        bot.loop.create_task(run_background_tasks(bot, skip_income=no_income))
+        events_task = bot.loop.create_task(run_background_tasks(bot, skip_income=no_income))
+        events_task.add_done_callback(_log_task_crash("event queue worker"))
+        bot._bg_tasks.append(events_task)
         if no_income:
             logger.warning("  Income processing DISABLED (--no-income flag)")
         logger.info("Loading commands...")

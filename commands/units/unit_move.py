@@ -60,6 +60,9 @@ async def unit_move(
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
+    from services.event_queue import event_queue
+    await event_queue.push(arrival_time, 'fleet_arrival', {'fleet_id': unit_data['id'], 'to_world_id': dest_data['id']})
+
     unit_name = unit_data['name'] or f"Unit #{unit_data['faction_fleet_number']}"
     travel_time_str = await format_travel_time(travel_duration)
 

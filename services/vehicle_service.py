@@ -58,7 +58,7 @@ def invalidate_vehicle_definition(vehicle_id: int):
 async def get_vehicle_type_id(type_name: str) -> Optional[int]:
     from database.static_cache import static_cache
     type_id = static_cache.get_vehicle_type_id(type_name)
-    if type_id:
+    if type_id is not None:
         return type_id
     result = await db.fetchrow("SELECT id FROM vehicle_types WHERE LOWER(name) = LOWER($1)", type_name)
     return result['id'] if result else None
@@ -83,7 +83,7 @@ async def register_vehicle(
     vehicle_data: Optional[Dict] = None
 ) -> Dict:
     type_id = await get_vehicle_type_id(type_name)
-    if not type_id:
+    if type_id is None:
         raise ValueError(f"Invalid vehicle type: {type_name}")
 
     next_number = await get_next_vehicle_number(faction_id)

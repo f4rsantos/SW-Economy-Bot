@@ -14,22 +14,35 @@ logger = logging.getLogger(__name__)
 async def sync(interaction: discord.Interaction):
     await interaction.response.defer()
 
+    errors = []
+
     try:
         await event_queue.load_window()
     except Exception as e:
-        logger.error(f"Error reloading event queue: {e}")
+        logger.exception("Error reloading event queue")
+        errors.append(f"Event queue reload failed: {e}")
 
     try:
         await check_income_cycle()
     except Exception as e:
-        logger.error(f"Error checking income: {e}")
+        logger.exception("Error checking income")
+        errors.append(f"Income check failed: {e}")
 
-    embed = discord.Embed(title="Sync Complete", color=discord.Color.green())
+    worker_alive = event_queue.is_running
+    color = discord.Color.green() if worker_alive and not errors else discord.Color.red()
+    embed = discord.Embed(title="Sync Complete" if worker_alive and not errors else "Sync Issues Detected", color=color)
     embed.add_field(
         name="Actions",
         value="• Event queue reloaded (2h window)\n• Income cycle checked",
         inline=False
     )
+    embed.add_field(
+        name="Event Worker",
+        value=f"{'Running' if worker_alive else 'NOT RUNNING — events will not execute! Restart the bot.'}\nQueued events: {event_queue.queue_size()}",
+        inline=False
+    )
+    if errors:
+        embed.add_field(name="Errors", value="\n".join(f"• {e}"[:1000] for e in errors), inline=False)
     embed.set_footer(text=f"Synced at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
     await interaction.followup.send(embed=embed)
 

@@ -477,7 +477,7 @@ _HTML = r"""<!DOCTYPE html>
     </div>
   </div>
 
-  <footer>SW-Bot Dashboard &nbsp;·&nbsp; %%now_utc%% &nbsp;·&nbsp; Made by Fer0</footer>
+  <footer>SW-Bot Dashboard &nbsp;·&nbsp; %%now_utc%%</footer>
 </div>
 
 <script>
