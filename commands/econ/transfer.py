@@ -70,9 +70,11 @@ async def transfer(
     for t in transfers:
         t['resource'] = canonical.get(t['resource'].lower(), t['resource'])
 
-    if from_faction_id != to_faction_id and any(t['resource'] == 'Population' for t in transfers):
-        await interaction.followup.send(embed=error_embed("Error", "Population can only be transferred within your own faction."))
-        return
+    if from_faction_id != to_faction_id:
+        non_transferable = sorted({t['resource'] for t in transfers if not resource_map[t['resource']]['is_transferable']})
+        if non_transferable:
+            await interaction.followup.send(embed=error_embed("Error", f"{', '.join(non_transferable)} can only be transferred within your own faction."))
+            return
 
     is_global = all(t['resource'] == 'ER' for t in transfers)
 
@@ -105,7 +107,7 @@ async def transfer(
     current_time = datetime.now(timezone.utc)
 
     if is_global:
-        er_id = resource_map['ER']
+        er_id = resource_map['ER']['id']
         total_amount = sum(t['amount'] for t in transfers)
 
         current = await get_global_resource_amount(from_faction_id, er_id)
@@ -141,7 +143,7 @@ async def transfer(
         from_world_data = r_from_world.data
         from_world_id = from_world_data['id']
     else:
-        resource_list = [{'resource_id': resource_map[t['resource']], 'amount': t['amount']} for t in transfers]
+        resource_list = [{'resource_id': resource_map[t['resource']]['id'], 'amount': t['amount']} for t in transfers]
         from_world_id = await find_best_worlds_for_multiple_resources(from_faction_id, resource_list)
         if not from_world_id:
             await interaction.followup.send(embed=error_embed("Error", "No single world has all required resources. Please specify a source world."))
@@ -161,7 +163,7 @@ async def transfer(
         return
 
     for t in transfers:
-        have = await get_local_resource_amount(from_world_id, from_faction_id, resource_map[t['resource']])
+        have = await get_local_resource_amount(from_world_id, from_faction_id, resource_map[t['resource']]['id'])
         if have < t['amount']:
             await interaction.followup.send(embed=error_embed("Error", f"Not enough {t['resource']} at {from_world_data['name']}. Need {handle_return(t['amount'])}, have {handle_return(have)}."))
             return

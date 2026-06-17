@@ -41,7 +41,7 @@ CREATE TABLE public.badge_progress (
 CREATE TABLE public.battle_participants (
   battle_id integer NOT NULL,
   fleet_id integer NOT NULL,
-  side text CHECK (side = ANY (ARRAY['A'::text, 'B'::text, 'C'::text])),
+  side text NOT NULL,
   CONSTRAINT battle_participants_pkey PRIMARY KEY (battle_id, fleet_id),
   CONSTRAINT battle_participants_battle_id_fkey FOREIGN KEY (battle_id) REFERENCES public.battles(id),
   CONSTRAINT battle_participants_fleet_id_fkey FOREIGN KEY (fleet_id) REFERENCES public.fleets(id)
@@ -145,7 +145,7 @@ CREATE TABLE public.faction_treasury (
   faction_id integer NOT NULL,
   resource_id integer NOT NULL,
   amount bigint NOT NULL DEFAULT 0 CHECK (amount >= 0),
-  storage integer CHECK (storage >= 0),
+  storage bigint CHECK (storage >= 0),
   CONSTRAINT faction_treasury_pkey PRIMARY KEY (faction_id, resource_id),
   CONSTRAINT faction_treasury_resource_id_fkey FOREIGN KEY (resource_id) REFERENCES public.resources(id),
   CONSTRAINT faction_treasury_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id)
@@ -301,6 +301,41 @@ CREATE INDEX idx_military_recruitment_faction ON public.military_recruitment(fac
 CREATE INDEX idx_military_recruitment_completion ON public.military_recruitment(completion_time);
 CREATE INDEX idx_military_recruitment_status ON public.military_recruitment(status);
 
+CREATE TABLE public.spirit_types (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  key text NOT NULL,
+  display_name text NOT NULL,
+  effect_type text NOT NULL CHECK (effect_type IN ('efficiency')),
+  fixed_value numeric,
+  per_hex_value numeric,
+  min_value numeric,
+  max_value numeric,
+  CONSTRAINT spirit_types_pkey PRIMARY KEY (id),
+  CONSTRAINT spirit_types_key_key UNIQUE (key)
+);
+
+CREATE TABLE public.national_spirits (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  faction_id integer NOT NULL,
+  spirit_type_id integer NOT NULL,
+  modifier_value numeric NOT NULL,
+  granted_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT national_spirits_pkey PRIMARY KEY (id),
+  CONSTRAINT national_spirits_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id),
+  CONSTRAINT national_spirits_spirit_type_id_fkey FOREIGN KEY (spirit_type_id) REFERENCES public.spirit_types(id)
+);
+
+CREATE INDEX idx_national_spirits_faction ON public.national_spirits(faction_id);
+
+INSERT INTO spirit_types (key, display_name, effect_type, fixed_value) VALUES
+    ('victorious', 'Victorious', 'efficiency', 0.10),
+    ('recovering', 'Recovering', 'efficiency', 0.50)
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO spirit_types (key, display_name, effect_type, per_hex_value, min_value, max_value) VALUES
+    ('resilience', 'Resilience', 'efficiency', 0.0008, 0.15, 0.50)
+ON CONFLICT (key) DO NOTHING;
+
 CREATE TABLE public.operators (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   user_id uuid NOT NULL,
@@ -349,20 +384,30 @@ CREATE TABLE public.resource_transfers (
   to_faction_id integer NOT NULL,
   from_world_id integer NOT NULL,
   to_world_id integer NOT NULL,
-  status character varying NOT NULL DEFAULT 'in_transit'::character varying,
+  status_id smallint NOT NULL DEFAULT 1,
   start_time timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
   arrival_time timestamp with time zone NOT NULL,
   actual_arrival timestamp with time zone,
   intercepting_faction_id integer,
+  intercepted_by_fleet_id integer,
   interception_time timestamp with time zone,
   interception_world_id integer,
   CONSTRAINT resource_transfers_pkey PRIMARY KEY (id),
+  CONSTRAINT resource_transfers_status_id_fkey FOREIGN KEY (status_id) REFERENCES public.transfer_statuses(id),
   CONSTRAINT resource_transfers_from_world_id_fkey FOREIGN KEY (from_world_id) REFERENCES public.worlds(id),
   CONSTRAINT resource_transfers_to_world_id_fkey FOREIGN KEY (to_world_id) REFERENCES public.worlds(id),
   CONSTRAINT resource_transfers_interception_world_id_fkey FOREIGN KEY (interception_world_id) REFERENCES public.worlds(id),
   CONSTRAINT resource_transfers_from_faction_id_fkey FOREIGN KEY (from_faction_id) REFERENCES public.factions(id),
   CONSTRAINT resource_transfers_to_faction_id_fkey FOREIGN KEY (to_faction_id) REFERENCES public.factions(id),
-  CONSTRAINT resource_transfers_intercepting_faction_id_fkey FOREIGN KEY (intercepting_faction_id) REFERENCES public.factions(id)
+  CONSTRAINT resource_transfers_intercepting_faction_id_fkey FOREIGN KEY (intercepting_faction_id) REFERENCES public.factions(id),
+  CONSTRAINT resource_transfers_intercepted_by_fleet_id_fkey FOREIGN KEY (intercepted_by_fleet_id) REFERENCES public.fleets(id)
+);
+
+CREATE TABLE public.transfer_statuses (
+  id smallint NOT NULL,
+  name text NOT NULL,
+  CONSTRAINT transfer_statuses_pkey PRIMARY KEY (id),
+  CONSTRAINT transfer_statuses_name_key UNIQUE (name)
 );
 
 CREATE TABLE public.resources (
@@ -371,6 +416,7 @@ CREATE TABLE public.resources (
   refined_from integer,
   is_limited boolean NOT NULL,
   hard_limit integer,
+  is_transferable boolean NOT NULL DEFAULT true,
   CONSTRAINT resources_pkey PRIMARY KEY (id),
   CONSTRAINT resources_refined_from_fkey FOREIGN KEY (refined_from) REFERENCES public.resources(id)
 );
@@ -462,7 +508,7 @@ CREATE TABLE public.vehicles (
 CREATE TABLE public.war_participants (
   war_id integer NOT NULL,
   faction_id integer NOT NULL,
-  side text CHECK (side = ANY (ARRAY['A'::text, 'B'::text, 'C'::text])),
+  side text NOT NULL,
   CONSTRAINT war_participants_pkey PRIMARY KEY (war_id, faction_id),
   CONSTRAINT war_participants_war_id_fkey FOREIGN KEY (war_id) REFERENCES public.wars(id),
   CONSTRAINT war_participants_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id)
@@ -521,6 +567,11 @@ INSERT INTO fleet_status (name, description) VALUES
     ('debris',      'Fleet is destroyed and cannot operate')
 ON CONFLICT (name) DO NOTHING;
 
+INSERT INTO transfer_statuses (id, name) VALUES
+    (1, 'in_transit'),
+    (2, 'intercepted')
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO kanban_boards (name, position, color) VALUES
     ('Backlog', 0, 9807270),
     ('Todo',    1, 3447003),
@@ -571,6 +622,9 @@ ALTER TABLE public.faction_world_buildings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.faction_treasury        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.local_treasury          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.resources               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.transfer_statuses       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.national_spirits        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.spirit_types             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.trade_deals             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.resource_transfers      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transfer_resources      ENABLE ROW LEVEL SECURITY;
@@ -602,6 +656,8 @@ ALTER TABLE public.comets                  ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "players_read" ON public.fleet_status         FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_read" ON public.vehicle_types        FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_read" ON public.resources            FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
+CREATE POLICY "players_read" ON public.transfer_statuses     FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
+CREATE POLICY "players_read" ON public.spirit_types          FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_read" ON public.buildings            FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_read" ON public.buildings_generators FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_read" ON public.buildings_storages   FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
@@ -635,6 +691,7 @@ CREATE POLICY "players_all" ON public.transfer_resources      FOR ALL TO authent
 CREATE POLICY "players_all" ON public.pacts                   FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.pact_members            FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.wars                    FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
+CREATE POLICY "players_all" ON public.national_spirits        FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.war_participants        FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.battles                 FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.battle_participants     FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);

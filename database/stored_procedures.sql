@@ -225,9 +225,10 @@ BEGIN
     END LOOP;
 
     INSERT INTO resource_transfers
-        (from_faction_id, to_faction_id, from_world_id, to_world_id, status, start_time, arrival_time)
+        (from_faction_id, to_faction_id, from_world_id, to_world_id, status_id, start_time, arrival_time)
     VALUES
-        (p_from_faction_id, p_to_faction_id, p_from_world_id, p_to_world_id, 'in_transit', p_start_time, p_arrival_time)
+        (p_from_faction_id, p_to_faction_id, p_from_world_id, p_to_world_id,
+         (SELECT id FROM transfer_statuses WHERE name = 'in_transit'), p_start_time, p_arrival_time)
     RETURNING id INTO v_transfer_id;
 
     FOR v_res IN SELECT * FROM jsonb_array_elements(p_resources)
@@ -276,12 +277,16 @@ CREATE OR REPLACE FUNCTION sp_intercept_transfer(
     p_fleet_id      INT
 ) RETURNS VOID LANGUAGE plpgsql AS $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM resource_transfers WHERE id = p_transfer_id AND status = 'in_transit') THEN
+    IF NOT EXISTS (
+        SELECT 1 FROM resource_transfers rt
+        JOIN transfer_statuses ts ON rt.status_id = ts.id
+        WHERE rt.id = p_transfer_id AND ts.name = 'in_transit'
+    ) THEN
         RAISE EXCEPTION 'TRANSFER_NOT_FOUND: Transfer #% is not in transit', p_transfer_id;
     END IF;
 
     UPDATE resource_transfers
-    SET status = 'intercepted',
+    SET status_id = (SELECT id FROM transfer_statuses WHERE name = 'intercepted'),
         intercepted_by_fleet_id = p_fleet_id,
         intercepting_faction_id = (SELECT faction_id FROM fleets WHERE id = p_fleet_id)
     WHERE id = p_transfer_id;
@@ -297,7 +302,11 @@ CREATE OR REPLACE FUNCTION sp_seize_transfer(
 DECLARE
     v_res RECORD;
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM resource_transfers WHERE id = p_transfer_id AND status = 'intercepted') THEN
+    IF NOT EXISTS (
+        SELECT 1 FROM resource_transfers rt
+        JOIN transfer_statuses ts ON rt.status_id = ts.id
+        WHERE rt.id = p_transfer_id AND ts.name = 'intercepted'
+    ) THEN
         RAISE EXCEPTION 'TRANSFER_NOT_INTERCEPTED: Transfer #% is not intercepted', p_transfer_id;
     END IF;
 
@@ -320,17 +329,155 @@ CREATE OR REPLACE FUNCTION sp_release_transfer(
     p_new_arrival   TIMESTAMPTZ
 ) RETURNS VOID LANGUAGE plpgsql AS $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM resource_transfers WHERE id = p_transfer_id AND status = 'intercepted') THEN
+    IF NOT EXISTS (
+        SELECT 1 FROM resource_transfers rt
+        JOIN transfer_statuses ts ON rt.status_id = ts.id
+        WHERE rt.id = p_transfer_id AND ts.name = 'intercepted'
+    ) THEN
         RAISE EXCEPTION 'TRANSFER_NOT_INTERCEPTED: Transfer #% is not intercepted', p_transfer_id;
     END IF;
 
     UPDATE resource_transfers
-    SET status = 'in_transit', intercepted_by_fleet_id = NULL, arrival_time = p_new_arrival
+    SET status_id = (SELECT id FROM transfer_statuses WHERE name = 'in_transit'),
+        intercepted_by_fleet_id = NULL, arrival_time = p_new_arrival
     WHERE id = p_transfer_id;
 END;
 $$;
 
 
+CREATE OR REPLACE FUNCTION sp_conquer_hexes(
+    p_conqueror_faction_id  INT,
+    p_target_faction_id     INT,
+    p_world_id              INT,
+    p_hexes                 INT,
+    p_grant_resources       BOOLEAN
+) RETURNS TABLE (
+    population_moved    BIGINT,
+    cm_granted          BIGINT,
+    el_granted          BIGINT,
+    cs_granted          BIGINT,
+    er_granted          BIGINT,
+    influence_cost      BIGINT,
+    resilience_bonus    NUMERIC
+) LANGUAGE plpgsql AS $$
+DECLARE
+    v_target_territory  INT;
+    v_influence_id      INT;
+    v_influence_cost    BIGINT;
+    v_current_influence BIGINT;
+    v_pop_id            INT;
+    v_target_pop        BIGINT;
+    v_pop_moved         BIGINT := 0;
+    v_cm_id             INT;
+    v_el_id             INT;
+    v_cs_id             INT;
+    v_er_id             INT;
+    v_ucm_pct           NUMERIC;
+    v_uel_pct           NUMERIC;
+    v_ucs_pct           NUMERIC;
+    v_cm_amt            BIGINT := 0;
+    v_el_amt            BIGINT := 0;
+    v_cs_amt            BIGINT := 0;
+    v_er_amt            BIGINT := 0;
+    v_resilience        NUMERIC := 0;
+    v_spirit_type_id    INT;
+    v_per_hex           NUMERIC;
+    v_min_value         NUMERIC;
+    v_max_value         NUMERIC;
+BEGIN
+    IF p_hexes <= 0 THEN
+        RAISE EXCEPTION 'INVALID_HEXES: Hexes must be positive';
+    END IF;
+
+    SELECT territory INTO v_target_territory
+    FROM world_factions WHERE world_id = p_world_id AND faction_id = p_target_faction_id;
+
+    IF v_target_territory IS NULL OR v_target_territory < p_hexes THEN
+        RAISE EXCEPTION 'TERRITORY_INSUFFICIENT: Target faction only holds % hex(es) on this world', COALESCE(v_target_territory, 0);
+    END IF;
+
+    v_influence_cost := p_hexes * 10;
+    SELECT id INTO v_influence_id FROM resources WHERE name = 'Influence';
+    SELECT COALESCE(amount, 0) INTO v_current_influence
+    FROM faction_treasury WHERE faction_id = p_conqueror_faction_id AND resource_id = v_influence_id;
+
+    IF v_current_influence < v_influence_cost THEN
+        RAISE EXCEPTION 'RESOURCE_INSUFFICIENT: Need % Influence, have %', v_influence_cost, v_current_influence;
+    END IF;
+
+    UPDATE faction_treasury SET amount = amount - v_influence_cost
+    WHERE faction_id = p_conqueror_faction_id AND resource_id = v_influence_id;
+
+    UPDATE world_factions SET territory = territory - p_hexes
+    WHERE world_id = p_world_id AND faction_id = p_target_faction_id;
+
+    INSERT INTO world_factions (world_id, faction_id, territory) VALUES (p_world_id, p_conqueror_faction_id, p_hexes)
+    ON CONFLICT (world_id, faction_id) DO UPDATE SET territory = world_factions.territory + EXCLUDED.territory;
+
+    SELECT id INTO v_pop_id FROM resources WHERE name = 'Population';
+    SELECT COALESCE(amount, 0) INTO v_target_pop
+    FROM local_treasury WHERE world_id = p_world_id AND faction_id = p_target_faction_id AND resource_id = v_pop_id;
+
+    v_pop_moved := FLOOR(v_target_pop * p_hexes / v_target_territory::NUMERIC);
+
+    IF v_pop_moved > 0 THEN
+        UPDATE local_treasury SET amount = GREATEST(0, amount - v_pop_moved)
+        WHERE world_id = p_world_id AND faction_id = p_target_faction_id AND resource_id = v_pop_id;
+
+        INSERT INTO local_treasury (world_id, faction_id, resource_id, amount)
+        VALUES (p_world_id, p_conqueror_faction_id, v_pop_id, v_pop_moved)
+        ON CONFLICT (world_id, faction_id, resource_id) DO UPDATE SET amount = local_treasury.amount + v_pop_moved;
+    END IF;
+
+    IF p_grant_resources THEN
+        SELECT id INTO v_cm_id FROM resources WHERE name = 'CM';
+        SELECT id INTO v_el_id FROM resources WHERE name = 'EL';
+        SELECT id INTO v_cs_id FROM resources WHERE name = 'CS';
+        SELECT id INTO v_er_id FROM resources WHERE name = 'ER';
+
+        SELECT COALESCE(wr.percentage, 0) INTO v_ucm_pct
+        FROM resources r LEFT JOIN world_resources wr ON wr.world_id = p_world_id AND wr.resource_id = r.id
+        WHERE r.name = 'U-CM';
+        SELECT COALESCE(wr.percentage, 0) INTO v_uel_pct
+        FROM resources r LEFT JOIN world_resources wr ON wr.world_id = p_world_id AND wr.resource_id = r.id
+        WHERE r.name = 'U-EL';
+        SELECT COALESCE(wr.percentage, 0) INTO v_ucs_pct
+        FROM resources r LEFT JOIN world_resources wr ON wr.world_id = p_world_id AND wr.resource_id = r.id
+        WHERE r.name = 'U-CS';
+
+        v_cm_amt := FLOOR(4000 * p_hexes * v_ucm_pct / 100);
+        v_el_amt := FLOOR(4000 * p_hexes * v_uel_pct / 100);
+        v_cs_amt := FLOOR(4000 * p_hexes * v_ucs_pct / 100);
+        v_er_amt := FLOOR(500000000 * p_hexes * ((v_ucm_pct + v_uel_pct + v_ucs_pct) / 3) / 100);
+
+        IF v_cm_amt > 0 THEN
+            INSERT INTO local_treasury (world_id, faction_id, resource_id, amount) VALUES (p_world_id, p_conqueror_faction_id, v_cm_id, v_cm_amt)
+            ON CONFLICT (world_id, faction_id, resource_id) DO UPDATE SET amount = local_treasury.amount + v_cm_amt;
+        END IF;
+        IF v_el_amt > 0 THEN
+            INSERT INTO local_treasury (world_id, faction_id, resource_id, amount) VALUES (p_world_id, p_conqueror_faction_id, v_el_id, v_el_amt)
+            ON CONFLICT (world_id, faction_id, resource_id) DO UPDATE SET amount = local_treasury.amount + v_el_amt;
+        END IF;
+        IF v_cs_amt > 0 THEN
+            INSERT INTO local_treasury (world_id, faction_id, resource_id, amount) VALUES (p_world_id, p_conqueror_faction_id, v_cs_id, v_cs_amt)
+            ON CONFLICT (world_id, faction_id, resource_id) DO UPDATE SET amount = local_treasury.amount + v_cs_amt;
+        END IF;
+        IF v_er_amt > 0 THEN
+            INSERT INTO faction_treasury (faction_id, resource_id, amount) VALUES (p_conqueror_faction_id, v_er_id, v_er_amt)
+            ON CONFLICT (faction_id, resource_id) DO UPDATE SET amount = faction_treasury.amount + v_er_amt;
+        END IF;
+
+        SELECT id, per_hex_value, min_value, max_value INTO v_spirit_type_id, v_per_hex, v_min_value, v_max_value
+        FROM spirit_types WHERE key = 'resilience';
+
+        v_resilience := LEAST(GREATEST(p_hexes * v_per_hex, v_min_value), v_max_value);
+        INSERT INTO national_spirits (faction_id, spirit_type_id, modifier_value)
+        VALUES (p_target_faction_id, v_spirit_type_id, v_resilience);
+    END IF;
+
+    RETURN QUERY SELECT v_pop_moved, v_cm_amt, v_el_amt, v_cs_amt, v_er_amt, v_influence_cost, v_resilience;
+END;
+$$;
 
 
 
@@ -1358,7 +1505,7 @@ $$;
 CREATE OR REPLACE FUNCTION sp_apply_income_cycle(
     p_faction_id            INT,
     p_er_delta              BIGINT,
-    p_influence_delta       INT,
+    p_influence_delta       BIGINT,
     p_local_deltas          JSONB,   
     p_population_deltas     JSONB,   
     p_transfers             JSONB    
@@ -1446,13 +1593,13 @@ BEGIN
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_transfers)
     LOOP
         INSERT INTO resource_transfers
-            (from_faction_id, to_faction_id, from_world_id, to_world_id, status, start_time, arrival_time)
+            (from_faction_id, to_faction_id, from_world_id, to_world_id, status_id, start_time, arrival_time)
         VALUES (
             (v_item->>'from_faction_id')::INT,
             (v_item->>'to_faction_id')::INT,
             (v_item->>'from_world_id')::INT,
             (v_item->>'to_world_id')::INT,
-            'in_transit',
+            (SELECT id FROM transfer_statuses WHERE name = 'in_transit'),
             (v_item->>'start_time')::TIMESTAMPTZ,
             (v_item->>'arrival_time')::TIMESTAMPTZ
         )
@@ -1461,6 +1608,8 @@ BEGIN
         INSERT INTO transfer_resources (transfer_id, resource_id, amount)
         VALUES (v_transfer_id, (v_item->>'resource_id')::INT, (v_item->>'amount')::BIGINT);
     END LOOP;
+
+    DELETE FROM national_spirits WHERE faction_id = p_faction_id;
 END;
 $$;
 

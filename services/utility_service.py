@@ -101,7 +101,12 @@ async def get_active_operator_count() -> int:
 
 async def get_recent_completed_transfers_count(minutes: int = 5) -> int:
     row = await db.fetchrow(
-        "SELECT COUNT(*) as count FROM resource_transfers WHERE status = 'completed' AND arrival_time >= NOW() - ($1::text || ' minutes')::interval",
+        """
+        SELECT COUNT(*) as count
+        FROM resource_transfers rt
+        JOIN transfer_statuses ts ON rt.status_id = ts.id
+        WHERE ts.name = 'completed' AND rt.arrival_time >= NOW() - ($1::text || ' minutes')::interval
+        """,
         minutes,
     )
     return int(row['count'] or 0)

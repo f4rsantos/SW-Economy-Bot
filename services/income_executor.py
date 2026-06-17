@@ -8,6 +8,7 @@ import logging
 
 from database.db_manager import db
 from services.building_efficiency_service import calculate_efficiency, detect_specialization
+from services.national_spirit_service import get_active_efficiency_bonus
 
 logger = logging.getLogger(__name__)
 from services.travel_time_service import calculate_travel_time
@@ -237,7 +238,8 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
 
     base_eff = await calculate_efficiency(faction_id)
     is_spec, spec_type, bonus = await detect_specialization(faction_id)
-    efficiency_cache = build_efficiency_cache(base_eff, is_spec, spec_type, bonus)
+    spirit_bonus = await get_active_efficiency_bonus(faction_id)
+    efficiency_cache = build_efficiency_cache(base_eff, is_spec, spec_type, bonus, spirit_bonus)
 
     unrefined_rows = await fetch_unrefined_production_data(faction_id)
     refined_rows = await fetch_refined_capacity_data(faction_id)
@@ -335,7 +337,78 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
     hex_count = await fetch_hex_count(faction_id)
     current_influence = await fetch_current_influence(faction_id)
     influence_cost = preview['usages']['influence_pacts']
-    preview['global']['influence'] = calculate_influence_income(hex_count, influence_cost, current_influence)
+    total_cs_upkeep = preview['usages']['fleet_cs'] + sum(preview['usages']['population_cs'].values())
+    preview['global']['influence'] = calculate_influence_income(hex_count, influence_cost, current_influence, total_cs_upkeep)
+
+    if 'resource_map' in shared_cache:
+        resource_map = shared_cache['resource_map']
+    else:
+        resource_map = await fetch_resource_map()
+    world_populations = await fetch_all_population_by_world(faction_id)
+
+    world_cs_info = {}
+    total_cs_available = 0
+    total_cs_needed_for_pop = 0
+    total_cs_needed_for_fleets = preview['usages']['fleet_cs']
+
+    for wid, data in preview['worlds'].items():
+        gross_cs = data.get('gross_cs', 0)
+        net_cs_pre_upkeep = data.get('net_cs_pre_upkeep', 0)
+        world_pop = world_populations.get(wid, 0)
+        world_cs_needed = math.ceil(world_pop / POPULATION_PER_CS)
+        is_blockaded = wid in blockaded_world_ids
+
+        world_cs_info[wid] = {
+            'gross_cs': gross_cs,
+            'net_cs_pre_upkeep': net_cs_pre_upkeep,
+            'cs_needed': world_cs_needed,
+            'is_blockaded': is_blockaded,
+            'population': world_pop,
+            'pop_cap': data.get('pop_cap', 0),
+        }
+
+        if not is_blockaded:
+            total_cs_available += gross_cs
+            total_cs_needed_for_pop += world_cs_needed
+
+    global_cs = sum(info['gross_cs'] for info in world_cs_info.values() if not info['is_blockaded'])
+    global_population = sum(info['population'] for info in world_cs_info.values() if not info['is_blockaded'])
+
+    cs_resource_id = resource_map.get('CS')
+    stored_cs_per_world = {}
+    stored_cs_total = 0
+    if cs_resource_id:
+        stored_cs_rows = await fetch_stored_cs(faction_id, cs_resource_id)
+        for row in stored_cs_rows:
+            stored_cs_per_world[row['world_id']] = row['amount']
+            if row['world_id'] not in blockaded_world_ids:
+                stored_cs_total += row['amount']
+    global_cs += stored_cs_total
+
+    cs_available_for_fleets = total_cs_available - total_cs_needed_for_pop
+    cs_deficit_for_fleets = max(0, total_cs_needed_for_fleets - cs_available_for_fleets)
+    global_cs_after_fleets = max(0, global_cs - total_cs_needed_for_fleets)
+
+    for wid, info in world_cs_info.items():
+        local_cs_gross = info['gross_cs'] + stored_cs_per_world.get(wid, 0)
+        pop_growth = calculate_population_growth(
+            population=info['population'],
+            global_cs=global_cs_after_fleets,
+            global_population=global_population,
+            local_cs_production=local_cs_gross,
+            is_blockaded=info['is_blockaded'],
+        )
+        pop_cap = info['pop_cap']
+        if pop_cap > 0:
+            pop_growth = min(pop_growth, max(0, pop_cap - info['population'])) if pop_growth > 0 else max(pop_growth, -info['population'])
+        preview['worlds'].setdefault(wid, {})
+        preview['worlds'][wid]['population_growth'] = int(pop_growth)
+
+    preview['_world_cs_info'] = world_cs_info
+    preview['_global_cs_after_fleets'] = global_cs_after_fleets
+    preview['_stored_cs_total'] = stored_cs_total
+    preview['_cs_deficit_for_fleets'] = cs_deficit_for_fleets
+    preview['global']['population_delta'] = sum(w.get('population_growth', 0) for w in preview['worlds'].values())
 
     return preview
 
@@ -362,78 +435,11 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
     else:
         resource_map = await fetch_resource_map()
 
-    blockaded_world_ids = preview.get('_blockaded_world_ids', set())
-    world_populations = await fetch_all_population_by_world(faction_id)
-
     if scope_level >= SCOPE_LEVELS['extractors_refineries_trade_upkeep']:
-        total_cs_available = 0
-        total_cs_needed_for_pop = 0
-        total_cs_needed_for_fleets = preview['usages']['fleet_cs']
-
-        world_cs_info = {}
-        for wid, data in preview['worlds'].items():
-            gross_cs = data.get('gross_cs', 0)
-            net_cs_pre_upkeep = data.get('net_cs_pre_upkeep', 0)
-            world_pop = world_populations.get(wid, 0)
-            world_cs_needed = math.ceil(world_pop / POPULATION_PER_CS)
-            is_blockaded = wid in blockaded_world_ids
-
-            world_cs_info[wid] = {
-                'gross_cs': gross_cs,
-                'net_cs_pre_upkeep': net_cs_pre_upkeep,
-                'cs_needed': world_cs_needed,
-                'is_blockaded': is_blockaded,
-                'population': world_pop,
-                'pop_cap': data.get('pop_cap', 0),
-            }
-
-            if not is_blockaded:
-                total_cs_available += gross_cs
-                total_cs_needed_for_pop += world_cs_needed
-
-        global_cs = sum(
-            info['gross_cs'] for info in world_cs_info.values() if not info['is_blockaded']
-        )
-        global_population = sum(
-            info['population'] for info in world_cs_info.values() if not info['is_blockaded']
-        )
-
-        cs_resource_id = resource_map.get('CS')
-        stored_cs_per_world = {}
-        stored_cs_total = 0
-        if cs_resource_id:
-            rows = await fetch_stored_cs(faction_id, cs_resource_id)
-            for row in rows:
-                stored_cs_per_world[row['world_id']] = row['amount']
-                if row['world_id'] not in blockaded_world_ids:
-                    stored_cs_total += row['amount']
-        global_cs += stored_cs_total
-
-        cs_available_for_fleets = total_cs_available - total_cs_needed_for_pop
-        cs_deficit_for_fleets = max(0, total_cs_needed_for_fleets - cs_available_for_fleets)
-        if cs_deficit_for_fleets > 0:
-            if stored_cs_total < cs_deficit_for_fleets:
-                await process_fleet_cs_damage(faction_id, cs_deficit_for_fleets - stored_cs_total)
-
-        global_cs_after_fleets = max(0, global_cs - total_cs_needed_for_fleets)
-    else:
-        world_cs_info = {
-            wid: {
-                'gross_cs': data.get('gross_cs', 0),
-                'net_cs_pre_upkeep': data.get('net_cs_pre_upkeep', 0),
-                'cs_needed': math.ceil(world_populations.get(wid, 0) / POPULATION_PER_CS),
-                'is_blockaded': wid in blockaded_world_ids,
-                'population': world_populations.get(wid, 0),
-                'pop_cap': data.get('pop_cap', 0),
-            }
-            for wid, data in preview['worlds'].items()
-        }
-        stored_cs_per_world = {}
-        global_cs_after_fleets = 0
-        global_population = sum(
-            info['population'] for info in world_cs_info.values() if not info['is_blockaded']
-        )
-
+        cs_deficit_for_fleets = preview.get('_cs_deficit_for_fleets', 0)
+        stored_cs_total = preview.get('_stored_cs_total', 0)
+        if cs_deficit_for_fleets > 0 and stored_cs_total < cs_deficit_for_fleets:
+            await process_fleet_cs_damage(faction_id, cs_deficit_for_fleets - stored_cs_total)
 
     storage_capacity_map = preview.get('_storage_capacity_map', {})
     local_deltas = []
@@ -462,15 +468,8 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
 
     population_deltas = []
     if scope_level >= SCOPE_LEVELS['full']:
-        for wid, info in world_cs_info.items():
-            local_cs_gross = info['gross_cs'] + stored_cs_per_world.get(wid, 0)
-            pop_growth = calculate_population_growth(
-                population=info['population'],
-                global_cs=global_cs_after_fleets,
-                global_population=global_population,
-                local_cs_production=local_cs_gross,
-                is_blockaded=info['is_blockaded'],
-            )
+        for wid, info in preview.get('_world_cs_info', {}).items():
+            pop_growth = preview['worlds'].get(wid, {}).get('population_growth', 0)
             if pop_growth != 0:
                 population_deltas.append({
                     'world_id': wid,

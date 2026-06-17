@@ -29,10 +29,10 @@ async def get_storable_resource_by_name_upper(resource_upper: str) -> Optional[d
     return dict(row) if row else None
 
 
-async def get_resource_ids_by_names(resource_names: list[str]) -> dict[str, int]:
+async def get_resource_ids_by_names(resource_names: list[str]) -> dict[str, dict]:
     lower_names = [n.lower() for n in resource_names]
-    rows = await db.fetch("SELECT id, name FROM resources WHERE LOWER(name) = ANY($1)", lower_names)
-    return {r['name']: r['id'] for r in rows}
+    rows = await db.fetch("SELECT id, name, is_transferable FROM resources WHERE LOWER(name) = ANY($1)", lower_names)
+    return {r['name']: {'id': r['id'], 'is_transferable': r['is_transferable']} for r in rows}
 
 
 async def get_world_capacities_for_resource(faction_id: int, resource_id: int) -> list[dict]:
