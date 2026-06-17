@@ -1,4 +1,3 @@
-import asyncio
 import discord
 from discord import app_commands
 from typing import Optional
@@ -7,9 +6,7 @@ from utils.embeds import error_embed
 from utils.faction_utils import hex_to_int
 from utils.currency import handle_return
 from services.income_service import preview_income
-from services.income_calculator import calculate_population_growth
 from services.map_service import get_worlds_by_ids
-from services.econ_query_service import get_population_rows_by_faction
 from services.validation_service import require_faction, require_world
 
 
@@ -84,10 +81,7 @@ async def income(
         await interaction.followup.send(embed=embed)
         return
 
-    preview, pop_rows = await asyncio.gather(
-        preview_income(faction_id),
-        get_population_rows_by_faction(faction_id)
-    )
+    preview = await preview_income(faction_id)
     totals: dict = {}
     for w_data in preview['worlds'].values():
         for res, amount in w_data.get('final', {}).items():
@@ -108,25 +102,7 @@ async def income(
     totals['ER'] = preview['global']['er']
     totals['Influence'] = preview['global']['influence']
 
-    world_pops = {r['world_id']: r['population'] for r in pop_rows}
-    total_population = sum(world_pops.values())
-    global_cs_after_fleets = max(0, gross_cs - pop_cs - fleet_cs)
-    total_pop_delta = 0
-    for wid, w_data in preview['worlds'].items():
-        world_pop = world_pops.get(wid, 0)
-        if world_pop > 0:
-            local_cs = w_data.get('gross_cs', 0)
-            growth = calculate_population_growth(
-                population=world_pop,
-                global_cs=global_cs_after_fleets,
-                global_population=total_population,
-                local_cs_production=local_cs,
-                is_blockaded=False,
-            )
-            pop_cap = w_data.get('pop_cap', 0)
-            if pop_cap > 0:
-                growth = min(growth, max(0, pop_cap - world_pop)) if growth > 0 else max(growth, -world_pop)
-            total_pop_delta += growth
+    total_pop_delta = sum(w.get('population_growth', 0) for w in preview['worlds'].values())
 
     lines = [f"**{r}:** {_fmt(totals[r])}" for r in ['ER', 'U-CM', 'U-EL', 'U-CS', 'CM', 'EL', 'CS', 'Influence'] if totals.get(r)]
     if fleet_cs > 0 or pop_cs > 0:

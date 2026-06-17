@@ -15,12 +15,32 @@ async def create_war(name: str, faction_id: int, side: str) -> int:
         raise ValueError(str(e)) from e
 
 
-async def end_war(war_id: int, faction_id: int) -> dict:
+async def are_factions_at_war(faction_id_1: int, faction_id_2: int) -> bool:
+    row = await db.fetchrow("""
+        SELECT 1 FROM war_participants wp1
+        JOIN war_participants wp2 ON wp1.war_id = wp2.war_id AND wp1.side != wp2.side
+        WHERE wp1.faction_id = $1 AND wp2.faction_id = $2
+    """, faction_id_1, faction_id_2)
+    return row is not None
+
+
+async def end_war(war_id: int, faction_id: int, winning_sides: list[str], losing_sides: list[str]) -> dict:
     war = await db.fetchrow(
         "SELECT id, name, date_start FROM wars WHERE id = $1", war_id
     )
     if not war:
         return None
+
+    participants = await db.fetch(
+        "SELECT faction_id, side FROM war_participants WHERE war_id = $1", war_id
+    )
+    war_sides = {p['side'] for p in participants}
+    overlap = set(winning_sides) & set(losing_sides)
+    if overlap:
+        raise ValueError(f"Side(s) {', '.join(sorted(overlap))} cannot be both winning and losing.")
+    unknown = (set(winning_sides) | set(losing_sides)) - war_sides
+    if unknown:
+        raise ValueError(f"Side(s) {', '.join(sorted(unknown))} are not part of war #{war_id}.")
 
     stats = await db.fetch("""
         SELECT wp.side,
@@ -35,6 +55,21 @@ async def end_war(war_id: int, faction_id: int) -> dict:
     total_battles_row = await db.fetchrow(
         "SELECT COUNT(*) as count FROM battles WHERE war_id = $1", war_id
     )
+
+    spirit_type_rows = await db.fetch("SELECT id, key, fixed_value FROM spirit_types WHERE key IN ('victorious', 'recovering')")
+    spirit_types = {r['key']: r for r in spirit_type_rows}
+
+    for p in participants:
+        if p['side'] in winning_sides:
+            spirit_type = spirit_types['victorious']
+        elif p['side'] in losing_sides:
+            spirit_type = spirit_types['recovering']
+        else:
+            continue
+        await db.execute(
+            "INSERT INTO national_spirits (faction_id, spirit_type_id, modifier_value) VALUES ($1, $2, $3)",
+            p['faction_id'], spirit_type['id'], spirit_type['fixed_value']
+        )
 
     try:
         await db.execute("SELECT sp_end_war($1, $2)", war_id, faction_id)
@@ -57,6 +92,8 @@ async def end_war(war_id: int, faction_id: int) -> dict:
         'war': dict(war),
         'stats': parsed_stats,
         'total_battles': total_battles_row['count'],
+        'winning_sides': winning_sides,
+        'losing_sides': losing_sides,
     }
 
 

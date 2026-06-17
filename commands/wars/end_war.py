@@ -1,5 +1,6 @@
 import discord
 from discord import app_commands
+from typing import Optional
 from utils.checks import require_access_level
 from utils.embeds import success_embed, error_embed
 from utils.faction_utils import hex_to_int
@@ -8,10 +9,21 @@ from services.war_service import end_war, get_war, get_participant
 from services.validation_service import require_faction
 
 
+def _parse_sides(raw: Optional[str]) -> list[str]:
+    if not raw:
+        return []
+    return [s.strip().upper() for s in raw.split(',') if s.strip()]
+
+
 @app_commands.command(name="end", description="End a war and all its battles")
-@app_commands.describe(war_id="ID of the war to end", faction="Your faction name")
+@app_commands.describe(
+    war_id="ID of the war to end",
+    faction="Your faction name",
+    winning_sides="Comma-separated sides that won (optional, can be left blank)",
+    losing_sides="Comma-separated sides that lost (optional, can be left blank)",
+)
 @require_access_level(0)
-async def end_war_cmd(interaction: discord.Interaction, war_id: int, faction: str):
+async def end_war_cmd(interaction: discord.Interaction, war_id: int, faction: str, winning_sides: Optional[str] = None, losing_sides: Optional[str] = None):
     await interaction.response.defer()
 
     r_faction_data = await require_faction(faction)
@@ -30,12 +42,19 @@ async def end_war_cmd(interaction: discord.Interaction, war_id: int, faction: st
         return
 
     try:
-        result = await end_war(war_id, faction_data['id'])
+        result = await end_war(war_id, faction_data['id'], _parse_sides(winning_sides), _parse_sides(losing_sides))
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
-    stats_text = "\n".join(f"**Side {s['side']}:** {', '.join(s['faction_names'])}" for s in result['stats'])
+    def _label(side: str) -> str:
+        if side in result['winning_sides']:
+            return ' (Victorious)'
+        if side in result['losing_sides']:
+            return ' (Recovering)'
+        return ''
+
+    stats_text = "\n".join(f"**Side {s['side']}{_label(s['side'])}:** {', '.join(s['faction_names'])}" for s in result['stats'])
 
     now = discord.utils.utcnow()
     time_diff = now - war_data['date_start']
@@ -53,7 +72,7 @@ async def end_war_cmd(interaction: discord.Interaction, war_id: int, faction: st
 
     embed = success_embed(
         title="War Ended",
-        description=f"**{war_data['name']}** has been ended.{duration}\n**Total Battles:** {result['total_battles']} (Deleted)\n\n**Participants:**\n{stats_text}"
+        description=f"**{war_data['name']}** has been ended.{duration}\n**Total Battles:** {result['total_battles']} (Deleted)\n\n**Participants:**\n{stats_text}\n\nWinning sides gain **Victorious** (+10% Efficiency), losing sides gain **Recovering** (+50% Efficiency), both through the next income cycle. Sides left out of both lists get no bonus."
     )
     embed.color = faction_color
     await interaction.followup.send(embed=embed)

@@ -12,26 +12,26 @@ from services.validation_service import require_faction, require_world
 @app_commands.command(name="start", description="Start a battle with your fleet")
 @app_commands.describe(
     fleet="Name or ID of your fleet",
-    side="Which side of the battle (A, B, or C)",
+    side="Which side of the battle (any label)",
     faction="Your faction name",
     world="World where battle takes place (defaults to fleet's current position)",
     war_id="Optional: War ID if this battle is part of a war"
 )
-@app_commands.choices(side=[
-    app_commands.Choice(name="Side A", value="A"),
-    app_commands.Choice(name="Side B", value="B"),
-    app_commands.Choice(name="Side C", value="C")
-])
 @require_access_level(0)
 async def start_battle_cmd(
     interaction: discord.Interaction,
     fleet: str,
-    side: app_commands.Choice[str],
+    side: str,
     faction: str,
     world: Optional[str] = None,
     war_id: Optional[int] = None
 ):
     await interaction.response.defer()
+
+    side = side.strip().upper()
+    if not side:
+        await interaction.followup.send(embed=error_embed("Error", "Side cannot be empty."))
+        return
 
     r_faction_data = await require_faction(faction)
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
@@ -70,16 +70,16 @@ async def start_battle_cmd(
         if not participant:
             await interaction.followup.send(embed=error_embed("Error", "Your faction is not a participant in this war."))
             return
-        if participant['side'] != side.value:
-            await interaction.followup.send(embed=error_embed("Warning", f"Your faction is on side **{participant['side']}** in this war, but you're joining battle on side **{side.value}**. Proceeding anyway..."))
+        if participant['side'] != side:
+            await interaction.followup.send(embed=error_embed("Warning", f"Your faction is on side **{participant['side']}** in this war, but you're joining battle on side **{side}**. Proceeding anyway..."))
     else:
-        war_id = await create_standalone_war(battle_world_name, faction_data['id'], side.value)
+        war_id = await create_standalone_war(battle_world_name, faction_data['id'], side)
 
     if fleet_data['total_cs'] == 0:
         await interaction.followup.send(embed=error_embed("Warning", "Fleet has 0 CS and cannot contribute to battle. Proceeding anyway..."))
 
     try:
-        battle_id = await start_battle(war_id, fleet_data['id'], side.value, battle_world_id)
+        battle_id = await start_battle(war_id, fleet_data['id'], side, battle_world_id)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
@@ -88,7 +88,7 @@ async def start_battle_cmd(
     embed = success_embed(
         "Battle Started",
         f"**{fleet_name}** has started a battle at **{battle_world_name}**!\n"
-        f"**Battle ID:** {battle_id}\n**War ID:** {war_id}\n**Side:** {side.value}\n"
+        f"**Battle ID:** {battle_id}\n**War ID:** {war_id}\n**Side:** {side}\n"
         f"Other fleets can join with `/join-battle {battle_id}`"
     )
     embed.color = faction_color

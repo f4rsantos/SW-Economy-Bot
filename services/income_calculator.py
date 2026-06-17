@@ -115,11 +115,13 @@ def calculate_er_income(treasury: int, working_population: int, is_company: bool
     return max(round(income), 5_000_000_000)
 
 
-def calculate_influence_income(total_hexes: int, influence_cost: int, current_influence: int) -> int:
+def calculate_influence_income(total_hexes: int, influence_cost: int, current_influence: int, total_cs_upkeep: int = 0) -> int:
     generation_rate = max(2500 - 0.25 * total_hexes, 50)
     net_generation = generation_rate - influence_cost
     max_gain = max(0, 10000 - current_influence)
-    return int(min(net_generation, max_gain))
+    base = min(net_generation, max_gain)
+    upkeep_bonus = min(1.0, total_cs_upkeep / 1_000_000)
+    return round(base * (1 + upkeep_bonus))
 
 
 def calculate_population_growth(
@@ -153,7 +155,7 @@ def calculate_population_growth(
     return math.floor(population * growth_percent * 2 / 100)
 
 
-def build_efficiency_cache(base_efficiency: float, is_specialized: bool, spec_type: str, bonus: float) -> Dict:
+def build_efficiency_cache(base_efficiency: float, is_specialized: bool, spec_type: str, bonus: float, spirit_bonus: float = 0.0) -> Dict:
     cache = {}
     for building_type in ('extractor', 'refinery', 'storage'):
         for resource_name in ('CM', 'EL', 'CS'):
@@ -161,6 +163,7 @@ def build_efficiency_cache(base_efficiency: float, is_specialized: bool, spec_ty
             if is_specialized:
                 matches = (spec_type in ('CM', 'EL', 'CS') and resource_name == spec_type) or spec_type == building_type
                 eff = min(base_efficiency + (0.15 if matches else 0.075), 1.0)
+            eff += spirit_bonus
             cache[(building_type, resource_name)] = eff
             if building_type == 'storage':
                 cache[('storage', f'U-{resource_name}')] = eff

@@ -113,17 +113,18 @@ async def release_transfer(transfer_id: int, new_arrival: datetime):
 
 
 async def get_transfer(transfer_id: int, status: str = None) -> Optional[dict]:
-    condition = "AND rt.status = $2" if status else ""
+    condition = "AND ts.name = $2" if status else ""
     params = [transfer_id]
     if status:
         params.append(status)
     row = await db.fetchrow(f"""
-        SELECT rt.*,
+        SELECT rt.*, ts.name as status,
                ff.name as from_faction_name,
                tf.name as to_faction_name,
                fw.name as from_world_name,
                tw.name as to_world_name
         FROM resource_transfers rt
+        JOIN transfer_statuses ts ON rt.status_id = ts.id
         JOIN factions ff ON rt.from_faction_id = ff.id
         JOIN factions tf ON rt.to_faction_id = tf.id
         JOIN worlds fw ON rt.from_world_id = fw.id
@@ -135,17 +136,18 @@ async def get_transfer(transfer_id: int, status: str = None) -> Optional[dict]:
 
 async def get_intercepted_transfer(transfer_id: int, intercepting_faction_id: int) -> Optional[dict]:
     row = await db.fetchrow("""
-        SELECT rt.*,
+        SELECT rt.*, ts.name as status,
                ff.name as from_faction_name,
                tf.name as to_faction_name,
                fw.name as from_world_name,
                tw.name as to_world_name
         FROM resource_transfers rt
+        JOIN transfer_statuses ts ON rt.status_id = ts.id
         JOIN factions ff ON rt.from_faction_id = ff.id
         JOIN factions tf ON rt.to_faction_id = tf.id
         JOIN worlds fw ON rt.from_world_id = fw.id
         JOIN worlds tw ON rt.to_world_id = tw.id
-        WHERE rt.id = $1 AND rt.status = 'intercepted' AND rt.intercepting_faction_id = $2
+        WHERE rt.id = $1 AND ts.name = 'intercepted' AND rt.intercepting_faction_id = $2
     """, transfer_id, intercepting_faction_id)
     return dict(row) if row else None
 
@@ -301,20 +303,21 @@ async def list_pending_transfers(
     where_clause = " AND ".join(where_parts)
     rows = await db.fetch(
         f"""
-        SELECT rt.id, rt.status, rt.arrival_time,
+        SELECT rt.id, ts.name as status, rt.arrival_time,
                COALESCE(ff.formal_name, ff.name) as from_faction_name,
                COALESCE(tf.formal_name, tf.name) as to_faction_name,
                fw.name as from_world_name, tw.name as to_world_name,
                iw.name as interception_world_name,
                COALESCE(if_fac.formal_name, if_fac.name) as intercepting_faction_name
         FROM resource_transfers rt
+        JOIN transfer_statuses ts ON rt.status_id = ts.id
         JOIN factions ff ON rt.from_faction_id = ff.id
         JOIN factions tf ON rt.to_faction_id = tf.id
         JOIN worlds fw ON rt.from_world_id = fw.id
         JOIN worlds tw ON rt.to_world_id = tw.id
         LEFT JOIN worlds iw ON rt.interception_world_id = iw.id
         LEFT JOIN factions if_fac ON rt.intercepting_faction_id = if_fac.id
-        WHERE {where_clause} AND rt.status IN ('in_transit', 'intercepted')
+        WHERE {where_clause} AND ts.name IN ('in_transit', 'intercepted')
         ORDER BY rt.arrival_time ASC
         """,
         *params,

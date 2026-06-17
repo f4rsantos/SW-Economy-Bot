@@ -57,7 +57,12 @@ class EventQueue:
         horizon = now + LOOKAHEAD
 
         transfers = await db.fetch(
-            "SELECT id, to_faction_id, to_world_id FROM resource_transfers WHERE status = 'in_transit' AND arrival_time <= $1",
+            """
+            SELECT rt.id, rt.to_faction_id, rt.to_world_id
+            FROM resource_transfers rt
+            JOIN transfer_statuses ts ON rt.status_id = ts.id
+            WHERE ts.name = 'in_transit' AND rt.arrival_time <= $1
+            """,
             horizon
         )
         constructions = await db.fetch(
