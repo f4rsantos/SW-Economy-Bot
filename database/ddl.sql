@@ -28,14 +28,16 @@ CREATE TABLE public.badge_costs (
   CONSTRAINT badge_costs_resource_id_fkey FOREIGN KEY (resource_id) REFERENCES public.resources(id)
 );
 
-CREATE TABLE public.badge_progress (
+CREATE TABLE public.badge_progress_resources (
   user_id bigint NOT NULL,
   badge_id integer NOT NULL,
+  resource_id integer NOT NULL,
   current_amount bigint NOT NULL DEFAULT 0 CHECK (current_amount >= 0),
   updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT badge_progress_pkey PRIMARY KEY (user_id, badge_id),
-  CONSTRAINT badge_progress_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
-  CONSTRAINT badge_progress_badge_id_fkey FOREIGN KEY (badge_id) REFERENCES public.badges(id)
+  CONSTRAINT badge_progress_resources_pkey PRIMARY KEY (user_id, badge_id, resource_id),
+  CONSTRAINT badge_progress_resources_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT badge_progress_resources_badge_id_fkey FOREIGN KEY (badge_id) REFERENCES public.badges(id),
+  CONSTRAINT badge_progress_resources_resource_id_fkey FOREIGN KEY (resource_id) REFERENCES public.resources(id)
 );
 
 CREATE TABLE public.battle_participants (
@@ -305,7 +307,7 @@ CREATE TABLE public.spirit_types (
   id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
   key text NOT NULL,
   display_name text NOT NULL,
-  effect_type text NOT NULL CHECK (effect_type IN ('efficiency')),
+  effect_type text NOT NULL CHECK (effect_type IN ('efficiency', 'efficiency_factory')),
   fixed_value numeric,
   per_hex_value numeric,
   min_value numeric,
@@ -320,9 +322,11 @@ CREATE TABLE public.national_spirits (
   spirit_type_id integer NOT NULL,
   modifier_value numeric NOT NULL,
   granted_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at timestamp with time zone,
   CONSTRAINT national_spirits_pkey PRIMARY KEY (id),
   CONSTRAINT national_spirits_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id),
-  CONSTRAINT national_spirits_spirit_type_id_fkey FOREIGN KEY (spirit_type_id) REFERENCES public.spirit_types(id)
+  CONSTRAINT national_spirits_spirit_type_id_fkey FOREIGN KEY (spirit_type_id) REFERENCES public.spirit_types(id),
+  CONSTRAINT uq_national_spirits_faction_type UNIQUE (faction_id, spirit_type_id)
 );
 
 CREATE INDEX idx_national_spirits_faction ON public.national_spirits(faction_id);
@@ -336,6 +340,11 @@ INSERT INTO spirit_types (key, display_name, effect_type, per_hex_value, min_val
     ('resilience', 'Resilience', 'efficiency', 0.0008, 0.15, 0.50)
 ON CONFLICT (key) DO NOTHING;
 
+INSERT INTO spirit_types (key, display_name, effect_type, fixed_value) VALUES
+    ('war_effort', 'War Effort', 'efficiency', 0.05),
+    ('war_mobilization', 'War Mobilization', 'efficiency_factory', 0.15)
+ON CONFLICT (key) DO NOTHING;
+
 CREATE TABLE public.operators (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   user_id uuid NOT NULL,
@@ -344,7 +353,6 @@ CREATE TABLE public.operators (
   locked boolean DEFAULT false,
   created_at timestamp with time zone DEFAULT now(),
   player_id bigint,
-  continuity_confirmed boolean NOT NULL DEFAULT false,
   CONSTRAINT operators_pkey PRIMARY KEY (id),
   CONSTRAINT operators_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
   CONSTRAINT operators_player_id_fkey FOREIGN KEY (player_id) REFERENCES public.users(id)
@@ -424,7 +432,6 @@ CREATE TABLE public.resources (
 CREATE TABLE public.settings (
   last_income timestamp with time zone,
   income_day integer NOT NULL DEFAULT 6,
-  continuity_triggered_at timestamp with time zone,
   min_version text,
   CONSTRAINT settings_pkey PRIMARY KEY (income_day)
 );

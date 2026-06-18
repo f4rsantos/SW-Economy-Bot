@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import math
 import os
 
 import discord
@@ -20,7 +19,7 @@ def is_shutdown_intentional() -> bool:
     return _intentional_shutdown
 
 
-def start_bot(supabase_client, supabase_user_uuid: str, continuity_mode: bool, no_income: bool):
+def start_bot(supabase_client, supabase_user_uuid: str, no_income: bool):
     global _intentional_shutdown
 
     logger.info("Initializing Discord bot...")
@@ -91,9 +90,6 @@ def start_bot(supabase_client, supabase_user_uuid: str, continuity_mode: bool, n
         except Exception as e:
             logger.warning(f"Note: Could not check min_version: {e}")
 
-        if continuity_mode:
-            await _check_continuity(bot, supabase_user_uuid)
-
         db_size_gb = await _check_db_size()
 
         logger.info("Loading static cache...")
@@ -122,12 +118,12 @@ def start_bot(supabase_client, supabase_user_uuid: str, continuity_mode: bool, n
         if no_income:
             logger.warning("  Income processing DISABLED (--no-income flag)")
         logger.info("Loading commands...")
-        await load_commands(bot, continuity_mode=continuity_mode)
+        await load_commands(bot)
 
         bot._ready_complete = True
 
         from services.dashboard import start_dashboard, update_bot_info, update_db_info, update_cache_info, set_flags
-        set_flags(no_income=no_income, continuity_mode=continuity_mode)
+        set_flags(no_income=no_income)
         update_bot_info(
             bot_name=str(bot.user.name),
             bot_id=bot.user.id,
@@ -189,62 +185,6 @@ async def _check_db_size() -> float | None:
     except Exception as e:
         logger.warning(f"Note: Could not check database size: {e}")
     return None
-
-
-async def _check_continuity(bot, supabase_user_uuid: str):
-    try:
-        settings = await db.fetchrow("SELECT continuity_triggered_at FROM settings LIMIT 1")
-        if not (settings and settings['continuity_triggered_at']):
-            return
-        if not supabase_user_uuid:
-            return
-        op = await db.fetchrow(
-            "SELECT id, continuity_confirmed FROM operators "
-            "WHERE user_id = $1::uuid AND locked = false",
-            supabase_user_uuid,
-        )
-        if not (op and not op['continuity_confirmed']):
-            return
-        triggered = settings['continuity_triggered_at']
-        logger.info("=" * 60)
-        logger.info("  PROJECT CONTINUITY PROTOCOL — ACTIVATED")
-        logger.info("=" * 60)
-        logger.info(f"  Activated: {triggered.strftime('%Y-%m-%d %H:%M UTC')}")
-        ans = await asyncio.get_running_loop().run_in_executor(
-            None,
-            lambda: input("  Confirm activation? [Y/N]: ").strip()
-        )
-        if ans.upper() != 'Y':
-            logger.info("  Confirmation declined.")
-            return
-        await db.execute(
-            "UPDATE operators SET continuity_confirmed = true WHERE user_id = $1::uuid",
-            supabase_user_uuid,
-        )
-        logger.info("  Confirmation recorded.")
-        total = await db.fetchval("SELECT COUNT(*) FROM operators WHERE locked = false")
-        confirmed = await db.fetchval(
-            "SELECT COUNT(*) FROM operators WHERE locked = false AND continuity_confirmed = true"
-        )
-        required = total if total < 3 else max(3, math.ceil(total / 2))
-        if confirmed >= required:
-            logger.info("=" * 60)
-            logger.info("  QUORUM REACHED — Protocol fully active")
-            logger.info(f"  ({confirmed}/{total} operators confirmed)")
-            logger.info("=" * 60)
-            fer0_id = int(os.getenv("FER0_ID", "0"))
-            if fer0_id:
-                try:
-                    fer0 = await bot.fetch_user(fer0_id)
-                    await fer0.send(
-                        f"**PROJECT CONTINUITY PROTOCOL — QUORUM REACHED**\n\n"
-                        f"**{confirmed}/{total}** operators have confirmed.\n"
-                        f"The protocol is now fully active."
-                    )
-                except Exception:
-                    pass
-    except Exception as e:
-        logger.warning(f"Note: Could not perform continuity check: {e}")
 
 
 async def _dashboard_ping_loop(bot):

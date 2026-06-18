@@ -471,8 +471,9 @@ BEGIN
         FROM spirit_types WHERE key = 'resilience';
 
         v_resilience := LEAST(GREATEST(p_hexes * v_per_hex, v_min_value), v_max_value);
-        INSERT INTO national_spirits (faction_id, spirit_type_id, modifier_value)
-        VALUES (p_target_faction_id, v_spirit_type_id, v_resilience);
+        INSERT INTO national_spirits (faction_id, spirit_type_id, modifier_value, expires_at)
+        VALUES (p_target_faction_id, v_spirit_type_id, v_resilience, now())
+        ON CONFLICT (faction_id, spirit_type_id) DO UPDATE SET modifier_value = EXCLUDED.modifier_value, granted_at = now(), expires_at = now();
     END IF;
 
     RETURN QUERY SELECT v_pop_moved, v_cm_amt, v_el_amt, v_cs_amt, v_er_amt, v_influence_cost, v_resilience;
@@ -1609,7 +1610,7 @@ BEGIN
         VALUES (v_transfer_id, (v_item->>'resource_id')::INT, (v_item->>'amount')::BIGINT);
     END LOOP;
 
-    DELETE FROM national_spirits WHERE faction_id = p_faction_id;
+    DELETE FROM national_spirits WHERE faction_id = p_faction_id AND expires_at IS NOT NULL AND expires_at <= now();
 END;
 $$;
 

@@ -80,25 +80,6 @@ async def get_badge_names_for_user(user_id: int) -> list[str]:
     return [r['name'] for r in rows if r['name']]
 
 
-async def get_continuity_triggered_at() -> Optional[object]:
-    settings = await db.fetchrow("SELECT continuity_triggered_at FROM settings LIMIT 1")
-    return settings['continuity_triggered_at'] if settings else None
-
-
-async def set_continuity_triggered_at(triggered_at):
-    await db.execute("UPDATE settings SET continuity_triggered_at = $1", triggered_at)
-
-
-async def reset_continuity_state():
-    await db.execute("UPDATE settings SET continuity_triggered_at = NULL")
-    await db.execute("UPDATE operators SET continuity_confirmed = false")
-
-
-async def get_active_operator_count() -> int:
-    count = await db.fetchval("SELECT COUNT(*) FROM operators WHERE locked = false")
-    return int(count or 0)
-
-
 async def get_recent_completed_transfers_count(minutes: int = 5) -> int:
     row = await db.fetchrow(
         """

@@ -23,16 +23,21 @@ async def national_spirits(interaction: discord.Interaction, faction: str):
 
     if not spirits:
         description = "No active national spirits."
+        has_persistent = False
     else:
         lines = [f"**{s['display_name']}:** +{s['modifier_value'] * 100:.0f}% {s['effect_type'].title()}" for s in spirits]
         description = "\n".join(lines)
+        has_persistent = any(s['expires_at'] is None for s in spirits)
 
     embed = discord.Embed(
-        title=f"{faction_data['display_name']} - National Spirits",
+        title=f"National Spirits: {faction_data['display_name']}",
         description=description,
         color=faction_color,
     )
-    embed.set_footer(text="Active spirits last until and including the next income cycle.")
+    if has_persistent:
+        embed.set_footer(text="Persistent spirits remain active until their condition ends (e.g. end of war); others last until the next income cycle.")
+    else:
+        embed.set_footer(text="Active spirits last until and including the next income cycle.")
     await interaction.followup.send(embed=embed)
 
 

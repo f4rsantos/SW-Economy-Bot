@@ -35,7 +35,7 @@ async def trades(interaction: discord.Interaction, faction: str):
         await interaction.followup.send(embed=error_embed("No Trades", f"{faction_data['display_name']} has no active trade deals."))
         return
 
-    embed = discord.Embed(title=f"Trade Deals - {faction_data['display_name']}", color=hex_to_int(faction_data['color']))
+    embed = discord.Embed(title=f"Trade Deals: {faction_data['display_name']}", color=hex_to_int(faction_data['color']))
 
     if outgoing:
         lines = [f"**ID {t['id']}:** {t['amount']:,} {t['resource_name']} → {t['receiver_name']}{_format_world_route(t)}" for t in outgoing[:10]]

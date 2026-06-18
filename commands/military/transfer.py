@@ -63,7 +63,7 @@ async def transfer(
     from_label = from_unit_data['name'] or f"Unit #{from_unit_data['faction_fleet_number']}"
     to_label = to_unit_data['name'] or f"Unit #{to_unit_data['faction_fleet_number']}"
     embed = discord.Embed(
-        title=f"{faction_data['display_name']}'s Military",
+        title=f"Military: {faction_data['display_name']}",
         description=f"Transferred **{transfer_amount:,} infantry**\n\nFrom: **{from_label}**\nTo: **{to_label}**",
         color=faction_color
     )

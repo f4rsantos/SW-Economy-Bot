@@ -1,5 +1,6 @@
 import asyncpg
 import json
+from datetime import datetime, timezone
 from typing import Optional
 from database.db_manager import db
 
@@ -10,6 +11,7 @@ async def create_war(name: str, faction_id: int, side: str) -> int:
             "SELECT sp_create_war($1, $2, $3) as war_id",
             name, faction_id, side
         )
+        await grant_war_spirits(faction_id)
         return row['war_id']
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
@@ -22,6 +24,36 @@ async def are_factions_at_war(faction_id_1: int, faction_id_2: int) -> bool:
         WHERE wp1.faction_id = $1 AND wp2.faction_id = $2
     """, faction_id_1, faction_id_2)
     return row is not None
+
+
+async def is_faction_at_war(faction_id: int) -> bool:
+    row = await db.fetchrow("SELECT 1 FROM war_participants WHERE faction_id = $1", faction_id)
+    return row is not None
+
+
+WAR_SPIRIT_KEYS = ('war_effort', 'war_mobilization')
+
+
+async def grant_war_spirits(faction_id: int) -> None:
+    spirit_types = await db.fetch("SELECT id, fixed_value FROM spirit_types WHERE key = ANY($1)", list(WAR_SPIRIT_KEYS))
+    for st in spirit_types:
+        await db.execute(
+            """
+            INSERT INTO national_spirits (faction_id, spirit_type_id, modifier_value, expires_at)
+            VALUES ($1, $2, $3, NULL)
+            ON CONFLICT (faction_id, spirit_type_id) DO UPDATE SET modifier_value = EXCLUDED.modifier_value, expires_at = NULL
+            """,
+            faction_id, st['id'], st['fixed_value']
+        )
+
+
+async def revoke_war_spirits_if_not_at_war(faction_id: int) -> None:
+    if await is_faction_at_war(faction_id):
+        return
+    await db.execute(
+        "DELETE FROM national_spirits WHERE faction_id = $1 AND spirit_type_id IN (SELECT id FROM spirit_types WHERE key = ANY($2))",
+        faction_id, list(WAR_SPIRIT_KEYS)
+    )
 
 
 async def end_war(war_id: int, faction_id: int, winning_sides: list[str], losing_sides: list[str]) -> dict:
@@ -59,6 +91,9 @@ async def end_war(war_id: int, faction_id: int, winning_sides: list[str], losing
     spirit_type_rows = await db.fetch("SELECT id, key, fixed_value FROM spirit_types WHERE key IN ('victorious', 'recovering')")
     spirit_types = {r['key']: r for r in spirit_type_rows}
 
+    war_days = (datetime.now(timezone.utc) - war['date_start']).days
+    ramp = min(war_days / 50, 1.0)
+
     for p in participants:
         if p['side'] in winning_sides:
             spirit_type = spirit_types['victorious']
@@ -66,15 +101,22 @@ async def end_war(war_id: int, faction_id: int, winning_sides: list[str], losing
             spirit_type = spirit_types['recovering']
         else:
             continue
+        scaled_value = spirit_type['fixed_value'] * ramp
         await db.execute(
-            "INSERT INTO national_spirits (faction_id, spirit_type_id, modifier_value) VALUES ($1, $2, $3)",
-            p['faction_id'], spirit_type['id'], spirit_type['fixed_value']
+            """
+            INSERT INTO national_spirits (faction_id, spirit_type_id, modifier_value, expires_at) VALUES ($1, $2, $3, now())
+            ON CONFLICT (faction_id, spirit_type_id) DO UPDATE SET modifier_value = EXCLUDED.modifier_value, granted_at = now(), expires_at = now()
+            """,
+            p['faction_id'], spirit_type['id'], scaled_value
         )
 
     try:
         await db.execute("SELECT sp_end_war($1, $2)", war_id, faction_id)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
+
+    for p in participants:
+        await revoke_war_spirits_if_not_at_war(p['faction_id'])
 
     parsed_stats = []
     for s in stats:
@@ -161,6 +203,7 @@ async def join_war(war_id: int, faction_id: int, side: str) -> dict:
     if existing:
         raise ValueError(f"Faction is already in this war on side {existing['side']}.")
     await db.execute("INSERT INTO war_participants (war_id, faction_id, side) VALUES ($1, $2, $3)", war_id, faction_id, side)
+    await grant_war_spirits(faction_id)
     stats = await db.fetch("""
         SELECT wp.side, json_agg(COALESCE(f.formal_name, f.name)) as faction_names
         FROM war_participants wp JOIN factions f ON wp.faction_id = f.id
@@ -177,6 +220,7 @@ async def leave_war(war_id: int, faction_id: int) -> dict:
     if not await get_participant(war_id, faction_id):
         raise ValueError("Faction is not participating in this war.")
     await db.execute("DELETE FROM war_participants WHERE war_id = $1 AND faction_id = $2", war_id, faction_id)
+    await revoke_war_spirits_if_not_at_war(faction_id)
     remaining = await db.fetchval("SELECT COUNT(*) FROM war_participants WHERE war_id = $1", war_id)
     war_ended = False
     if remaining == 0:

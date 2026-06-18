@@ -83,7 +83,7 @@ async def recruit(
     cost_display = ", ".join(f"{v * personnel_amount:,} {k}" for k, v in costs.items())
     cost_summary = f"\n**Total Cost:** {cost_display}" if cost_display else ""
     embed = discord.Embed(
-        title=f"{display_name}'s Military",
+        title=f"Military: {display_name}",
         description=f"{display_name} has begun recruiting **{personnel_amount:,} {name}** into **{unit_label}**.{cost_summary}\n\n"
                     f"**Training Time:** {time} (IRP)\n"
                     f"**Ready:** <t:{int(completion.timestamp())}:R>\n\n"

@@ -5,6 +5,7 @@ from utils.embeds import error_embed
 from utils.faction_utils import hex_to_int
 from services.building_efficiency_service import get_efficiency_info
 from services.building_service import get_company_er
+from services.national_spirit_service import get_national_spirits
 from services.validation_service import require_faction
 
 
@@ -24,6 +25,16 @@ async def efficiency(interaction: discord.Interaction, faction: str):
 
     info = await get_efficiency_info(faction_id)
     base_pct = int(info['base_efficiency'] * 100)
+
+    spirits = await get_national_spirits(faction_id)
+    efficiency_spirits = [s for s in spirits if s['effect_type'] == 'efficiency']
+    spirit_bonus = sum(s['modifier_value'] for s in efficiency_spirits)
+
+    if info['is_specialized']:
+        matching_pct = int(round((info['base_efficiency'] + 0.15 + spirit_bonus) * 100))
+        other_pct = int(round((info['base_efficiency'] + 0.075 + spirit_bonus) * 100))
+    else:
+        matching_pct = other_pct = int(round((info['base_efficiency'] + spirit_bonus) * 100))
 
     if is_company:
         total_treasury = await get_company_er(faction_id)
@@ -48,16 +59,16 @@ async def efficiency(interaction: discord.Interaction, faction: str):
         description += f"**Weighted Count:** `{info['building_count_weighted']:,}`\n"
 
     if info['is_specialized']:
-        spec_type = info['specialization_type'].title()
-        description += f"**Efficiency:** **{base_pct}%** Base + Specialization Bonus\n"
-        description += f"\n**Active Specialization: {spec_type}**\n"
-        description += f"Matching buildings: **+15%** efficiency\n"
-        description += f"Other buildings: **+7.5%** efficiency\n"
+        description += f"**Efficiency:** **{matching_pct}%** | **{other_pct}%**\n"
     else:
-        description += f"**Efficiency:** **{base_pct}%** Base\n"
-        description += f"\n**No Active Specialization**\n"
-        description += "Get >50% of buildings in one category for bonuses:\n"
-        description += "• Resource (CM/EL/CS)\n• Type (Extractor/Refinery/Storage/Factory)"
+        description += f"**Efficiency:** **{matching_pct}%**\n"
+
+    breakdown_lines = [f"Base: **{base_pct}%**"]
+    if info['is_specialized']:
+        breakdown_lines.append(f"Specialization ({info['specialization_type'].title()}): **+15%** matching, **+7.5%** other")
+    for s in efficiency_spirits:
+        breakdown_lines.append(f"{s['display_name']}: **+{int(s['modifier_value'] * 100)}%**")
+    description += "\n" + "\n".join(breakdown_lines)
 
     over_cap = info['building_count'] > building_cap
     if over_cap:
@@ -69,11 +80,7 @@ async def efficiency(interaction: discord.Interaction, faction: str):
     else:
         color = faction_color
 
-    embed = discord.Embed(title=f"{faction_data['display_name']} - Efficiency", description=description, color=color)
-
-    brackets = "0-450: **100%**\n451-600: **100% → 85%**\n601-800: **85% → 65%**\n801+: **65% → 55%**\n\n"
-    brackets += f"Current: **{base_pct}%**"
-    embed.add_field(name="Efficiency System", value=brackets, inline=False)
+    embed = discord.Embed(title=f"Efficiency: {faction_data['display_name']}", description=description, color=color)
 
     if info['breakdown']['by_resource']:
         resource_list = []

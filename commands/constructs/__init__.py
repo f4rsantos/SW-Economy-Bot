@@ -3,7 +3,7 @@ from discord import app_commands
 
 class RateGroup(app_commands.Group):
     def __init__(self):
-        super().__init__(name="rates", description="Vehicle and construct rating commands")
+        super().__init__(name="rate", description="Vehicle and construct rating commands")
 
 async def setup(bot):
     from commands.constructs import (

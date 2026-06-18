@@ -56,7 +56,7 @@ async def capacities(
                 is_refinery = True
 
         eff = await calculate_effective_efficiency(faction_id, building_type='refinery' if is_refinery else 'extractor', resource_name=res_row['name'])
-        embed = discord.Embed(title=f"Capacities ({res_row['name']}) — {faction_data['display_name']} per World", color=faction_color)
+        embed = discord.Embed(title=f"Capacities ({res_row['name']}): {faction_data['display_name']} per World", color=faction_color)
         sorted_worlds = sorted(world_production.items(), key=lambda x: x[1], reverse=True)
         total = 0
         lines = []
@@ -124,12 +124,14 @@ async def capacities(
         embed.add_field(name=prod['name'], value=handle_return(int(production_val * eff)), inline=True)
         has_production = True
 
-    if factory_capacity > 0:
-        embed.add_field(name="Factory Space", value=f"{factory_capacity:,}m", inline=True)
-        has_production = True
-    if mega_factory_capacity > 0:
-        embed.add_field(name="Mega Factory Space", value=f"{mega_factory_capacity:,}m", inline=True)
-        has_production = True
+    if factory_capacity > 0 or mega_factory_capacity > 0:
+        factory_eff = await calculate_effective_efficiency(faction_id, building_type='factory')
+        if factory_capacity > 0:
+            embed.add_field(name="Factory Space", value=f"{int(factory_capacity * factory_eff):,}m", inline=True)
+            has_production = True
+        if mega_factory_capacity > 0:
+            embed.add_field(name="Mega Factory Space", value=f"{int(mega_factory_capacity * factory_eff):,}m", inline=True)
+            has_production = True
 
     if not has_production:
         embed.description = "No production buildings found."

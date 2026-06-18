@@ -163,7 +163,7 @@ def build_efficiency_cache(base_efficiency: float, is_specialized: bool, spec_ty
             if is_specialized:
                 matches = (spec_type in ('CM', 'EL', 'CS') and resource_name == spec_type) or spec_type == building_type
                 eff = min(base_efficiency + (0.15 if matches else 0.075), 1.0)
-            eff += spirit_bonus
+            eff = max(eff + spirit_bonus, 0.001)
             cache[(building_type, resource_name)] = eff
             if building_type == 'storage':
                 cache[('storage', f'U-{resource_name}')] = eff

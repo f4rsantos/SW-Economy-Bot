@@ -54,7 +54,7 @@ async def dismiss(
         return
 
     embed = discord.Embed(
-        title=f"{display_name}'s Military",
+        title=f"Military: {display_name}",
         description=f"{display_name} has dismissed **{personnel_amount:,} {name}** from **{unit_label}**.\n\nThey return to civilian life immediately.",
         color=faction_color
     )

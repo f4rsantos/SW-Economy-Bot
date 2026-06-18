@@ -52,7 +52,7 @@ async def treasury(
 
         if local_check:
             rows = await get_local_resource_by_world(faction_id, res_exists['id'])
-            embed = discord.Embed(title=f"Treasury ({actual_name}) — {faction_data['display_name']} per World", color=faction_color)
+            embed = discord.Embed(title=f"Treasury ({actual_name}): {faction_data['display_name']} per World", color=faction_color)
             total = 0
             lines = []
             for row in rows:
@@ -64,7 +64,7 @@ async def treasury(
                 embed.set_footer(text=f"Total: {handle_return(total)}")
         elif global_check:
             amount = await get_global_resource_amount(faction_id, res_exists['id'])
-            embed = discord.Embed(title=f"Treasury ({actual_name}) — {faction_data['display_name']}", color=faction_color)
+            embed = discord.Embed(title=f"Treasury ({actual_name}): {faction_data['display_name']}", color=faction_color)
             embed.description = f"{actual_name} is a global resource (not world-specific).\n**Total:** {handle_return(amount)}"
         else:
             await interaction.followup.send(embed=error_embed("Error", f"`{actual_name}` has no treasury data."))

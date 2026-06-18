@@ -58,7 +58,7 @@ async def income(
             total += amount
 
         embed = discord.Embed(
-            title=f"Income ({res_name}) — {faction_data['display_name']} per World",
+            title=f"Income ({res_name}): {faction_data['display_name']} per World",
             description="\n".join(lines), color=faction_color
         )
         embed.set_footer(text=f"Total: {_fmt(total)}")
