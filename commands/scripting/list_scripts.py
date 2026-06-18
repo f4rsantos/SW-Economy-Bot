@@ -21,7 +21,7 @@ async def script_list(interaction: discord.Interaction, faction: str):
     if not scripts:
         await interaction.followup.send(
             embed=create_embed(
-                title=f"Scripts — {faction_data['display_name']}",
+                title=f"Scripts: {faction_data['display_name']}",
                 description="No active scripts.",
             ),
         )
@@ -34,7 +34,7 @@ async def script_list(interaction: discord.Interaction, faction: str):
         lines.append(f"**{s['name']}** (ID {s['id']}) — runs on {runs_on} — last run {last} — {s['run_count']} run(s)")
 
     embed = create_embed(
-        title=f"Scripts — {faction_data['display_name']}",
+        title=f"Scripts: {faction_data['display_name']}",
         description="\n".join(lines),
     )
     await interaction.followup.send(embed=embed)

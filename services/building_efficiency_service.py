@@ -1,4 +1,5 @@
 from database.db_manager import db
+from services.national_spirit_service import get_active_factory_efficiency_bonus
 from typing import Dict, Tuple
 import math
 
@@ -80,12 +81,13 @@ async def calculate_efficiency(faction_id: int) -> float:
     elif building_count <= 600:
         decline = (building_count - 450) * 0.001
         return 1.0 - decline
-    elif building_count <= 800:
-        decline = (building_count - 600) * 0.001
-        return 0.85 - decline
     else:
-        decline = min((building_count - 800) * 0.001, 0.10)
-        return max(0.65 - decline, 0.55)
+        decline = (building_count - 600) * 0.001
+        linear_value = 0.85 - decline
+        if linear_value >= 0.10:
+            return linear_value
+        over = building_count - 1350
+        return max(0.05 + 0.05 * math.exp(-0.001 * over), 0.001)
 
 
 async def get_building_breakdown(faction_id: int) -> Dict[str, int]:
@@ -218,9 +220,10 @@ async def detect_specialization(faction_id: int) -> Tuple[bool, str, float]:
 async def calculate_effective_efficiency(faction_id: int, building_type: str = None, resource_name: str = None) -> float:
     base_efficiency = await calculate_efficiency(faction_id)
     is_specialized, spec_type, bonus = await detect_specialization(faction_id)
+    factory_bonus = await get_active_factory_efficiency_bonus(faction_id) if building_type == 'factory' else 0.0
 
     if not is_specialized:
-        return base_efficiency
+        return max(min(base_efficiency + factory_bonus, 1.0), 0.001)
 
     matches_specialization = False
     if resource_name and spec_type in ['CM', 'EL', 'CS']:
@@ -230,27 +233,35 @@ async def calculate_effective_efficiency(faction_id: int, building_type: str = N
         matches_specialization = True
 
     if matches_specialization:
-        return min(base_efficiency + 0.15, 1.0)
+        return max(min(base_efficiency + 0.15 + factory_bonus, 1.0), 0.001)
     else:
-        return min(base_efficiency + 0.075, 1.0)
+        return max(min(base_efficiency + 0.075 + factory_bonus, 1.0), 0.001)
 
 
 async def get_faction_efficiency_map(faction_id: int) -> Dict[tuple, float]:
     base = await calculate_efficiency(faction_id)
     is_specialized, spec_type, _ = await detect_specialization(faction_id)
+    factory_bonus = await get_active_factory_efficiency_bonus(faction_id)
+
     if not is_specialized:
-        return lambda building_type, resource_name: base
+        def _eff(building_type, resource_name):
+            bonus = factory_bonus if building_type == 'factory' else 0.0
+            return max(min(base + bonus, 1.0), 0.001)
+        return _eff
 
     general = min(base + 0.075, 1.0)
     matching = min(base + 0.15, 1.0)
+    general_factory = min(base + 0.075 + factory_bonus, 1.0)
+    matching_factory = min(base + 0.15 + factory_bonus, 1.0)
 
     def _eff(building_type, resource_name):
+        is_factory = building_type == 'factory'
         if resource_name and spec_type in ('CM', 'EL', 'CS'):
             if resource_name.replace('U-', '') == spec_type:
-                return matching
+                return matching_factory if is_factory else matching
         if building_type and spec_type == building_type:
-            return matching
-        return general
+            return matching_factory if is_factory else matching
+        return general_factory if is_factory else general
 
     return _eff
 

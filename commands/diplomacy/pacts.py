@@ -28,7 +28,7 @@ async def pacts(interaction: discord.Interaction, faction: str):
         await interaction.followup.send(embed=error_embed("No Pacts", f"{faction_data['display_name']} is not part of any pacts."))
         return
 
-    embed = discord.Embed(title=f"Pacts - {faction_data['display_name']}", color=faction_color)
+    embed = discord.Embed(title=f"Pacts: {faction_data['display_name']}", color=faction_color)
 
     if led_pacts:
         lines = []

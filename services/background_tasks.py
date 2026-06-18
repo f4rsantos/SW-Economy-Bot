@@ -197,42 +197,6 @@ async def check_income_cycle(skip_income: bool = False):
             pass
 
 
-async def check_continuity_protocol():
-    if _bot is None:
-        return
-    try:
-        settings = await db.fetchrow("SELECT continuity_triggered_at FROM settings LIMIT 1")
-        if not settings or not settings["continuity_triggered_at"]:
-            return
-
-        triggered_at = settings["continuity_triggered_at"]
-        if (datetime.now(timezone.utc) - triggered_at) < timedelta(days=7):
-            return
-
-        successor_id = int(os.getenv("DESIGNATED_SUCCESSOR_ID", "0"))
-        continuity_email = os.getenv("CONTINUITY_EMAIL", "(not set)")
-        continuity_password = os.getenv("CONTINUITY_PASSWORD", "(not set)")
-
-        try:
-            successor = await _bot.fetch_user(successor_id)
-            await successor.send(
-                f"🔑 **PROJECT CONTINUITY PROTOCOL — 7-Day Window Expired**\n\n"
-                f"Fer0 did not deactivate the Protocol within 7 days of "
-                f"<t:{int(triggered_at.timestamp())}:F>.\n\n"
-                f"You are now authorized to carry on development of SWU.\n\n"
-                f"**Credentials:**\n"
-                f"Email: `{continuity_email}`\n"
-                f"Password: `{continuity_password}`"
-            )
-        except Exception as e:
-            logger.error(f"Continuity: failed to DM Designated Successor: {e}")
-
-        await db.execute("UPDATE settings SET continuity_triggered_at = NULL")
-        await db.execute("UPDATE operators SET continuity_confirmed = false")
-    except Exception as e:
-        logger.error(f"Continuity protocol check error: {e}")
-
-
 async def handle_income_cycle(payload: dict):
     await check_income_cycle(skip_income=_skip_income)
     await event_queue.push_income_event()
@@ -245,12 +209,6 @@ async def handle_scripting_run(payload: dict):
     await event_queue.push(next_run, 'scripting_run', {})
 
 
-async def handle_continuity_check(payload: dict):
-    await check_continuity_protocol()
-    next_check = datetime.now(timezone.utc) + timedelta(days=1)
-    await event_queue.push(next_check, 'continuity_check', {})
-
-
 def _register_handlers():
     event_queue.register_handler('transfer_arrival', handle_transfer_arrival)
     event_queue.register_handler('fleet_arrival', handle_fleet_arrival)
@@ -258,7 +216,6 @@ def _register_handlers():
     event_queue.register_handler('recruitment_complete', handle_recruitment_complete)
     event_queue.register_handler('income_cycle', handle_income_cycle)
     event_queue.register_handler('scripting_run', handle_scripting_run)
-    event_queue.register_handler('continuity_check', handle_continuity_check)
 
 
 async def run_background_tasks(bot=None, skip_income: bool = False):
@@ -271,6 +228,5 @@ async def run_background_tasks(bot=None, skip_income: bool = False):
     await event_queue.push_income_event()
     now = datetime.now(timezone.utc)
     await event_queue.push(now + timedelta(minutes=5), 'scripting_run', {})
-    await event_queue.push(now + timedelta(hours=1), 'continuity_check', {})
 
     await event_queue.worker()

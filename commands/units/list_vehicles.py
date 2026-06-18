@@ -211,7 +211,7 @@ class VehiclePaginationView(OwnerOnlyView):
         page_vehicles = self.vehicles[start:start + VEHICLES_PER_PAGE]
         faction_color = hex_to_int(self.faction_data['color'])
         embed = discord.Embed(
-            title=f"Vehicles - {self.faction_data['display_name']}",
+            title=f"Vehicles: {self.faction_data['display_name']}",
             description=f"Page {self.page + 1}/{self.total_pages} • {len(self.vehicles)} total vehicles",
             color=faction_color
         )

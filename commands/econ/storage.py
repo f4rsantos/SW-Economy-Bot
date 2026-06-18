@@ -46,7 +46,7 @@ async def storage(
         rows = await get_world_storage_for_resource(faction_id, res_row['id'])
 
         eff = await calculate_effective_efficiency(faction_id, building_type='storage', resource_name=res_row['name'])
-        embed = discord.Embed(title=f"Storage ({res_row['name']}) — {faction_data['display_name']} per World", color=faction_color)
+        embed = discord.Embed(title=f"Storage ({res_row['name']}): {faction_data['display_name']} per World", color=faction_color)
         total = 0
         lines = []
         for row in rows:

@@ -101,7 +101,7 @@ async def cap(interaction: discord.Interaction, faction: str):
         else:
             description += "**No territory found.** Claim hexes to increase building cap."
 
-    embed = discord.Embed(title=f"{faction_data['display_name']} - Building Cap", description=description, color=color)
+    embed = discord.Embed(title=f"Building Cap: {faction_data['display_name']}", description=description, color=color)
     await interaction.followup.send(embed=embed)
 
 

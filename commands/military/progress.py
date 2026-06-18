@@ -24,7 +24,7 @@ async def progress(interaction: discord.Interaction, faction: str):
 
     if not pending:
         await interaction.followup.send(embed=discord.Embed(
-            title=f"{display_name}'s Recruitments",
+            title=f"Recruitments: {display_name}",
             description="No pending recruitments.",
             color=faction_color
         ))

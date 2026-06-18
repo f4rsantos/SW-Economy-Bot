@@ -50,7 +50,6 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
-_continuity_mode = '-c' in sys.argv
 _no_income = '--no-income' in sys.argv
 
 
@@ -161,7 +160,7 @@ def main():
 
     RESTART_DELAY = 30
     while True:
-        start_bot(supabase_client, auth.supabase_user_uuid, _continuity_mode, _no_income)
+        start_bot(supabase_client, auth.supabase_user_uuid, _no_income)
         if is_shutdown_intentional():
             print()
             print("Goodbye.")

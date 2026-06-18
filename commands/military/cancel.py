@@ -33,7 +33,7 @@ async def cancel(interaction: discord.Interaction, faction: str, recruitment_id:
         return
 
     embed = discord.Embed(
-        title=f"{display_name}'s Military",
+        title=f"Military: {display_name}",
         description=(
             f"Recruitment **#{cancelled['id']}** cancelled.\n"
             f"**{cancelled['amount']:,} {cancelled['role_name']}** will not complete training.\n\n"

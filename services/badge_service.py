@@ -44,12 +44,17 @@ async def purchase_badge(faction_id: int, world_id: int | None, badge_id: int, u
     )
 
 
-async def get_badge_progress(user_id: int, badge_id: int) -> dict | None:
-    row = await db.fetchrow(
-        "SELECT current_amount, updated_at FROM badge_progress WHERE user_id = $1 AND badge_id = $2",
+async def get_badge_progress(user_id: int, badge_id: int) -> dict[str, int]:
+    rows = await db.fetch(
+        """
+        SELECT r.name AS resource_name, bpr.current_amount
+        FROM badge_progress_resources bpr
+        JOIN resources r ON r.id = bpr.resource_id
+        WHERE bpr.user_id = $1 AND bpr.badge_id = $2
+        """,
         user_id, badge_id
     )
-    return dict(row) if row else None
+    return {row['resource_name']: row['current_amount'] for row in rows}
 
 
 async def log_badge_progress(
@@ -57,33 +62,35 @@ async def log_badge_progress(
     badge_id: int,
     faction_id: int,
     world_id: int | None,
-    amount: int,
+    contributions: dict[str, int],
     catalog_entry: dict,
 ) -> dict:
-    resource_name = next(iter(catalog_entry['costs']))
-    target = catalog_entry['costs'][resource_name]
+    targets = catalog_entry['costs']
 
-    await deduct_resources(faction_id, world_id, {resource_name: amount})
+    await deduct_resources(faction_id, world_id, contributions)
 
-    row = await db.fetchrow(
-        """
-        INSERT INTO badge_progress (user_id, badge_id, current_amount, updated_at)
-        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-        ON CONFLICT (user_id, badge_id)
-        DO UPDATE SET current_amount = badge_progress.current_amount + $3,
-                      updated_at = CURRENT_TIMESTAMP
-        RETURNING current_amount
-        """,
-        user_id, badge_id, amount
-    )
-    current = row['current_amount']
+    progress = await get_badge_progress(user_id, badge_id)
+    for resource_name, amount in contributions.items():
+        row = await db.fetchrow(
+            """
+            INSERT INTO badge_progress_resources (user_id, badge_id, resource_id, current_amount, updated_at)
+            VALUES ($1, $2, (SELECT id FROM resources WHERE name = $3), $4, CURRENT_TIMESTAMP)
+            ON CONFLICT (user_id, badge_id, resource_id)
+            DO UPDATE SET current_amount = badge_progress_resources.current_amount + $4,
+                          updated_at = CURRENT_TIMESTAMP
+            RETURNING current_amount
+            """,
+            user_id, badge_id, resource_name, amount
+        )
+        progress[resource_name] = row['current_amount']
 
-    if current >= target:
+    completed = all(progress.get(res, 0) >= target for res, target in targets.items())
+
+    if completed:
         await add_badge_to_user(user_id, badge_id)
         await db.execute(
-            "DELETE FROM badge_progress WHERE user_id = $1 AND badge_id = $2",
+            "DELETE FROM badge_progress_resources WHERE user_id = $1 AND badge_id = $2",
             user_id, badge_id
         )
-        return {'current': current, 'target': target, 'resource_name': resource_name, 'completed': True}
 
-    return {'current': current, 'target': target, 'resource_name': resource_name, 'completed': False}
+    return {'progress': progress, 'targets': targets, 'completed': completed}

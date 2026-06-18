@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 
-async def load_commands(bot, continuity_mode: bool = False):
+async def load_commands(bot):
     commands_dir = Path("commands")
     loaded_count = 0
 
@@ -27,8 +27,6 @@ async def load_commands(bot, continuity_mode: bool = False):
                     for file in folder.iterdir():
                         if file.suffix == '.py' and not file.name.startswith('_'):
                             if file.stem == 'info':
-                                continue
-                            if file.stem == 'continuity' and not continuity_mode:
                                 continue
                             module_path = f"commands.{folder.name}.{file.stem}"
                             await bot.load_extension(module_path)

@@ -72,7 +72,3 @@ async def conquer(interaction: discord.Interaction, my_faction: str, target_fact
     embed = success_embed(title="Conquest", description="\n".join(lines))
     embed.color = faction_color
     await interaction.followup.send(embed=embed)
-
-
-async def setup(bot):
-    bot.tree.add_command(conquer)

@@ -183,12 +183,12 @@ class UnitView(View):
 
     async def create_list_embed(self) -> discord.Embed:
         if self.hidden:
-            return discord.Embed(title=f"Units - {self.faction_name}", description="[HIDDEN]", color=self.faction_color)
+            return discord.Embed(title=f"Units: {self.faction_name}", description="[HIDDEN]", color=self.faction_color)
 
         start = self.page * UNITS_PER_PAGE
         page_units = self.units[start:start + UNITS_PER_PAGE]
         embed = discord.Embed(
-            title=f"Units - {self.faction_name}",
+            title=f"Units: {self.faction_name}",
             description=f"Page {self.page + 1}/{self.total_pages} • {len(self.units)} total units",
             color=self.faction_color
         )

@@ -27,7 +27,7 @@ async def land(interaction: discord.Interaction, faction: str):
         return
 
     total_hexes = sum(w['territory'] for w in worlds)
-    embed = discord.Embed(title=f"Territory - {faction_data['display_name']}", description=f"**Total Hexes:** {total_hexes:,}", color=faction_color)
+    embed = discord.Embed(title=f"Territory: {faction_data['display_name']}", description=f"**Total Hexes:** {total_hexes:,}", color=faction_color)
 
     world_lines = [f"**{w['name']}:** {w['territory']:,} hex(es)" for w in worlds]
     for i in range(0, len(world_lines), 20):
