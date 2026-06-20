@@ -1,6 +1,11 @@
 import os
 import sys
+import time
+import base64
+import json
+import asyncio
 import webbrowser
+import httpx
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
@@ -51,10 +56,15 @@ _AUTH_SUCCESS_HTML = """<!DOCTYPE html>
             </svg>
         </div>
         <h2>Authentication Successful</h2>
-        <p>This window will close automatically.</p>
+        <p id="msg">This window will close automatically.</p>
     </div>
     <script>
-        setTimeout(() => window.close(), 1500);
+        setTimeout(() => {
+            window.close();
+            setTimeout(() => {
+                document.getElementById('msg').textContent = 'You can close this tab now.';
+            }, 300);
+        }, 1500);
     </script>
 </body>
 </html>"""
@@ -63,6 +73,13 @@ access_token = None
 refresh_token = None
 supabase_client = None
 supabase_user_uuid = None
+
+operator_jwt: str | None = None
+operator_refresh_token: str | None = None
+operator_id: int | None = None
+operator_jwt_issued_at: float | None = None
+operator_jwt_expires_in: int = 3600
+operator_discord_id: int | None = None
 
 _bundle_dir: Path = None
 
@@ -126,8 +143,13 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
         if (accessToken) {
             fetch('/callback?access_token=' + accessToken)
                 .then(() => {
-                    document.body.innerHTML = '<h2 style="color:#4ade80">Success!</h2>';
-                    setTimeout(() => window.close(), 1500);
+                    document.body.innerHTML = '<h2 style="color:#4ade80">Success!</h2><p id="msg">This window will close automatically.</p>';
+                    setTimeout(() => {
+                        window.close();
+                        setTimeout(() => {
+                            document.getElementById('msg').textContent = 'You can close this tab now.';
+                        }, 300);
+                    }, 1500);
                 })
                 .catch(() => document.body.innerHTML = '<h2 style="color:#f87171">Error sending token to app.</h2>');
         } else {
@@ -168,7 +190,7 @@ def wait_for_token(logger) -> bool:
 
 
 def run_oauth(logger) -> bool:
-    global supabase_user_uuid
+    global supabase_user_uuid, operator_discord_id
 
     print("STEP 1: Discord OAuth Authentication")
     print("-" * 70)
@@ -197,6 +219,9 @@ def run_oauth(logger) -> bool:
         user = response.user
         if user:
             supabase_user_uuid = str(user.id)
+            provider_id = (user.user_metadata or {}).get("provider_id")
+            if provider_id:
+                operator_discord_id = int(provider_id)
         print("Authentication successful.")
     except Exception:
         print("ERROR: Authentication failed.")
@@ -207,7 +232,21 @@ def run_oauth(logger) -> bool:
     return True
 
 
-def verify_license() -> bool:
+def _edge_function_base() -> str:
+    supabase_url = os.getenv("SUPABASE_URL")
+    return f"{supabase_url}/functions/v1"
+
+
+def _decode_jwt_claim(token: str, claim: str):
+    payload_b64 = token.split(".")[1]
+    padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+    payload = json.loads(base64.urlsafe_b64decode(padded))
+    return payload.get(claim)
+
+
+def login_with_license_key() -> bool:
+    global operator_jwt, operator_refresh_token, operator_id, operator_jwt_issued_at, operator_jwt_expires_in
+
     print()
     print("STEP 3: License Validation")
     print("-" * 70)
@@ -218,21 +257,38 @@ def verify_license() -> bool:
         input("Press Enter to exit...")
         sys.exit(1)
 
-    print("Verifying license key...")
-    try:
-        rpc_response = supabase_client.rpc("verify_license", {"p_input_key": license_input}).execute()
-        is_valid = rpc_response.data
+    if not operator_discord_id:
+        print("ERROR: No Discord identity available from OAuth session.")
         print()
-        if is_valid:
-            print("=" * 70)
-            print(" " * 22 + "LICENSE VERIFIED")
+        input("Press Enter to exit...")
+        sys.exit(1)
+
+    print("Verifying license key...")
+    anon_key = os.getenv("SUPABASE_ANON_KEY")
+    try:
+        resp = httpx.post(
+            f"{_edge_function_base()}/login",
+            json={
+                "license_key": license_input,
+                "oauth_discord_id": operator_discord_id,
+                "bot_version": os.getenv("BOT_VERSION", ""),
+            },
+            headers={"Authorization": f"Bearer {anon_key}", "apikey": anon_key},
+            timeout=15,
+        )
+        if resp.status_code == 403 and resp.json().get("error") == "outdated_client":
+            min_version = resp.json().get("min_version", "unknown")
+            print()
+            print("UPDATE REQUIRED")
             print("=" * 70)
             print()
-            print("Solar Economy is now active.")
-            print("All systems operational.")
+            print(f"This bot version is outdated. Minimum required version: {min_version}")
+            print("Please update before continuing.")
             print()
-            return True
-        else:
+            input("Press Enter to exit...")
+            sys.exit(1)
+        if resp.status_code != 200:
+            print()
             print("ACCESS DENIED")
             print("=" * 70)
             print()
@@ -241,17 +297,74 @@ def verify_license() -> bool:
             print()
             input("Press Enter to exit...")
             sys.exit(1)
-    except Exception as e:
+
+        data = resp.json()
+        operator_jwt = data["access_token"]
+        operator_refresh_token = data["refresh_token"]
+        operator_jwt_expires_in = data.get("expires_in", 3600)
+        operator_jwt_issued_at = time.monotonic()
+        operator_id = _decode_jwt_claim(operator_jwt, "operator_id")
+
+        print()
+        print("=" * 70)
+        print(" " * 22 + "LICENSE VERIFIED")
+        print("=" * 70)
+        print()
+        print("Solar Economy is now active.")
+        print("All systems operational.")
+        print()
+        return True
+    except Exception:
         print("ERROR: License verification failed.")
         print()
-        error_msg = str(e).lower()
-        if "function" in error_msg and "does not exist" in error_msg:
-            print("Please contact the administrator.")
-        elif "no rows" in error_msg or "null" in error_msg:
-            print("No license found for this account.")
-            print("Please contact the administrator to obtain a license.")
-        else:
-            print("Unable to verify license at this time.")
+        print("Unable to verify license at this time.")
         print()
         input("Press Enter to exit...")
         sys.exit(1)
+
+
+async def fetch_operator_assets() -> dict | None:
+    supabase_url = os.getenv("SUPABASE_URL")
+    anon_key = os.getenv("SUPABASE_ANON_KEY")
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{supabase_url}/rest/v1/operator_assets",
+            headers={
+                "Authorization": f"Bearer {operator_jwt}",
+                "apikey": anon_key,
+            },
+            params={"select": "api_token,bot_config,database_url,firebase_api_key"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        return rows[0] if rows else None
+
+
+async def refresh_loop(logger):
+    global operator_jwt, operator_refresh_token, operator_jwt_issued_at, operator_jwt_expires_in
+
+    while True:
+        elapsed = time.monotonic() - operator_jwt_issued_at
+        remaining = operator_jwt_expires_in - elapsed
+        sleep_for = max(remaining - 300, 5)
+        await asyncio.sleep(sleep_for)
+
+        try:
+            anon_key = os.getenv("SUPABASE_ANON_KEY")
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{_edge_function_base()}/refresh",
+                    json={"refresh_token": operator_refresh_token},
+                    headers={"Authorization": f"Bearer {anon_key}", "apikey": anon_key},
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                operator_jwt = data["access_token"]
+                operator_refresh_token = data["refresh_token"]
+                operator_jwt_expires_in = data.get("expires_in", 3600)
+                operator_jwt_issued_at = time.monotonic()
+        except Exception:
+            logger.error("Operator token refresh failed — bot auth may expire soon.")
+            await asyncio.sleep(30)

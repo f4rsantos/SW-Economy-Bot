@@ -1,18 +1,17 @@
-import os
 import asyncpg
-from dotenv import load_dotenv
-
-load_dotenv()
 
 
 class DatabaseManager:
     def __init__(self):
         self.pool = None
-        self.database_url = os.getenv("DATABASE_URL")
-        if not self.database_url:
-            print("ERROR: DATABASE_URL environment variable not set!")
+        self.database_url = None
+
+    def set_database_url(self, database_url: str):
+        self.database_url = database_url
 
     async def connect(self):
+        if not self.database_url:
+            raise RuntimeError("DatabaseManager.set_database_url() must be called before connect()")
         if not self.pool:
             import ssl
             import certifi

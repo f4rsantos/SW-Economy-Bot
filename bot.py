@@ -4,7 +4,6 @@ import os
 
 import discord
 from discord.ext import commands
-from packaging.version import Version
 
 from database.db_manager import db
 from error_handler import setup_error_handler
@@ -13,13 +12,19 @@ from loader import load_commands
 logger = logging.getLogger(__name__)
 
 _intentional_shutdown = False
+_terminal_shutdown_requested = False
 
 
 def is_shutdown_intentional() -> bool:
     return _intentional_shutdown
 
 
-def start_bot(supabase_client, supabase_user_uuid: str, no_income: bool):
+def request_terminal_shutdown() -> None:
+    global _terminal_shutdown_requested
+    _terminal_shutdown_requested = True
+
+
+def start_bot(supabase_client, supabase_user_uuid: str, no_income: bool, operator_assets: dict = None):
     global _intentional_shutdown
 
     logger.info("Initializing Discord bot...")
@@ -31,6 +36,7 @@ def start_bot(supabase_client, supabase_user_uuid: str, no_income: bool):
 
     bot = commands.Bot(command_prefix="!", intents=intents)
     bot.supabase_client = supabase_client
+    bot.operator_assets = operator_assets or {}
 
     setup_error_handler(bot)
 
@@ -72,24 +78,6 @@ def start_bot(supabase_client, supabase_user_uuid: str, no_income: bool):
         logger.info("Connecting to database...")
         await db.connect()
 
-        try:
-            _min_ver_row = await db.fetchrow("SELECT min_version FROM settings LIMIT 1")
-            _min_ver = _min_ver_row['min_version'] if _min_ver_row else None
-            _bot_ver = os.getenv("BOT_VERSION", "")
-            if _min_ver and _bot_ver:
-                if Version(_bot_ver) < Version(_min_ver):
-                    global _intentional_shutdown
-                    logger.warning("=" * 60)
-                    logger.warning("  Bot can't start: outdated version.")
-                    logger.warning(f"  Running: v{_bot_ver}  |  Required: v{_min_ver}")
-                    logger.warning("  Please update the bot, then press Ctrl+C to exit.")
-                    logger.warning("=" * 60)
-                    _intentional_shutdown = True
-                    while True:
-                        await asyncio.sleep(3600)
-        except Exception as e:
-            logger.warning(f"Note: Could not check min_version: {e}")
-
         db_size_gb = await _check_db_size()
 
         logger.info("Loading static cache...")
@@ -115,6 +103,11 @@ def start_bot(supabase_client, supabase_user_uuid: str, no_income: bool):
         events_task = bot.loop.create_task(run_background_tasks(bot, skip_income=no_income))
         events_task.add_done_callback(_log_task_crash("event queue worker"))
         bot._bg_tasks.append(events_task)
+        logger.info("Starting operator token refresh loop...")
+        import auth
+        refresh_task = bot.loop.create_task(auth.refresh_loop(logger))
+        refresh_task.add_done_callback(_log_task_crash("operator token refresh loop"))
+        bot._bg_tasks.append(refresh_task)
         if no_income:
             logger.warning("  Income processing DISABLED (--no-income flag)")
         logger.info("Loading commands...")
@@ -139,8 +132,11 @@ def start_bot(supabase_client, supabase_user_uuid: str, no_income: bool):
         start_dashboard()
         bot.loop.create_task(_dashboard_ping_loop(bot))
 
+        from services.terminal_commands import start as start_terminal_commands
+        start_terminal_commands(bot)
+
         logger.info("Bot is ready and operational.")
-        logger.info("Press Ctrl+C to stop the bot.")
+        logger.info("Press Ctrl+C to stop the bot, or type 'help' for terminal commands.")
 
     @bot.event
     async def on_command_error(ctx, error):
@@ -166,6 +162,10 @@ def start_bot(supabase_client, supabase_user_uuid: str, no_income: bool):
         logger.error("  BOT CRASHED")
         logger.error("=" * 60)
         logger.exception(f"  {type(e).__name__}: {e}")
+
+    if _terminal_shutdown_requested:
+        _intentional_shutdown = True
+        logger.info("Bot shutdown requested via terminal.")
 
 
 async def _check_db_size() -> float | None:

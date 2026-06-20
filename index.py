@@ -153,14 +153,26 @@ def main():
     if not auth.run_oauth(logger):
         sys.exit(1)
 
-    if not auth.verify_license():
+    if not auth.login_with_license_key():
         sys.exit(1)
+
+    assets = asyncio.run(auth.fetch_operator_assets())
+    if not assets or not assets.get("database_url"):
+        print("ERROR: Required operator assets unavailable. Contact administrator.")
+        print()
+        input("Press Enter to exit...")
+        sys.exit(1)
+
+    from database.db_manager import db
+    db.set_database_url(assets["database_url"])
+    if assets.get("firebase_api_key"):
+        os.environ["MAP_FIREBASE_API_KEY"] = assets["firebase_api_key"]
 
     from bot import start_bot, is_shutdown_intentional
 
     RESTART_DELAY = 30
     while True:
-        start_bot(supabase_client, auth.supabase_user_uuid, _no_income)
+        start_bot(supabase_client, auth.supabase_user_uuid, _no_income, assets)
         if is_shutdown_intentional():
             print()
             print("Goodbye.")
