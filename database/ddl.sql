@@ -346,17 +346,161 @@ INSERT INTO spirit_types (key, display_name, effect_type, fixed_value) VALUES
 ON CONFLICT (key) DO NOTHING;
 
 CREATE TABLE public.operators (
-  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
-  user_id uuid NOT NULL,
+  id           bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  discord_id   bigint NOT NULL,
   license_hash text NOT NULL,
-  salt text NOT NULL,
-  locked boolean DEFAULT false,
-  created_at timestamp with time zone DEFAULT now(),
-  player_id bigint,
+  locked       boolean NOT NULL DEFAULT false,
+  created_at   timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT operators_pkey PRIMARY KEY (id),
-  CONSTRAINT operators_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
-  CONSTRAINT operators_player_id_fkey FOREIGN KEY (player_id) REFERENCES public.users(id)
+  CONSTRAINT operators_discord_id_key UNIQUE (discord_id)
 );
+
+CREATE OR REPLACE FUNCTION public.enforce_operator_cap()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF (SELECT count(*) FROM public.operators) >= 10 THEN
+    RAISE EXCEPTION 'operator cap of 10 reached';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_operator_cap
+BEFORE INSERT ON public.operators
+FOR EACH ROW EXECUTE FUNCTION public.enforce_operator_cap();
+
+CREATE TABLE public.operator_refresh_tokens (
+  id          bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  operator_id bigint NOT NULL,
+  token_hash  text NOT NULL,
+  expires_at  timestamptz NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT operator_refresh_tokens_pkey PRIMARY KEY (id),
+  CONSTRAINT operator_refresh_tokens_operator_id_fkey
+      FOREIGN KEY (operator_id) REFERENCES public.operators(id) ON DELETE CASCADE,
+  CONSTRAINT operator_refresh_tokens_operator_id_key UNIQUE (operator_id),
+  CONSTRAINT operator_refresh_tokens_token_hash_key UNIQUE (token_hash)
+);
+
+CREATE INDEX idx_operator_refresh_tokens_expires_at
+  ON public.operator_refresh_tokens (expires_at);
+
+CREATE TABLE public.refresh_tokens (
+  id               bigint NOT NULL DEFAULT nextval('refresh_tokens_id_seq'::regclass),
+  token_hash       text NOT NULL UNIQUE,
+  family_id        uuid NOT NULL,
+  user_id          bigint NOT NULL,
+  discord_id       bigint NOT NULL,
+  issued_at        timestamp with time zone NOT NULL DEFAULT now(),
+  expires_at       timestamp with time zone NOT NULL,
+  revoked          boolean NOT NULL DEFAULT false,
+  revoked_at       timestamp with time zone,
+  discord_username text NOT NULL DEFAULT ''::text,
+  discord_avatar   text,
+  CONSTRAINT refresh_tokens_pkey PRIMARY KEY (id)
+);
+
+CREATE INDEX idx_refresh_tokens_expires_at ON public.refresh_tokens (expires_at);
+
+CREATE OR REPLACE FUNCTION public.purge_expired_refresh_tokens()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  DELETE FROM public.refresh_tokens WHERE expires_at < now();
+  RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER trg_purge_expired_refresh_tokens
+AFTER INSERT ON public.refresh_tokens
+FOR EACH STATEMENT EXECUTE FUNCTION public.purge_expired_refresh_tokens();
+
+CREATE TABLE public.operator_assets (
+  id               integer NOT NULL DEFAULT 1,
+  api_token        text,
+  bot_config       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  database_url     text,
+  firebase_api_key text,
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT operator_assets_pkey PRIMARY KEY (id),
+  CONSTRAINT operator_assets_singleton CHECK (id = 1)
+);
+
+GRANT USAGE ON SCHEMA public TO bot_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO bot_app;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO bot_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO bot_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO bot_app;
+
+CREATE OR REPLACE FUNCTION public.purge_expired_operator_refresh_tokens()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  DELETE FROM public.operator_refresh_tokens WHERE expires_at < now();
+  RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER trg_purge_expired_operator_refresh_tokens
+AFTER INSERT ON public.operator_refresh_tokens
+FOR EACH STATEMENT EXECUTE FUNCTION public.purge_expired_operator_refresh_tokens();
+
+CREATE OR REPLACE FUNCTION public.revoke_refresh_token_on_lock()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.locked = true AND OLD.locked = false THEN
+    DELETE FROM public.operator_refresh_tokens WHERE operator_id = NEW.id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_revoke_refresh_token_on_lock
+AFTER UPDATE OF locked ON public.operators
+FOR EACH ROW EXECUTE FUNCTION public.revoke_refresh_token_on_lock();
+
+CREATE OR REPLACE FUNCTION public.is_valid_operator_jwt()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.operators o
+    WHERE o.id = (auth.jwt() ->> 'operator_id')::bigint
+      AND (auth.jwt() ->> 'app_role') = 'authenticated_operator'
+      AND o.locked = false
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.rotate_operator_refresh_token(
+  p_old_hash text,
+  p_new_hash text,
+  p_new_expires_at timestamptz
+)
+RETURNS TABLE (operator_id bigint)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  UPDATE public.operator_refresh_tokens
+  SET token_hash = p_new_hash,
+      expires_at = p_new_expires_at,
+      created_at = now()
+  WHERE token_hash = p_old_hash AND expires_at > now()
+  RETURNING operator_refresh_tokens.operator_id;
+END;
+$$;
 
 CREATE TABLE public.pact_members (
   pact_id integer NOT NULL,
@@ -610,6 +754,8 @@ $$;
 
 ALTER TABLE public.users                   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.operators               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.operator_refresh_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.operator_assets         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.factions                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.worlds                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.world_factions          ENABLE ROW LEVEL SECURITY;
@@ -679,6 +825,10 @@ CREATE POLICY "players_read" ON public.users                FOR SELECT TO authen
 CREATE POLICY "players_read" ON public.games                FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_read" ON public.custom_user_messages FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_read" ON public.comets               FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
+
+CREATE POLICY operator_assets_select_any_operator ON public.operator_assets
+FOR SELECT TO authenticated, anon
+USING (public.is_valid_operator_jwt());
 
 
 CREATE POLICY "players_all" ON public.factions                FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);

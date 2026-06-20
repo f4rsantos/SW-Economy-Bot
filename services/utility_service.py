@@ -4,7 +4,7 @@ from database.cache_manager import cache_manager
 
 
 async def get_operator_for_player(player_id: int) -> Optional[dict]:
-    row = await db.fetchrow("SELECT id FROM operators WHERE player_id = $1 AND locked = false", player_id)
+    row = await db.fetchrow("SELECT id FROM operators WHERE discord_id = $1 AND locked = false", player_id)
     return dict(row) if row else None
 
 
@@ -126,7 +126,9 @@ async def recalc_fleet_cs_for_faction(faction_id: int) -> int:
 
 async def get_public_table_names_for_backup() -> list[str]:
     rows = await db.fetch(
-        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('auths', 'operators') ORDER BY tablename"
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+        "AND tablename NOT IN ('auths', 'operators', 'operator_refresh_tokens', 'operator_assets') "
+        "ORDER BY tablename"
     )
     return [r['tablename'] for r in rows]
 
