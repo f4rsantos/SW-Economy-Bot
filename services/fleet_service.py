@@ -274,7 +274,7 @@ async def list_debris_fleets(faction_id: Optional[int] = None, world_id: Optiona
 
 async def get_factory_info(world_id: int, faction_id: int, is_large: bool) -> tuple[int, int]:
     target_building = 'Mega Factory' if is_large else 'Factory'
-    capacity_per_level = 1000 if is_large else 300
+    capacity_per_level = 1000 if is_large else 200
 
     cap_row = await db.fetchrow("""
         SELECT COALESCE(SUM(
