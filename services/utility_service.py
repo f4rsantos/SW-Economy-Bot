@@ -3,8 +3,8 @@ from database.db_manager import db
 from database.cache_manager import cache_manager
 
 
-async def get_operator_for_player(player_id: int) -> Optional[dict]:
-    row = await db.fetchrow("SELECT id FROM operators WHERE discord_id = $1 AND locked = false", player_id)
+async def get_operator_for_player(discord_id: int) -> Optional[dict]:
+    row = await db.fetchrow("SELECT id FROM operators WHERE discord_id = $1 AND locked = false", discord_id)
     return dict(row) if row else None
 
 

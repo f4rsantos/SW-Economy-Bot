@@ -24,6 +24,21 @@ async def get_faction_building_count_actual(faction_id: int) -> int:
     return int(result['total_count']) if result else 0
 
 
+async def get_faction_building_count_split(faction_id: int) -> Tuple[int, int]:
+    query = """
+        SELECT
+            COALESCE(SUM(CASE WHEN b.name LIKE '%Factory%' THEN fwb.amount * fwb.level ELSE 0 END), 0) as factory_count,
+            COALESCE(SUM(CASE WHEN b.name LIKE '%Factory%' THEN 0 ELSE fwb.amount * fwb.level END), 0) as other_count
+        FROM faction_world_buildings fwb
+        JOIN buildings b ON fwb.building_id = b.id
+        WHERE fwb.faction_id = $1
+    """
+    result = await db.fetchrow(query, faction_id)
+    if not result:
+        return 0, 0
+    return int(result['factory_count']), int(result['other_count'])
+
+
 async def get_faction_building_count_weighted(faction_id: int) -> int:
     query = """
         SELECT
@@ -75,19 +90,25 @@ async def calculate_building_cap(faction_id: int) -> int:
 
 
 async def calculate_efficiency(faction_id: int) -> float:
-    building_count = await get_faction_building_count_unweighted(faction_id)
-    if building_count <= 450:
+    factory_count, other_count = await get_faction_building_count_split(faction_id)
+    building_count = factory_count + other_count
+
+    if building_count <= 500:
         return 1.0
-    elif building_count <= 600:
-        decline = (building_count - 450) * 0.001
-        return 1.0 - decline
-    else:
-        decline = (building_count - 600) * 0.001
-        linear_value = 0.85 - decline
-        if linear_value >= 0.10:
-            return linear_value
-        over = building_count - 1350
-        return max(0.05 + 0.05 * math.exp(-0.001 * over), 0.001)
+
+    other_free = min(other_count, 500)
+    other_over = other_count - other_free
+    factory_over = max(factory_count - (500 - other_free), 0)
+
+    decline = other_over * 0.001 + factory_over * 0.0005
+    linear_value = 1.0 - decline
+    if linear_value >= 0.10:
+        return linear_value
+
+    total_over = other_over + factory_over
+    avg_rate = decline / total_over if total_over else 0.001
+    over = (decline - 0.90) / avg_rate if avg_rate else 0
+    return max(0.05 + 0.05 * math.exp(-avg_rate * over), 0.001)
 
 
 async def get_building_breakdown(faction_id: int) -> Dict[str, int]:
