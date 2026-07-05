@@ -5,7 +5,7 @@ from utils.embeds import success_embed, error_embed
 from utils.faction_utils import get_faction, hex_to_int
 from utils.fleet_utils import get_vehicle_in_fleet
 from services.fleet_service import transfer_vehicle
-from services.validation_service import require_faction, require_unit
+from services.validation_service import require_faction, require_unit, require_vehicle
 
 
 @app_commands.command(name="transfer", description="Transfer vehicles between units")
@@ -15,7 +15,8 @@ from services.validation_service import require_faction, require_unit
     to_unit_id="Destination unit ID or name",
     vehicle_id="Vehicle display ID or name",
     amount="Number of vehicles to transfer",
-    target_faction="Target faction name (for inter-faction transfers)"
+    target_faction="Target faction name (for inter-faction transfers)",
+    vehicle_faction_origin="Faction that owns the vehicle design (if not the source faction)"
 )
 @require_access_level(0)
 async def transfer_vehicle_cmd(
@@ -25,7 +26,8 @@ async def transfer_vehicle_cmd(
     to_unit_id: str,
     vehicle_id: str,
     amount: int,
-    target_faction: str = None
+    target_faction: str = None,
+    vehicle_faction_origin: str = None
 ):
     await interaction.response.defer()
 
@@ -51,7 +53,13 @@ async def transfer_vehicle_cmd(
         await interaction.followup.send(embed=error_embed("Error", "Cannot transfer vehicles from debris units."))
         return
 
-    vehicle_data = await get_vehicle_in_fleet(vehicle_id, from_unit['id'])
+    origin_faction_id = None
+    if vehicle_faction_origin:
+        r_origin_faction = await require_faction(vehicle_faction_origin)
+        if not r_origin_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_origin_faction.error))
+        origin_faction_id = r_origin_faction.data['id']
+
+    vehicle_data = await get_vehicle_in_fleet(vehicle_id, from_unit['id'], origin_faction_id)
     if not vehicle_data:
         await interaction.followup.send(embed=error_embed("Error", f"Vehicle '{vehicle_id}' not found in source unit."))
         return
@@ -70,6 +78,10 @@ async def transfer_vehicle_cmd(
 
     if to_unit['status_name'].lower() == 'debris':
         await interaction.followup.send(embed=error_embed("Error", "Cannot transfer vehicles to debris units."))
+        return
+
+    if from_unit['position'] != to_unit['position']:
+        await interaction.followup.send(embed=error_embed("Error", f"Both units must be on the same world. Source is on {from_unit['world_name']}, destination is on {to_unit['world_name']}."))
         return
 
     try:

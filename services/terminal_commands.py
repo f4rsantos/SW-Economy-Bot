@@ -16,7 +16,7 @@ _pet_state: dict[int, dict] = {}
 _blackjack_credits: dict[int, int] = {}
 _blackjack_hands: dict[int, dict] = {}
 
-_DEFAULT_CREDITS = 100
+_DEFAULT_CREDITS = 1000
 
 _JOKE_API_URL = "https://v2.jokeapi.dev/joke/Programming,Miscellaneous?blacklistFlags=nsfw,racist,sexist,explicit,religious,political&safe-mode"
 

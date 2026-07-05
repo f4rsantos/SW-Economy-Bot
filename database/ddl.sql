@@ -172,10 +172,12 @@ CREATE TABLE public.factions (
   color text NOT NULL,
   leader text,
   flag text,
-  is_company boolean NOT NULL,
+  faction_type integer NOT NULL DEFAULT 0,
+  capital_world_id integer,
   leader_id bigint,
   CONSTRAINT factions_pkey PRIMARY KEY (id),
-  CONSTRAINT factions_leader_id_fkey FOREIGN KEY (leader_id) REFERENCES public.users(id)
+  CONSTRAINT factions_leader_id_fkey FOREIGN KEY (leader_id) REFERENCES public.users(id),
+  CONSTRAINT factions_capital_world_id_fkey FOREIGN KEY (capital_world_id) REFERENCES public.worlds(id)
 );
 
 CREATE TABLE public.fleet_status (
@@ -544,6 +546,7 @@ CREATE TABLE public.resource_transfers (
   intercepted_by_fleet_id integer,
   interception_time timestamp with time zone,
   interception_world_id integer,
+  escort_fleet_id integer,
   CONSTRAINT resource_transfers_pkey PRIMARY KEY (id),
   CONSTRAINT resource_transfers_status_id_fkey FOREIGN KEY (status_id) REFERENCES public.transfer_statuses(id),
   CONSTRAINT resource_transfers_from_world_id_fkey FOREIGN KEY (from_world_id) REFERENCES public.worlds(id),
@@ -552,7 +555,8 @@ CREATE TABLE public.resource_transfers (
   CONSTRAINT resource_transfers_from_faction_id_fkey FOREIGN KEY (from_faction_id) REFERENCES public.factions(id),
   CONSTRAINT resource_transfers_to_faction_id_fkey FOREIGN KEY (to_faction_id) REFERENCES public.factions(id),
   CONSTRAINT resource_transfers_intercepting_faction_id_fkey FOREIGN KEY (intercepting_faction_id) REFERENCES public.factions(id),
-  CONSTRAINT resource_transfers_intercepted_by_fleet_id_fkey FOREIGN KEY (intercepted_by_fleet_id) REFERENCES public.fleets(id)
+  CONSTRAINT resource_transfers_intercepted_by_fleet_id_fkey FOREIGN KEY (intercepted_by_fleet_id) REFERENCES public.fleets(id),
+  CONSTRAINT resource_transfers_escort_fleet_id_fkey FOREIGN KEY (escort_fleet_id) REFERENCES public.fleets(id)
 );
 
 CREATE TABLE public.transfer_statuses (
@@ -715,7 +719,8 @@ INSERT INTO fleet_status (name, description) VALUES
     ('blockading',  'Fleet is participating in a blockade'),
     ('travelling',  'Fleet is moving between worlds'),
     ('mothballed',  'Fleet is in long-term storage, consuming minimal resources'),
-    ('debris',      'Fleet is destroyed and cannot operate')
+    ('debris',      'Fleet is destroyed and cannot operate'),
+    ('FTL supply',  'Fleet is assigned to FTL logistics for off-system hex maintenance')
 ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO transfer_statuses (id, name) VALUES
@@ -730,6 +735,17 @@ INSERT INTO kanban_boards (name, position, color) VALUES
     ('QA',      3, 16753920),
     ('Done',    4, 65280)
 ON CONFLICT (name) DO NOTHING;
+
+DO $migrate_faction_type$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'factions' AND column_name = 'is_company') THEN
+        ALTER TABLE public.factions ADD COLUMN IF NOT EXISTS faction_type integer NOT NULL DEFAULT 0;
+        ALTER TABLE public.factions ADD COLUMN IF NOT EXISTS capital_world_id integer REFERENCES public.worlds(id);
+        UPDATE public.factions SET faction_type = CASE WHEN is_company THEN 1 ELSE 0 END;
+        ALTER TABLE public.factions DROP COLUMN is_company;
+    END IF;
+END
+$migrate_faction_type$;
 
 
 

@@ -10,7 +10,7 @@ MAX_SCRIPTS_PER_FACTION = 10
 
 async def get_active_scripts(faction_id: int) -> list[dict]:
     rows = await db.fetch(
-        """SELECT id, name, script_text, trigger_day, created_at, updated_at,
+        """SELECT id, name, script_text, trigger_day, trigger_type, created_at, updated_at,
                   last_run_at, run_count, is_active, created_by
            FROM faction_scripts
            WHERE faction_id = $1 AND is_active = TRUE
@@ -22,7 +22,7 @@ async def get_active_scripts(faction_id: int) -> list[dict]:
 
 async def get_script_by_name(faction_id: int, name: str) -> Optional[dict]:
     row = await db.fetchrow(
-        """SELECT id, name, script_text, trigger_day, created_at, updated_at,
+        """SELECT id, name, script_text, trigger_day, trigger_type, created_at, updated_at,
                   last_run_at, run_count, is_active, created_by
            FROM faction_scripts
            WHERE faction_id = $1 AND LOWER(name) = LOWER($2) AND is_active = TRUE""",
@@ -45,7 +45,7 @@ async def get_manual_script_by_name(faction_id: int, name: str) -> Optional[dict
 
 async def get_script_by_id(script_id: int, faction_id: int) -> Optional[dict]:
     row = await db.fetchrow(
-        """SELECT id, name, script_text, trigger_day, created_at, updated_at,
+        """SELECT id, name, script_text, trigger_day, trigger_type, created_at, updated_at,
                   last_run_at, run_count, is_active, created_by
            FROM faction_scripts
            WHERE id = $1 AND faction_id = $2""",
@@ -96,17 +96,18 @@ async def update_script(
     faction_id: int,
     script_text: str,
     trigger_day: Optional[str],
+    trigger_type: Optional[str] = None,
 ) -> dict:
     if len(script_text) > 4000:
         raise ValueError("Script exceeds 4000 character limit")
 
     row = await db.fetchrow(
         """UPDATE faction_scripts
-           SET script_text = $1, trigger_day = $2, updated_at = NOW()
-           WHERE id = $3 AND faction_id = $4 AND is_active = TRUE
-           RETURNING id, name, script_text, trigger_day, created_at, updated_at,
+           SET script_text = $1, trigger_day = $2, trigger_type = $3, updated_at = NOW()
+           WHERE id = $4 AND faction_id = $5 AND is_active = TRUE
+           RETURNING id, name, script_text, trigger_day, trigger_type, created_at, updated_at,
                      last_run_at, run_count, is_active, created_by""",
-        script_text, trigger_day, script_id, faction_id,
+        script_text, trigger_day, trigger_type, script_id, faction_id,
     )
     if not row:
         raise ValueError("Script not found or does not belong to your faction")
@@ -125,7 +126,7 @@ async def get_scripts_for_income_day(income_weekday_name: str) -> list[dict]:
     """Return active scripts that should run on income day (trigger_day NULL or matching the income weekday)."""
     rows = await db.fetch(
         """SELECT fs.id, fs.faction_id, fs.script_text, fs.trigger_day,
-                  f.is_company
+                  (f.faction_type = 1) as is_company
            FROM faction_scripts fs
            JOIN factions f ON fs.faction_id = f.id
            WHERE fs.is_active = TRUE
@@ -140,7 +141,7 @@ async def get_scripts_for_scheduled_day(today: str, current_time: datetime) -> l
     week_ago = current_time - timedelta(days=7)
     rows = await db.fetch(
         """SELECT fs.id, fs.faction_id, fs.script_text, fs.trigger_day,
-                  f.is_company
+                  (f.faction_type = 1) as is_company
            FROM faction_scripts fs
            JOIN factions f ON fs.faction_id = f.id
            WHERE fs.is_active = TRUE

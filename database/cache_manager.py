@@ -13,7 +13,7 @@ class CacheManager:
     async def load_full_cache(self):
         self.cache['factions'] = {
             row['id']: {**dict(row), 'display_name': row['formal_name'] or row['name']}
-            for row in await db.fetch("SELECT * FROM factions")
+            for row in await db.fetch("SELECT *, (faction_type = 1) as is_company, (faction_type = 2) as is_pirate FROM factions")
         }
         self.users = {row['id']: dict(row) for row in await db.fetch("SELECT * FROM users")}
         self.cache['players'] = self.users

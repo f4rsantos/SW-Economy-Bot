@@ -22,7 +22,7 @@ async def script_info(interaction: discord.Interaction, faction: str, name: str)
         await interaction.followup.send(embed=error_embed(f"No active script named '{name}'."))
         return
 
-    runs_on = script["trigger_day"] or "Income Day"
+    runs_on = "Manual Trigger" if script["trigger_type"] == "manual" else (script["trigger_day"] or "Income Day")
     last_run = f"<t:{int(script['last_run_at'].timestamp())}:F>" if script["last_run_at"] else "Never"
     created = f"<t:{int(script['created_at'].timestamp())}:F>"
     updated = f"<t:{int(script['updated_at'].timestamp())}:F>"

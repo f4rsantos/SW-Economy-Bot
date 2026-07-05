@@ -40,7 +40,7 @@ def _calculate_building_cost(base_costs: dict, current_actual: int, amount: int,
     return total
 
 
-def _calculate_refund(base_costs: dict, current_actual: int, amount: int, level: int, week: bool, building_id: int) -> dict:
+def _calculate_refund(base_costs: dict, scaling_count: int, amount: int, level: int, week: bool, building_id: int) -> dict:
     refund_rate = 1.0 if week else 0.3
     scarcity_rate = 0.02
     upgrade_factor = 1.0
@@ -49,7 +49,7 @@ def _calculate_refund(base_costs: dict, current_actual: int, amount: int, level:
     for resource, base in base_costs.items():
         refund = 0
         for i in range(amount):
-            idx = current_actual - 1 - i
+            idx = max(0, scaling_count - 1 - i)
             refund += (base * (1 + scarcity_rate * idx) + base * sum_n(level - 1) * upgrade_factor) * refund_rate
         total[resource] = int(refund)
     return total
@@ -99,6 +99,23 @@ async def get_all_building_cost_rows() -> list:
         JOIN resources r ON bc.resource_id = r.id ORDER BY bc.building_id, r.name
     """)
     return [dict(r) for r in rows]
+
+
+async def get_faction_building_ids_at_level(faction_id: int, level: int) -> set:
+    rows = await db.fetch(
+        "SELECT DISTINCT building_id FROM faction_world_buildings WHERE faction_id = $1 AND level = $2",
+        faction_id, level
+    )
+    return {r['building_id'] for r in rows}
+
+
+async def get_building_ids_supporting_level(level: int) -> set:
+    rows = await db.fetch("""
+        SELECT building_id FROM buildings_generators WHERE max_levels >= $1
+        UNION
+        SELECT building_id FROM buildings_storages WHERE max_levels >= $1
+    """, level)
+    return {r['building_id'] for r in rows}
 
 
 async def get_faction_mega_factory_count(faction_id: int) -> int:
@@ -204,7 +221,8 @@ async def refund_building(faction_id: int, world_id: int, building_id: int, amou
         refunds = _calculate_mega_factory_refund(base_costs, current_mega, amount, level, week)
     else:
         current_actual = await get_faction_building_count_actual(faction_id)
-        refunds = _calculate_refund(base_costs, current_actual, amount, level, week, building_id)
+        scaling_count = max(0, current_actual - 27)
+        refunds = _calculate_refund(base_costs, scaling_count, amount, level, week, building_id)
     try:
         await db.execute(
             "SELECT sp_refund_building($1, $2, $3, $4, $5, $6::jsonb)",

@@ -17,6 +17,7 @@ async def fetch_fleet_cs_by_status(faction_id: int, status_ids: dict) -> Dict:
     defense_id    = status_ids.get('defense', -1)
     patrol_id     = status_ids.get('patrol', -1)
     travelling_id = status_ids.get('travelling', -1)
+    ftl_supply_id = status_ids.get('ftl supply', -1)
     battle_id     = status_ids.get('battle', -1)
     mothballed_id = status_ids.get('mothballed', -1)
     debris_id     = status_ids.get('debris', -1)
@@ -24,7 +25,7 @@ async def fetch_fleet_cs_by_status(faction_id: int, status_ids: dict) -> Dict:
     query = f"""
         SELECT
             COALESCE(SUM(CASE WHEN status_id = {idle_id} THEN total_cs ELSE 0 END), 0) as idle_cs,
-            COALESCE(SUM(CASE WHEN status_id IN ({defense_id}, {patrol_id}, {travelling_id}) THEN total_cs ELSE 0 END), 0) as defense_patrol_cs,
+            COALESCE(SUM(CASE WHEN status_id IN ({defense_id}, {patrol_id}, {travelling_id}, {ftl_supply_id}) THEN total_cs ELSE 0 END), 0) as defense_patrol_cs,
             COALESCE(SUM(CASE WHEN status_id = {battle_id} THEN total_cs ELSE 0 END), 0) as battle_cs,
             COALESCE(SUM(CASE WHEN status_id = {mothballed_id} THEN total_cs ELSE 0 END), 0) as mothballed_cs
         FROM fleets
@@ -192,7 +193,7 @@ async def fetch_total_army(faction_id: int) -> int:
 
 
 async def fetch_faction_flags(faction_id: int) -> Dict:
-    return await db.fetchrow("SELECT is_company FROM factions WHERE id = $1", faction_id)
+    return await db.fetchrow("SELECT faction_type, capital_world_id, (faction_type = 1) as is_company FROM factions WHERE id = $1", faction_id)
 
 
 async def fetch_hex_count(faction_id: int) -> int:
@@ -201,6 +202,33 @@ async def fetch_hex_count(faction_id: int) -> int:
         FROM world_factions WHERE faction_id = $1
     """, faction_id)
     return int(result['total_hexes'] or 0)
+
+
+async def fetch_weighted_hex_count(faction_id: int) -> int:
+    capital_row = await db.fetchrow("SELECT capital_world_id FROM factions WHERE id = $1", faction_id)
+    capital_world_id = capital_row['capital_world_id'] if capital_row else None
+    if capital_world_id is None:
+        return await fetch_hex_count(faction_id)
+    result = await db.fetchrow("""
+        WITH RECURSIVE capital_root AS (
+            SELECT id, orbit_of FROM worlds WHERE id = $2
+            UNION ALL
+            SELECT w.id, w.orbit_of FROM worlds w INNER JOIN capital_root cr ON w.id = cr.orbit_of
+        ),
+        root AS (SELECT id FROM capital_root WHERE orbit_of IS NULL LIMIT 1),
+        capital_system AS (
+            SELECT id FROM worlds WHERE id = (SELECT id FROM root)
+            UNION ALL
+            SELECT w.id FROM worlds w INNER JOIN capital_system cs ON w.orbit_of = cs.id
+        )
+        SELECT COALESCE(SUM(
+            CASE WHEN wf.world_id IN (SELECT id FROM capital_system) THEN wf.territory
+                 ELSE wf.territory * 5 END
+        ), 0) as weighted_hexes
+        FROM world_factions wf
+        WHERE wf.faction_id = $1
+    """, faction_id, capital_world_id)
+    return int(result['weighted_hexes'] or 0)
 
 
 async def fetch_current_influence(faction_id: int) -> int:

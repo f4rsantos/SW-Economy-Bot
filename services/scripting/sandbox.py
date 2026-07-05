@@ -1,9 +1,3 @@
-\
-\
-\
-\
-\
-\
 from __future__ import annotations
 import math
 from datetime import datetime, timezone, timedelta
@@ -28,6 +22,7 @@ from services.fleet_service import (
     get_vehicle_length,
     get_vehicle_cost_rows,
 )
+from services.vehicle_service import build_days
 from services.building_service import buy_building, get_building, get_building_by_name
 from services.transfer_service import upgrade_buildings
 from services.recruit_service import create_recruitment, parse_irp_time
@@ -35,11 +30,12 @@ from utils.faction_utils import get_faction_by_name
 
 
 class FALSandbox:
-    def __init__(self, faction_id: int, is_company: bool = False, dry_run: bool = False):
+    def __init__(self, faction_id: int, is_company: bool = False, dry_run: bool = False, current_time: Optional[datetime] = None):
         assert isinstance(faction_id, int), "faction_id must be an integer"
         self._faction_id = faction_id
         self._is_company = is_company
         self._dry_run = dry_run
+        self._current_time = current_time or datetime.now(timezone.utc)
 
     @property
     def faction_id(self) -> int:
@@ -116,9 +112,8 @@ class FALSandbox:
         return await check_blockade(world_id, self._faction_id)
 
     async def get_current_day_name(self) -> str:
-        """Return current UTC weekday as canonical day name e.g. MONDAY."""
         days = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]
-        return days[datetime.now(timezone.utc).weekday()]
+        return days[self._current_time.weekday()]
 
     async def resolve_world(self, ref) -> dict:
         """Resolve a world name (str) or ID (int) to a world dict. Raises ValueError if not found."""
@@ -304,11 +299,6 @@ class FALSandbox:
         if have < amount:
             raise ValueError(f"Insufficient {resource_name} at {from_world_name}: need {amount:,}, have {have:,}")
 
-        if await check_blockade(from_world_id, self._faction_id):
-            raise ValueError(f"{from_world_name} is blockaded and cannot send transfers")
-        if await check_blockade(to_world_id, to_faction_id):
-            raise ValueError(f"Destination {to_world_name} is blockaded and cannot receive transfers")
-
         transfers = [{"resource": resource_name, "amount": amount}]
         resource_map = {resource_name: resource_id}
         result = await execute_physical_transfer(
@@ -317,6 +307,23 @@ class FALSandbox:
             from_world_name, to_world_name,
             transfers, resource_map, current_time,
         )
+
+        if from_world_id != to_world_id:
+            from services.blockade_service import get_blockading_fleet_for_world
+            from services.transfer_service import intercept_transfer
+
+            interception_world_id = from_world_id
+            intercepting_fleet_id = await get_blockading_fleet_for_world(from_world_id, self._faction_id)
+            if intercepting_fleet_id is None:
+                interception_world_id = to_world_id
+                intercepting_fleet_id = await get_blockading_fleet_for_world(to_world_id, to_faction_id)
+            if intercepting_fleet_id is not None:
+                try:
+                    await intercept_transfer(result['transfer_id'], intercepting_fleet_id, interception_world_id)
+                    return f"Transfer {result['transfer_id']} was intercepted by a blockade"
+                except ValueError:
+                    pass
+
         return f"Transfer {result['transfer_id']} in transit, arrives {result['arrival_time'].isoformat()}"
 
     async def do_buy_building(
@@ -406,17 +413,18 @@ class FALSandbox:
         total_capacity, used_space = await get_factory_info(world_id, self._faction_id, is_large)
         available = total_capacity - used_space
 
+        base_days = build_days(vehicle_length)
         if total_factory_space > available:
             if is_large and total_capacity > 0:
-                weeks_needed = math.ceil(total_factory_space / total_capacity)
+                shortfall_multiplier = math.ceil(total_factory_space / total_capacity)
             else:
                 raise ValueError(
                     f"Insufficient factory space: need {total_factory_space:,.0f}m, have {available:,.0f}m"
                 )
         else:
-            weeks_needed = 1
+            shortfall_multiplier = 1
 
-        completion = current_time + timedelta(weeks=weeks_needed)
+        completion = current_time + timedelta(days=base_days * shortfall_multiplier)
         costs_list = [{"name": c["name"], "amount": c["amount"]} for c in costs]
 
         if self._dry_run:

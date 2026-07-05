@@ -195,9 +195,10 @@ CREATE OR REPLACE FUNCTION sp_create_transfer(
     p_to_faction_id     INT,
     p_from_world_id     INT,
     p_to_world_id       INT,
-    p_resources         JSONB,     
+    p_resources         JSONB,
     p_start_time        TIMESTAMPTZ,
-    p_arrival_time      TIMESTAMPTZ
+    p_arrival_time      TIMESTAMPTZ,
+    p_escort_fleet_id   INT DEFAULT NULL
 ) RETURNS INT LANGUAGE plpgsql AS $$
 DECLARE
     v_res           JSONB;
@@ -225,10 +226,10 @@ BEGIN
     END LOOP;
 
     INSERT INTO resource_transfers
-        (from_faction_id, to_faction_id, from_world_id, to_world_id, status_id, start_time, arrival_time)
+        (from_faction_id, to_faction_id, from_world_id, to_world_id, status_id, start_time, arrival_time, escort_fleet_id)
     VALUES
         (p_from_faction_id, p_to_faction_id, p_from_world_id, p_to_world_id,
-         (SELECT id FROM transfer_statuses WHERE name = 'in_transit'), p_start_time, p_arrival_time)
+         (SELECT id FROM transfer_statuses WHERE name = 'in_transit'), p_start_time, p_arrival_time, p_escort_fleet_id)
     RETURNING id INTO v_transfer_id;
 
     FOR v_res IN SELECT * FROM jsonb_array_elements(p_resources)
@@ -274,7 +275,8 @@ $$;
 
 CREATE OR REPLACE FUNCTION sp_intercept_transfer(
     p_transfer_id   INT,
-    p_fleet_id      INT
+    p_fleet_id      INT,
+    p_world_id      INT
 ) RETURNS VOID LANGUAGE plpgsql AS $$
 BEGIN
     IF NOT EXISTS (
@@ -288,7 +290,9 @@ BEGIN
     UPDATE resource_transfers
     SET status_id = (SELECT id FROM transfer_statuses WHERE name = 'intercepted'),
         intercepted_by_fleet_id = p_fleet_id,
-        intercepting_faction_id = (SELECT faction_id FROM fleets WHERE id = p_fleet_id)
+        intercepting_faction_id = (SELECT faction_id FROM fleets WHERE id = p_fleet_id),
+        interception_world_id = p_world_id,
+        interception_time = CURRENT_TIMESTAMP
     WHERE id = p_transfer_id;
 END;
 $$;
@@ -310,6 +314,10 @@ BEGIN
         RAISE EXCEPTION 'TRANSFER_NOT_INTERCEPTED: Transfer #% is not intercepted', p_transfer_id;
     END IF;
 
+    INSERT INTO world_factions (world_id, faction_id, territory)
+    VALUES (p_world_id, p_faction_id, 0)
+    ON CONFLICT (world_id, faction_id) DO NOTHING;
+
     FOR v_res IN SELECT resource_id, amount FROM transfer_resources WHERE transfer_id = p_transfer_id
     LOOP
         INSERT INTO local_treasury (faction_id, world_id, resource_id, amount)
@@ -317,6 +325,24 @@ BEGIN
         ON CONFLICT (faction_id, world_id, resource_id)
         DO UPDATE SET amount = local_treasury.amount + v_res.amount;
     END LOOP;
+
+    DELETE FROM transfer_resources WHERE transfer_id = p_transfer_id;
+    DELETE FROM resource_transfers WHERE id = p_transfer_id;
+END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION sp_destroy_transfer(
+    p_transfer_id   INT
+) RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM resource_transfers rt
+        JOIN transfer_statuses ts ON rt.status_id = ts.id
+        WHERE rt.id = p_transfer_id AND ts.name = 'intercepted'
+    ) THEN
+        RAISE EXCEPTION 'TRANSFER_NOT_INTERCEPTED: Transfer #% is not intercepted', p_transfer_id;
+    END IF;
 
     DELETE FROM transfer_resources WHERE transfer_id = p_transfer_id;
     DELETE FROM resource_transfers WHERE id = p_transfer_id;
@@ -648,7 +674,7 @@ BEGIN
         RAISE EXCEPTION 'FLEET_NOT_FOUND: Fleet #% does not exist', p_fleet_id;
     END IF;
 
-    IF LOWER(v_current_name) NOT IN ('idle', 'defence', 'defense', 'patrol', 'blockading') THEN
+    IF LOWER(v_current_name) NOT IN ('idle', 'defence', 'defense', 'patrol', 'blockading', 'ftl supply') THEN
         RAISE EXCEPTION 'FLEET_INVALID_STATUS: Fleet cannot move while status is %', v_current_name;
     END IF;
 
@@ -1822,6 +1848,78 @@ BEGIN
 
             UPDATE faction_treasury SET amount = amount - v_total
             WHERE faction_id = p_faction_id AND resource_id = v_res_id;
+        END IF;
+    END LOOP;
+
+    INSERT INTO vehicle_construction (world_id, fleet_id, vehicle_id, quantity, factory_space_used, completion_date)
+    VALUES (p_world_id, p_fleet_id, p_vehicle_id, p_amount, p_factory_space, p_completion)
+    RETURNING id INTO v_order_id;
+
+    RETURN v_order_id;
+END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION sp_refit_vehicle(
+    p_faction_id        INT,
+    p_fleet_id          INT,
+    p_vehicle_id        INT,
+    p_amount            INT,
+    p_world_id          INT,
+    p_factory_space     BIGINT,
+    p_completion        TIMESTAMPTZ,
+    p_cost_deltas       JSONB
+) RETURNS INT LANGUAGE plpgsql AS $$
+DECLARE
+    v_order_id  INT;
+    r           JSONB;
+    v_res_id    INT;
+    v_name      TEXT;
+    v_total     BIGINT;
+    v_current   BIGINT;
+    LOCAL_RES   CONSTANT TEXT[] := ARRAY['CM','EL','CS','U-CM','U-EL','U-CS','Population'];
+BEGIN
+    PERFORM sp_remove_vehicle_from_fleet(p_fleet_id, p_vehicle_id, p_amount);
+
+    FOR r IN SELECT * FROM jsonb_array_elements(p_cost_deltas)
+    LOOP
+        v_name := r->>'name';
+        v_total := (r->>'amount')::BIGINT * p_amount;
+        IF v_total = 0 THEN
+            CONTINUE;
+        END IF;
+
+        SELECT id INTO v_res_id FROM resources WHERE name = v_name;
+        IF v_res_id IS NULL THEN
+            RAISE EXCEPTION 'RESOURCE_NOT_FOUND: Unknown resource %', v_name;
+        END IF;
+
+        IF v_total > 0 THEN
+            IF v_name = ANY(LOCAL_RES) THEN
+                SELECT COALESCE(amount, 0) INTO v_current
+                FROM local_treasury
+                WHERE faction_id = p_faction_id AND world_id = p_world_id AND resource_id = v_res_id;
+                IF COALESCE(v_current, 0) < v_total THEN
+                    RAISE EXCEPTION 'RESOURCE_INSUFFICIENT: Insufficient % — need %, have %',
+                        v_name, v_total, COALESCE(v_current, 0);
+                END IF;
+                UPDATE local_treasury SET amount = amount - v_total
+                WHERE faction_id = p_faction_id AND world_id = p_world_id AND resource_id = v_res_id;
+            ELSE
+                SELECT COALESCE(amount, 0) INTO v_current
+                FROM faction_treasury WHERE faction_id = p_faction_id AND resource_id = v_res_id;
+                IF COALESCE(v_current, 0) < v_total THEN
+                    RAISE EXCEPTION 'RESOURCE_INSUFFICIENT: Insufficient % — need %, have %',
+                        v_name, v_total, COALESCE(v_current, 0);
+                END IF;
+                UPDATE faction_treasury SET amount = amount - v_total
+                WHERE faction_id = p_faction_id AND resource_id = v_res_id;
+            END IF;
+        ELSE
+            PERFORM sp_add_resources(
+                p_faction_id, p_world_id,
+                jsonb_build_array(jsonb_build_object('name', v_name, 'amount', -v_total))
+            );
         END IF;
     END LOOP;
 

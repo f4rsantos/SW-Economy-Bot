@@ -5,7 +5,7 @@ from services.scripting.parser import parse
 from services.scripting.type_checker import check as type_check
 from services.scripting.errors import FALSyntaxError
 from services.scripting.script_service import get_script_by_name, update_script
-from utils.scripting_helpers import resolve_faction_with_access, trigger_day_from_ast
+from utils.scripting_helpers import resolve_faction_with_access, trigger_day_from_ast, trigger_type_from_ast
 
 
 class ScriptEditModal(discord.ui.Modal, title="Edit Faction Script"):
@@ -51,6 +51,7 @@ class ScriptEditModal(discord.ui.Modal, title="Edit Faction Script"):
             return
 
         trigger_day = trigger_day_from_ast(ast)
+        trigger_type = trigger_type_from_ast(ast)
 
         try:
             await update_script(
@@ -58,12 +59,13 @@ class ScriptEditModal(discord.ui.Modal, title="Edit Faction Script"):
                 faction_id=faction_data["id"],
                 script_text=text,
                 trigger_day=trigger_day,
+                trigger_type=trigger_type,
             )
         except ValueError as e:
             await interaction.followup.send(embed=error_embed(str(e)))
             return
 
-        runs_on = trigger_day or "Income Day"
+        runs_on = "Manual Trigger" if trigger_type == "manual" else (trigger_day or "Income Day")
         embed = success_embed(
             title="Script Updated",
             description=f"Script **{script['name']}** updated. Runs on: **{runs_on}**",

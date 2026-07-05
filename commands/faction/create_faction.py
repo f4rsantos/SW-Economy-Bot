@@ -9,6 +9,16 @@ from database.db_manager import db
 from database.cache_manager import cache_manager
 from services.map_service import get_world, get_world_by_id
 from services.faction_service import create_faction_in_db, check_world_space
+from utils.faction_utils import FACTION_TYPE_LABELS, FACTION_TYPE_NATION, FACTION_TYPE_COMPANY, FACTION_TYPE_PIRATE
+
+
+def _parse_faction_type(value: Optional[str]) -> int:
+    v = (value or "").strip().lower()
+    if v in ("company", "1"):
+        return FACTION_TYPE_COMPANY
+    if v in ("pirate", "2"):
+        return FACTION_TYPE_PIRATE
+    return FACTION_TYPE_NATION
 
 
 def _normalize_color(color: Optional[str]) -> str:
@@ -55,15 +65,15 @@ async def _assign_roles(guild: discord.Guild, leader: discord.Member, faction, c
     return results
 
 
-def _build_success_embed(faction, leader_name: str, leader: discord.Member, color: str, is_company: bool, flag: str, starting_world_id) -> discord.Embed:
+def _build_success_embed(faction, leader_name: str, leader: discord.Member, color: str, faction_type: int, flag: str, starting_world_id) -> discord.Embed:
     embed = success_embed(title="Faction Created", description=f"**{faction['formal_name']}** has been established!")
     embed.color = int(color.replace('#', ''), 16)
     embed.add_field(name="Name", value=faction['name'], inline=True)
     embed.add_field(name="Leader", value=f"{leader_name} ({leader.mention})", inline=True)
     embed.add_field(name="Color", value=color, inline=True)
     embed.add_field(name="Flag", value=flag if flag else "None", inline=True)
-    embed.add_field(name="Type", value="Company" if is_company else "Faction", inline=True)
-    if starting_world_id and not is_company:
+    embed.add_field(name="Type", value=FACTION_TYPE_LABELS.get(faction_type, "Nation"), inline=True)
+    if starting_world_id and faction_type == FACTION_TYPE_NATION:
         embed.add_field(name="Starting Territory", value="50 hexes", inline=True)
     return embed
 
@@ -73,7 +83,7 @@ class FactionSetupModal(discord.ui.Modal, title="Faction Setup - Basic Info"):
     starting_world_input = discord.ui.TextInput(label="Starting World Name", placeholder="Enter World Name", required=True, max_length=50)
     color_input = discord.ui.TextInput(label="Faction Color", placeholder="Hex color code (e.g., #ff0000)", required=False, max_length=7, default="#ffffff")
     flag_input = discord.ui.TextInput(label="Flag URL/Emoji", placeholder="Flag emoji or image URL", required=False, max_length=200)
-    is_company_input = discord.ui.TextInput(label="Is Company?", placeholder="Type 'yes' for company", required=False, max_length=3, default="no")
+    faction_type_input = discord.ui.TextInput(label="Faction Type", placeholder="nation, company, or pirate", required=False, max_length=10, default="nation")
 
     def __init__(self, leader_user: discord.Member):
         super().__init__()
@@ -100,7 +110,7 @@ class FactionSetupModal(discord.ui.Modal, title="Faction Setup - Basic Info"):
             return
 
         flag = self.flag_input.value.strip() if self.flag_input.value.strip().lower() != "skip" else ""
-        is_company = self.is_company_input.value.strip().lower() in ["yes", "y", "true", "1"]
+        faction_type = _parse_faction_type(self.faction_type_input.value)
         starting_world_id = world_row['id']
         leader_name = self.leader_user.display_name
 
@@ -118,10 +128,10 @@ class FactionSetupModal(discord.ui.Modal, title="Faction Setup - Basic Info"):
                     if not user_check:
                         await interaction.response.send_message(embed=error_embed("Leader Not Registered", f"{self.leader_user.mention} is not registered."), ephemeral=True)
                         return
-                    faction = await create_faction_in_db(conn, name, name, color, leader_name, flag, self.leader_user.id, is_company, starting_world_id)
+                    faction = await create_faction_in_db(conn, name, name, color, leader_name, flag, self.leader_user.id, faction_type, starting_world_id)
 
             cache_manager.cache.setdefault('factions', {})[faction['id']] = dict(faction)
-            embed = _build_success_embed(faction, leader_name, self.leader_user, color, is_company, flag, starting_world_id)
+            embed = _build_success_embed(faction, leader_name, self.leader_user, color, faction_type, flag, starting_world_id)
             if interaction.guild:
                 roles = await _assign_roles(interaction.guild, self.leader_user, faction, color)
                 if roles:
@@ -151,7 +161,7 @@ class SetupMethodView(OwnerOnlyView):
     leader_name="Leader's display name (for quick setup)",
     color="Hex color code (for quick setup)",
     flag="Flag emoji or URL (for quick setup)",
-    is_company="Is this a company? (for quick setup)",
+    faction_type="Faction type: nation, company, or pirate (for quick setup)",
     starting_world="Starting world ID or name for territory (optional)"
 )
 @require_access_level(4)
@@ -163,9 +173,10 @@ async def create_faction(
     leader_name: Optional[str] = None,
     color: Optional[str] = None,
     flag: Optional[str] = None,
-    is_company: Optional[bool] = False,
+    faction_type: Optional[str] = "nation",
     starting_world: Optional[str] = None
 ):
+    ftype = _parse_faction_type(faction_type)
     if name is None:
         starting_world_id = None
         if starting_world:
@@ -241,10 +252,10 @@ async def create_faction(
                 if not user_check:
                     await interaction.followup.send(embed=error_embed("Leader Not Registered", f"{leader.mention} is not registered in the bot."))
                     return
-                faction = await create_faction_in_db(conn, name, formal_name, color, leader_name, flag, leader.id, is_company, starting_world_id)
+                faction = await create_faction_in_db(conn, name, formal_name, color, leader_name, flag, leader.id, ftype, starting_world_id)
 
         cache_manager.cache.setdefault('factions', {})[faction['id']] = dict(faction)
-        embed = _build_success_embed(faction, leader_name, leader, color, is_company, flag, starting_world_id)
+        embed = _build_success_embed(faction, leader_name, leader, color, ftype, flag, starting_world_id)
         if interaction.guild:
             roles = await _assign_roles(interaction.guild, leader, faction, color)
             if roles:

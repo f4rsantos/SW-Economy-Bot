@@ -7,12 +7,12 @@ from database.cache_manager import cache_manager
 async def list_factions(long_sort: bool = False) -> list:
     if long_sort:
         rows = await db.fetch("""
-            SELECT id, name, formal_name, COALESCE(formal_name, name) as display_name, color, leader, is_company
+            SELECT id, name, formal_name, COALESCE(formal_name, name) as display_name, color, leader, faction_type, (faction_type = 1) as is_company, (faction_type = 2) as is_pirate
             FROM factions ORDER BY LENGTH(COALESCE(formal_name, name)) DESC, name ASC
         """)
     else:
         rows = await db.fetch("""
-            SELECT id, name, formal_name, COALESCE(formal_name, name) as display_name, color, leader, is_company
+            SELECT id, name, formal_name, COALESCE(formal_name, name) as display_name, color, leader, faction_type, (faction_type = 1) as is_company, (faction_type = 2) as is_pirate
             FROM factions ORDER BY name ASC
         """)
     return [dict(r) for r in rows]
@@ -64,10 +64,15 @@ async def set_leader(faction_id: int, user_id: int):
 
 
 async def update_faction_details(faction_id: int, color: Optional[str], leader_treatment: Optional[str],
-                                 formal_name: Optional[str], flag: Optional[str]) -> dict:
+                                 formal_name: Optional[str], flag: Optional[str],
+                                 capital_world_id: Optional[int] = None) -> dict:
     updates = []
     values = []
     param_count = 1
+    if capital_world_id is not None:
+        updates.append(f"capital_world_id = ${param_count}")
+        values.append(capital_world_id)
+        param_count += 1
     if color:
         updates.append(f"color = ${param_count}")
         values.append(color)
@@ -196,16 +201,19 @@ async def merge_aux(from_faction_id: int, to_faction_id: int) -> dict:
 
 
 async def create_faction_in_db(conn, name: str, formal_name: str, color: str, leader_name: str,
-                               flag: str, leader_id: int, is_company: bool, starting_world_id: Optional[int]) -> dict:
+                               flag: str, leader_id: int, faction_type: int, starting_world_id: Optional[int]) -> dict:
+    is_company = faction_type == 1
     faction = await conn.fetchrow("""
-        INSERT INTO factions (name, formal_name, color, leader, flag, leader_id, is_company)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, name, formal_name, color, leader, flag, leader_id, is_company
-    """, name, formal_name, color, leader_name, flag, leader_id, is_company)
+        INSERT INTO factions (name, formal_name, color, leader, flag, leader_id, faction_type, capital_world_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id, name, formal_name, color, leader, flag, leader_id, faction_type,
+                  capital_world_id, (faction_type = 1) as is_company, (faction_type = 2) as is_pirate
+    """, name, formal_name, color, leader_name, flag, leader_id, faction_type,
+         starting_world_id if faction_type == 0 else None)
     if starting_world_id and not is_company:
         await conn.execute("INSERT INTO world_factions (world_id, faction_id, territory) VALUES ($1, $2, 50)", starting_world_id, faction['id'])
     if starting_world_id:
-        await _initialize_faction_assets(conn, faction['id'], starting_world_id, faction['is_company'])
+        await _initialize_faction_assets(conn, faction['id'], starting_world_id, is_company)
     return dict(faction)
 
 
