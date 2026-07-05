@@ -98,7 +98,7 @@ async def get_factory_capacity(faction_id: int, world_id: Optional[int] = None) 
     if world_id is not None:
         row = await db.fetchrow(
             """
-            SELECT COALESCE(SUM(fwb.amount * fwb.level * 100), 0) as c FROM faction_world_buildings fwb
+            SELECT COALESCE(SUM(fwb.amount * fwb.level * 200), 0) as c FROM faction_world_buildings fwb
             JOIN buildings b ON fwb.building_id = b.id
             WHERE fwb.faction_id = $1 AND fwb.world_id = $2 AND b.name LIKE '%Factory%' AND b.name != 'Mega Factory'
             """,
@@ -108,7 +108,7 @@ async def get_factory_capacity(faction_id: int, world_id: Optional[int] = None) 
     else:
         row = await db.fetchrow(
             """
-            SELECT COALESCE(SUM(fwb.amount * fwb.level * 100), 0) as c FROM faction_world_buildings fwb
+            SELECT COALESCE(SUM(fwb.amount * fwb.level * 200), 0) as c FROM faction_world_buildings fwb
             JOIN buildings b ON fwb.building_id = b.id
             WHERE fwb.faction_id = $1 AND b.name LIKE '%Factory%' AND b.name != 'Mega Factory'
             """,

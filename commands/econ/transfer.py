@@ -12,14 +12,16 @@ from services.map_service import get_world, get_world_by_id
 from services.econ_query_service import get_resource_ids_by_names, get_global_resource_amount
 from services.validation_service import require_faction, require_world
 from services.transfer_service import (
-    check_blockade,
     execute_er_transfer,
     execute_physical_transfer,
     get_world_for_faction,
     has_world_presence,
     ensure_world_presence,
     get_local_resource_amount,
+    intercept_transfer,
 )
+from services.blockade_service import get_blockading_fleet_for_world
+from services.fleet_service import get_fleet_by_identifier
 
 
 @app_commands.command(name="transfer", description="Transfer resources between factions")
@@ -28,7 +30,8 @@ from services.transfer_service import (
     to_faction="Receiving faction name",
     amount="Amount in format: 1000 ER, 500 CM, etc. (comma separated)",
     to_world="Destination world name (optional for ER transfers)",
-    from_world="Source world name (optional)"
+    from_world="Source world name (optional)",
+    escort_fleet="Fleet (faction fleet number) escorting this transfer"
 )
 @require_access_level(0)
 async def transfer(
@@ -37,7 +40,8 @@ async def transfer(
     to_faction: str,
     amount: str,
     to_world: Optional[str] = None,
-    from_world: Optional[str] = None
+    from_world: Optional[str] = None,
+    escort_fleet: Optional[str] = None
 ):
     await interaction.response.defer()
 
@@ -154,39 +158,67 @@ async def transfer(
         await interaction.followup.send(embed=error_embed("Error", f"{from_faction_data['display_name']} has no presence on {from_world_data['name']}."))
         return
 
-    if await check_blockade(from_world_id, from_faction_id):
-        await interaction.followup.send(embed=error_embed("Blockade", f"{from_world_data['name']} is blockaded! Cannot send transfers."))
-        return
-
-    if await check_blockade(to_world_id, to_faction_id):
-        await interaction.followup.send(embed=error_embed("Blockade", f"{to_world_data['name']} is blockaded! Cannot receive transfers."))
-        return
-
     for t in transfers:
         have = await get_local_resource_amount(from_world_id, from_faction_id, resource_map[t['resource']]['id'])
         if have < t['amount']:
             await interaction.followup.send(embed=error_embed("Error", f"Not enough {t['resource']} at {from_world_data['name']}. Need {handle_return(t['amount'])}, have {handle_return(have)}."))
             return
 
+    escort_fleet_id = None
+    if escort_fleet:
+        fleet_data = await get_fleet_by_identifier(escort_fleet, from_faction_id)
+        if not fleet_data:
+            await interaction.followup.send(embed=error_embed("Error", f"Fleet '{escort_fleet}' not found."))
+            return
+        if fleet_data['position'] != from_world_id:
+            await interaction.followup.send(embed=error_embed("Error", f"Escort fleet must be at {from_world_data['name']} to escort this transfer."))
+            return
+        if fleet_data['status_name'].lower() not in ('idle', 'defence', 'defense', 'patrol', 'blockading', 'ftl supply'):
+            await interaction.followup.send(embed=error_embed("Error", f"Escort fleet cannot travel while status is {fleet_data['status_name']}."))
+            return
+        escort_fleet_id = fleet_data['id']
+
     try:
         result = await execute_physical_transfer(
             from_faction_id, to_faction_id,
             from_world_id, to_world_id,
             from_world_data['name'], to_world_data['name'],
-            transfers, resource_map, current_time
+            transfers, resource_map, current_time, escort_fleet_id
         )
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
+    intercepting_fleet_id = None
+    if from_world_id != to_world_id:
+        interception_world_id = from_world_id
+        intercepting_fleet_id = await get_blockading_fleet_for_world(from_world_id, from_faction_id)
+        if intercepting_fleet_id is None:
+            interception_world_id = to_world_id
+            intercepting_fleet_id = await get_blockading_fleet_for_world(to_world_id, to_faction_id)
+        if intercepting_fleet_id is not None:
+            try:
+                await intercept_transfer(result['transfer_id'], intercepting_fleet_id, interception_world_id)
+            except ValueError:
+                intercepting_fleet_id = None
+
     transfer_str = ", ".join(f"{handle_return(t['amount'])} {t['resource']}" for t in transfers)
-    embed = success_embed(
-        title="Transfer In Transit",
-        description=f"**{from_faction_data['display_name']}** is transferring {transfer_str} from **{from_world_data['name']}** to **{to_faction_data['display_name']}** at **{to_world_data['name']}**\n\n"
-                    f"**Travel Time:** {result['travel_str']}\n"
-                    f"**Arrival:** <t:{int(result['arrival_time'].timestamp())}:F>\n"
-                    f"**Transfer ID:** {result['transfer_id']}"
-    )
+    if intercepting_fleet_id is not None:
+        embed = success_embed(
+            title="Transfer Intercepted",
+            description=f"**{from_faction_data['display_name']}** attempted to transfer {transfer_str} from **{from_world_data['name']}** to **{to_faction_data['display_name']}** at **{to_world_data['name']}**, but it was intercepted by a blockade.\n\n"
+                        f"**Transfer ID:** {result['transfer_id']}"
+        )
+    else:
+        escort_line = f"**Escort:** {escort_fleet}\n" if escort_fleet_id is not None else ""
+        embed = success_embed(
+            title="Transfer In Transit",
+            description=f"**{from_faction_data['display_name']}** is transferring {transfer_str} from **{from_world_data['name']}** to **{to_faction_data['display_name']}** at **{to_world_data['name']}**\n\n"
+                        f"**Travel Time:** {result['travel_str']}\n"
+                        f"**Arrival:** <t:{int(result['arrival_time'].timestamp())}:F>\n"
+                        f"{escort_line}"
+                        f"**Transfer ID:** {result['transfer_id']}"
+        )
     embed.color = from_faction_color
     await interaction.followup.send(embed=embed)
 

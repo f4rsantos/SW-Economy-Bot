@@ -6,7 +6,7 @@ from utils.checks import require_access_level
 from utils.embeds import error_embed
 from utils.faction_utils import hex_to_int
 from services.fleet_service import buy_vehicle, get_factory_info
-from services.vehicle_service import get_vehicle_definition
+from services.vehicle_service import get_vehicle_definition, build_days
 from services.validation_service import require_faction, require_unit, require_vehicle, require_world
 
 
@@ -73,9 +73,11 @@ async def buy_vehicle_cmd(
     is_missile = (vehicle_def.get('type_name') or '').lower() == 'missile'
     total_factory_space = vehicle_length * amount
 
+    base_days = build_days(vehicle_length)
+
     if is_missile:
         total_capacity = 0
-        weeks_needed = 0
+        shortfall_multiplier = 0
     else:
         is_large = vehicle_length > 1000
         total_capacity, used_space = await get_factory_info(world_data['id'], user_faction['id'], is_large)
@@ -90,15 +92,16 @@ async def buy_vehicle_cmd(
                     await interaction.followup.send(embed=error_embed("Insufficient Mega Factory Capacity",
                         f"**Needed:** {total_factory_space:,.0f}m\n**Available:** {available_space:,.0f}m\n**Total Capacity:** {total_capacity:,.0f}m\nAll factory space is currently occupied."), ephemeral=True)
                     return
-                weeks_needed = math.ceil(total_factory_space / total_capacity)
+                shortfall_multiplier = math.ceil(total_factory_space / total_capacity)
             else:
                 await interaction.followup.send(embed=error_embed("Insufficient Factory Capacity",
                     f"**Needed:** {total_factory_space:,.0f}m\n**Available:** {available_space:,.0f}m\n**Total Capacity:** {total_capacity:,.0f}m"), ephemeral=True)
                 return
         else:
-            weeks_needed = 1
+            shortfall_multiplier = 1
 
-    completion = datetime.now(timezone.utc) + timedelta(weeks=weeks_needed)
+    total_days = 0 if is_missile else base_days * shortfall_multiplier
+    completion = datetime.now(timezone.utc) + timedelta(days=total_days)
     costs_list = [{"name": c['name'], "amount": c['amount']} for c in costs]
 
     try:
@@ -125,7 +128,7 @@ async def buy_vehicle_cmd(
     if not is_missile:
         embed.add_field(name="Factory Space", value=f"{total_factory_space:,.0f} / {total_capacity:,.0f}m", inline=True)
         embed.add_field(name="Completion", value=f"<t:{int(completion.timestamp())}:R>", inline=True)
-    footer = "Missiles added to unit instantly." if is_missile else f"Vehicles will join the unit when construction completes ({weeks_needed} week{'s' if weeks_needed > 1 else ''})"
+    footer = "Missiles added to unit instantly." if is_missile else f"Vehicles will join the unit when construction completes ({total_days:,.1f} day{'s' if total_days != 1 else ''})"
     embed.set_footer(text=footer)
     await interaction.followup.send(embed=embed)
 

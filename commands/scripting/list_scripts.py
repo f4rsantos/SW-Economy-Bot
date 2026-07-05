@@ -29,7 +29,7 @@ async def script_list(interaction: discord.Interaction, faction: str):
 
     lines = []
     for s in scripts:
-        runs_on = s["trigger_day"] or "Income Day"
+        runs_on = "Manual Trigger" if s["trigger_type"] == "manual" else (s["trigger_day"] or "Income Day")
         last = f"<t:{int(s['last_run_at'].timestamp())}:R>" if s["last_run_at"] else "never"
         lines.append(f"**{s['name']}** (ID {s['id']}) — runs on {runs_on} — last run {last} — {s['run_count']} run(s)")
 

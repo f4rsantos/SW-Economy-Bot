@@ -33,7 +33,7 @@ async def execute_script(
         current_time = datetime.now(timezone.utc)
 
     ctx = RuntimeContext(faction_id=faction_id, dry_run=dry_run)
-    sandbox = FALSandbox(faction_id=faction_id, is_company=is_company, dry_run=dry_run)
+    sandbox = FALSandbox(faction_id=faction_id, is_company=is_company, dry_run=dry_run, current_time=current_time)
 
     try:
         ast = parse(script_text)
@@ -77,7 +77,7 @@ async def execute_script_manual(
         current_time = datetime.now(timezone.utc)
 
     ctx = RuntimeContext(faction_id=faction_id, dry_run=dry_run)
-    sandbox = FALSandbox(faction_id=faction_id, is_company=is_company, dry_run=dry_run)
+    sandbox = FALSandbox(faction_id=faction_id, is_company=is_company, dry_run=dry_run, current_time=current_time)
 
     try:
         ast = parse(script_text)

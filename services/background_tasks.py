@@ -18,6 +18,13 @@ async def handle_transfer_arrival(payload: dict):
     transfer_id = payload['transfer_id']
     to_faction_id = payload['to_faction_id']
     to_world_id = payload['to_world_id']
+    status_row = await db.fetchrow("""
+        SELECT ts.name FROM resource_transfers rt
+        JOIN transfer_statuses ts ON rt.status_id = ts.id
+        WHERE rt.id = $1
+    """, transfer_id)
+    if not status_row or status_row['name'] != 'in_transit':
+        return
     resources = await db.fetch("SELECT resource_id, amount FROM transfer_resources WHERE transfer_id = $1", transfer_id)
     for resource in resources:
         await db.execute(
@@ -136,7 +143,7 @@ async def check_income_cycle(skip_income: bool = False):
         logger.info("=" * 60)
 
         from database.static_cache import static_cache
-        factions = await db.fetch("SELECT id, name FROM factions")
+        factions = await db.fetch("SELECT id, name, (faction_type = 1) as is_company FROM factions")
 
         shared_cache = {
             'status_ids': dict(static_cache.fleet_status),
@@ -205,7 +212,7 @@ async def handle_income_cycle(payload: dict):
 async def handle_scripting_run(payload: dict):
     from services.scripting.executor import run_scheduled_scripts
     await run_scheduled_scripts(current_time=datetime.now(timezone.utc))
-    next_run = datetime.now(timezone.utc) + timedelta(days=7)
+    next_run = datetime.now(timezone.utc) + timedelta(days=1)
     await event_queue.push(next_run, 'scripting_run', {})
 
 

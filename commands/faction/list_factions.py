@@ -41,7 +41,7 @@ class FactionPaginationView(OwnerOnlyView):
         embed = discord.Embed(title=title, description=f"Page {self.page + 1}/{self.total_pages}", color=0x3498db)
 
         for faction in page_factions:
-            type_label = "[Company]" if faction['is_company'] else "[Faction]"
+            type_label = {0: "[Nation]", 1: "[Company]", 2: "[Pirate]"}.get(faction.get('faction_type', 0), "[Nation]")
             if self.long_sort:
                 display_name = faction['display_name']
                 field_name = f"{type_label} {display_name} ({len(display_name)} chars)"

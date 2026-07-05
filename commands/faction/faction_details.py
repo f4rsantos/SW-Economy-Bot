@@ -6,7 +6,7 @@ from utils.embeds import success_embed, error_embed
 from utils.faction_utils import get_faction_by_id, hex_to_int
 from services.user_service import get_user_access_level
 from services.faction_service import update_faction_details, get_faction_row_by_id
-from services.validation_service import require_faction
+from services.validation_service import require_faction, require_world
 
 
 async def _can_manage_faction(user_id: int, faction_id: int) -> bool:
@@ -22,7 +22,8 @@ async def _can_manage_faction(user_id: int, faction_id: int) -> bool:
     color="Hex color code (e.g., #ff0000)",
     leader_treatment="Leader's title/treatment",
     formal_name="Full formal name of the faction",
-    flag="Flag emoji or image URL"
+    flag="Flag emoji or image URL",
+    capital_world="Capital world name or ID (nations only)"
 )
 @require_access_level(0)
 async def faction_details(
@@ -31,7 +32,8 @@ async def faction_details(
     color: Optional[str] = None,
     leader_treatment: Optional[str] = None,
     formal_name: Optional[str] = None,
-    flag: Optional[str] = None
+    flag: Optional[str] = None,
+    capital_world: Optional[str] = None
 ):
     await interaction.response.defer()
 
@@ -45,7 +47,7 @@ async def faction_details(
         await interaction.followup.send(embed=error_embed("Access Denied", "You must be the faction leader or have admin privileges to edit this faction."))
         return
 
-    if not any([color, leader_treatment, formal_name, flag]):
+    if not any([color, leader_treatment, formal_name, flag, capital_world]):
         await interaction.followup.send(embed=error_embed("No Changes", "You must provide at least one field to update."))
         return
 
@@ -61,7 +63,18 @@ async def faction_details(
         await interaction.followup.send(embed=error_embed("Error", "Faction not found."))
         return
 
-    updated = await update_faction_details(faction_id, color, leader_treatment, formal_name, flag)
+    capital_world_id = None
+    capital_world_name = None
+    if capital_world:
+        if current.get('faction_type', 0) != 0:
+            await interaction.followup.send(embed=error_embed("Error", "Only nations can set a capital world."))
+            return
+        r_capital = await require_world(capital_world)
+        if not r_capital.ok: return await interaction.followup.send(embed=error_embed("Error", r_capital.error))
+        capital_world_id = r_capital.data['id']
+        capital_world_name = r_capital.data['name']
+
+    updated = await update_faction_details(faction_id, color, leader_treatment, formal_name, flag, capital_world_id)
 
     embed = success_embed(title="Faction Updated", description=f"**{updated.get('formal_name') or updated['name']}** has been updated")
     embed.color = hex_to_int(updated['color'])
@@ -74,6 +87,8 @@ async def faction_details(
         embed.add_field(name="Formal Name", value=f"{current['formal_name']} → {updated['formal_name']}", inline=False)
     if flag is not None:
         embed.add_field(name="Flag", value=f"{current['flag'] or 'None'} → {updated['flag'] or 'None'}", inline=False)
+    if capital_world_id is not None:
+        embed.add_field(name="Capital World", value=capital_world_name, inline=False)
 
     embed.add_field(name="Updated By", value=interaction.user.mention, inline=False)
     await interaction.followup.send(embed=embed)

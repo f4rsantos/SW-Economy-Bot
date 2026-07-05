@@ -7,6 +7,31 @@ from utils.vehicle_utils import get_next_vehicle_number
 _vehicle_def_cache: dict[int, dict] = {}
 
 
+def build_days(length: float) -> float:
+    if length <= 20.0:
+        return 2.0
+    if length <= 200.0:
+        return 2.0 + (length - 20.0) / (200.0 - 20.0) * 6.0
+    if length >= 1000.0:
+        return 14.0
+    return 8.0 + (length - 200.0) / (1000.0 - 200.0) * 6.0
+
+
+def compute_refit(new_costs: dict, old_costs: dict) -> tuple:
+    resource_names = set(new_costs) | set(old_costs)
+    cost_deltas = []
+    for name in resource_names:
+        delta = int(new_costs.get(name, 0)) - int(old_costs.get(name, 0))
+        if delta != 0:
+            cost_deltas.append({'name': name, 'amount': delta})
+
+    new_total = sum(v for k, v in new_costs.items() if k != 'ER')
+    old_total = sum(v for k, v in old_costs.items() if k != 'ER')
+    ratio = 4.0 if old_total <= 0 else new_total / old_total
+    ratio = max(0.1, min(4.0, ratio))
+    return cost_deltas, ratio
+
+
 def _parse_vehicle_length(vehicle_data) -> float:
     if not vehicle_data:
         return 100.0

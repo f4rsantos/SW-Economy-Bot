@@ -1,5 +1,36 @@
 from typing import Optional
 from database.db_manager import db
+from services.fleet_service import get_ftl_supply_capacity
+
+
+async def _get_system_root_id(world_id: Optional[int]) -> Optional[int]:
+    if world_id is None:
+        return None
+    row = await db.fetchrow("""
+        WITH RECURSIVE system_tree AS (
+            SELECT id, orbit_of FROM worlds WHERE id = $1
+            UNION ALL
+            SELECT w.id, w.orbit_of FROM worlds w
+            INNER JOIN system_tree st ON w.id = st.orbit_of
+        )
+        SELECT id FROM system_tree WHERE orbit_of IS NULL
+    """, world_id)
+    return row['id'] if row else world_id
+
+
+async def _count_off_capital_system_hexes(faction_id: int, capital_system_id: int) -> int:
+    row = await db.fetchrow("""
+        WITH RECURSIVE capital_system AS (
+            SELECT id FROM worlds WHERE id = $2
+            UNION ALL
+            SELECT w.id FROM worlds w INNER JOIN capital_system cs ON w.orbit_of = cs.id
+        )
+        SELECT COALESCE(SUM(wf.territory), 0) as total
+        FROM world_factions wf
+        WHERE wf.faction_id = $1 AND wf.territory > 0
+          AND wf.world_id NOT IN (SELECT id FROM capital_system)
+    """, faction_id, capital_system_id)
+    return int(row['total']) if row else 0
 
 
 async def get_world(world_name: str) -> Optional[dict]:
@@ -117,6 +148,16 @@ async def claim_hex(faction_id: int, world_id: int, world_name: str, max_hexes: 
         if not fleet_check['has_fleet']:
             raise ValueError(f"To claim your first hex on {world_name}, you need a fleet present on the world.")
     influence_cost = hexes * 20
+
+    target_system_id = await _get_system_root_id(world_id)
+    capital_row = await db.fetchrow("SELECT capital_world_id FROM factions WHERE id = $1", faction_id)
+    capital_world_id = capital_row['capital_world_id'] if capital_row else None
+    capital_system_id = await _get_system_root_id(capital_world_id) if capital_world_id else None
+    off_capital_system = capital_system_id is not None and target_system_id != capital_system_id
+
+    if off_capital_system:
+        influence_cost *= 5
+
     influence_data = await db.fetchrow("""
         SELECT COALESCE(amount, 0) as influence FROM faction_treasury ft
         JOIN resources r ON ft.resource_id = r.id
@@ -129,54 +170,19 @@ async def claim_hex(faction_id: int, world_id: int, world_name: str, max_hexes: 
     current_claimed = claimed_data['claimed'] or 0
     if current_claimed + hexes > max_hexes:
         raise ValueError(f"Only {max_hexes - current_claimed} hex(es) available on {world_name}.")
-    world_system = await db.fetchrow("""
-        WITH RECURSIVE system_tree AS (
-            SELECT id, orbit_of, name FROM worlds WHERE id = $1
-            UNION ALL
-            SELECT w.id, w.orbit_of, w.name FROM worlds w
-            INNER JOIN system_tree st ON w.id = st.orbit_of
-        )
-        SELECT name FROM system_tree WHERE orbit_of IS NULL
-    """, world_id)
-    system_name = world_system['name'] if world_system else None
-    if system_name:
-        presence_check = await db.fetchrow("""
-            SELECT EXISTS (
-                SELECT 1 FROM world_factions wf JOIN worlds w ON wf.world_id = w.id
-                WHERE wf.faction_id = $1 AND wf.territory > 0
-                AND w.id IN (
-                    WITH RECURSIVE system_worlds AS (
-                        SELECT id FROM worlds WHERE orbit_of = (SELECT id FROM worlds WHERE name = $2 AND orbit_of IS NULL)
-                        UNION ALL
-                        SELECT w.id FROM worlds w INNER JOIN system_worlds sw ON w.orbit_of = sw.id
-                    )
-                    SELECT id FROM system_worlds
-                    UNION ALL SELECT id FROM worlds WHERE name = $2 AND orbit_of IS NULL
-                )
-            ) as has_presence
-        """, faction_id, system_name)
-        has_local_presence = presence_check['has_presence'] if presence_check else False
-        if not has_local_presence:
-            elsewhere_check = await db.fetchrow("SELECT EXISTS (SELECT 1 FROM world_factions wf WHERE wf.faction_id = $1 AND wf.territory > 0) as has_hexes", faction_id)
-            if elsewhere_check['has_hexes']:
-                ftl_result = await db.fetchrow("""
-                    SELECT
-                        COALESCE(SUM(CASE WHEN COALESCE(((v.vehicle_data[1])::jsonb->>'ftl')::text, 'NONE') != 'NONE'
-                            THEN COALESCE(((v.vehicle_data[1])::jsonb->>'length')::numeric, 0) * fv.amount ELSE 0 END), 0) as total_ftl_length,
-                        COALESCE(SUM(CASE WHEN COALESCE(((v.vehicle_data[1])::jsonb->>'ftl')::text, 'NONE') != 'NONE'
-                            THEN COALESCE(((v.vehicle_data[1])::jsonb->>'cargo')::numeric, 0) * fv.amount ELSE 0 END), 0) as total_ftl_cargo
-                    FROM fleets f
-                    JOIN fleet_vehicles fv ON f.id = fv.fleet_id
-                    JOIN vehicles v ON fv.vehicle_id = v.id
-                    WHERE f.faction_id = $1
-                """, faction_id)
-                total_ftl_length = ftl_result['total_ftl_length'] if ftl_result else 0
-                total_ftl_cargo = ftl_result['total_ftl_cargo'] if ftl_result else 0
-                if total_ftl_length < 1000 or total_ftl_cargo < 250000:
-                    raise ValueError(
-                        f"Claiming hexes in a new solar system requires at least 1,000m of FTL ship length "
-                        f"(have: {total_ftl_length:,.0f}m) and 250,000 FTL cargo capacity (have: {total_ftl_cargo:,.0f})."
-                    )
+
+    if off_capital_system:
+        existing_off = await _count_off_capital_system_hexes(faction_id, capital_system_id)
+        projected_off = existing_off + hexes
+        required_cargo = 200 * projected_off
+        ftl_cargo = await get_ftl_supply_capacity(faction_id)
+        if ftl_cargo < required_cargo:
+            raise ValueError(
+                f"Claiming hexes outside your capital system requires 200 FTL supply cargo capacity per off-system hex. "
+                f"Need {required_cargo:,} for {projected_off:,} hex(es), have {ftl_cargo:,}. "
+                f"Assign FTL-capable ships to a fleet in FTL supply status."
+            )
+
     influence_res = await db.fetchrow("SELECT id FROM resources WHERE name = 'Influence'")
     if influence_res:
         await db.execute("UPDATE faction_treasury SET amount = amount - $3 WHERE faction_id = $1 AND resource_id = $2", faction_id, influence_res['id'], influence_cost)
@@ -185,7 +191,7 @@ async def claim_hex(faction_id: int, world_id: int, world_name: str, max_hexes: 
         ON CONFLICT (world_id, faction_id) DO UPDATE SET territory = world_factions.territory + EXCLUDED.territory
     """, world_id, faction_id, hexes)
     new_total = (current_territory['territory'] if current_territory else 0) + hexes
-    return {'influence_cost': influence_cost, 'new_total': new_total}
+    return {'influence_cost': influence_cost, 'new_total': new_total, 'off_capital_system': off_capital_system}
 
 
 async def unclaim_hex(faction_id: int, world_id: int, world_name: str, hexes: int) -> dict:

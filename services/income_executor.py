@@ -31,6 +31,7 @@ from services.income_queries import (
     fetch_total_army,
     fetch_faction_flags,
     fetch_hex_count,
+    fetch_weighted_hex_count,
     fetch_current_influence,
     fetch_worlds_with_cs,
     fetch_stored_cs,
@@ -334,7 +335,7 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
     working_population = max(0, population - army)
     preview['global']['er'] = calculate_er_income(er_treasury, working_population, is_company)
 
-    hex_count = await fetch_hex_count(faction_id)
+    hex_count = await fetch_weighted_hex_count(faction_id)
     current_influence = await fetch_current_influence(faction_id)
     influence_cost = preview['usages']['influence_pacts']
     total_cs_upkeep = preview['usages']['fleet_cs'] + sum(preview['usages']['population_cs'].values())

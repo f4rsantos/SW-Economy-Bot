@@ -111,6 +111,18 @@ async def count_blockade_fleets(blockade_id: int) -> int:
     return count or 0
 
 
+async def get_blockading_fleet_for_world(world_id: int, target_faction_id: int) -> Optional[int]:
+    row = await db.fetchrow("""
+        SELECT bf.fleet_id
+        FROM blockades b
+        JOIN blockade_targets bt ON b.id = bt.blockade_id
+        JOIN blockade_fleets bf ON b.id = bf.blockade_id
+        WHERE b.world_id = $1 AND bt.faction_id = $2
+        LIMIT 1
+    """, world_id, target_faction_id)
+    return row['fleet_id'] if row else None
+
+
 async def check_belt_station_blockade(faction_id: int) -> bool:
     """Return True if faction is blockaded on Ceres or Vesta (blocks both /ceres and /vesta)."""
     row = await db.fetchrow("""

@@ -42,7 +42,10 @@ async def claim_hex(interaction: discord.Interaction, faction: str, world: str, 
 
     embed = success_embed(title="Hexes Claimed", description=f"**{faction_data['display_name']}** claimed **{hexes}** hex(es) on **{world_data['name']}**.")
     embed.color = faction_color
-    embed.add_field(name="Cost", value=f"{result['influence_cost']:,} Influence", inline=True)
+    cost_label = f"{result['influence_cost']:,} Influence"
+    if result.get('off_capital_system'):
+        cost_label += " (5x off-capital-system)"
+    embed.add_field(name="Cost", value=cost_label, inline=True)
     embed.add_field(name="Total Hexes", value=f"{result['new_total']:,}", inline=True)
     await interaction.followup.send(embed=embed)
 

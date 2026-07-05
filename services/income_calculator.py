@@ -22,7 +22,7 @@ def calculate_fleet_cs_cost_for_fleet(fleet) -> int:
     cs = fleet['total_cs']
     if status == 'idle':
         return math.ceil(cs / 8)
-    if status in ('defense', 'patrol', 'travelling'):
+    if status in ('defense', 'patrol', 'travelling', 'ftl supply'):
         return math.ceil(cs / 6)
     if status in ('battle', 'in combat', 'blockading'):
         return math.ceil(cs / 4)

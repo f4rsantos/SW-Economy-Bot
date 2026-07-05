@@ -5,14 +5,21 @@ from utils.embeds import error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
 from services.building_efficiency_service import get_faction_building_count_actual
-from services.building_service import get_buildings_catalog, get_all_building_cost_rows, get_faction_mega_factory_count, MEGA_FACTORY_BUILDING_ID, MEGA_FACTORY_SCALE_RATE
+from services.building_service import (
+    get_buildings_catalog, get_all_building_cost_rows, get_faction_mega_factory_count,
+    get_faction_building_ids_at_level, get_building_ids_supporting_level,
+    MEGA_FACTORY_BUILDING_ID, MEGA_FACTORY_SCALE_RATE,
+)
 from services.validation_service import require_faction
 
 
 @app_commands.command(name="buildings", description="View building types and their costs")
-@app_commands.describe(faction="Optional: View costs for a specific faction (includes scaling)")
+@app_commands.describe(
+    faction="Optional: View costs for a specific faction (includes scaling)",
+    level="Optional: Only show buildings of this level"
+)
 @require_access_level(0)
-async def buildings_list(interaction: discord.Interaction, faction: str = None):
+async def buildings_list(interaction: discord.Interaction, faction: str = None, level: int = None):
     await interaction.response.defer()
 
     faction_data = None
@@ -28,8 +35,16 @@ async def buildings_list(interaction: discord.Interaction, faction: str = None):
 
     buildings_data = await get_buildings_catalog()
 
+    if level is not None:
+        if faction_data:
+            allowed_ids = await get_faction_building_ids_at_level(faction_data['id'], level)
+        else:
+            allowed_ids = await get_building_ids_supporting_level(level)
+        buildings_data = [b for b in buildings_data if b['id'] in allowed_ids]
+
     if not buildings_data:
-        await interaction.followup.send(embed=error_embed("No Data", "No buildings found."), ephemeral=True)
+        empty_msg = f"No buildings found at level {level}." if level is not None else "No buildings found."
+        await interaction.followup.send(embed=error_embed("No Data", empty_msg), ephemeral=True)
         return
 
     all_costs_rows = await get_all_building_cost_rows()
@@ -38,6 +53,8 @@ async def buildings_list(interaction: discord.Interaction, faction: str = None):
         costs_by_building.setdefault(row['building_id'], []).append(row)
 
     title = f"Building Costs for {faction_data['display_name']}" if faction_data else "Building Types"
+    if level is not None:
+        title += f" (Level {level})"
     if faction_data:
         desc = f"Current Buildings (Taxable): {curr_buildings} (Next Cost: Base * (1 + 0.02 * {curr_buildings}))\n*Starter buildings (27) are excluded from cost scaling.*"
     else:

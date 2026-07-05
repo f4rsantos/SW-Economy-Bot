@@ -58,6 +58,7 @@ async def create_transfer(
     resources: dict,
     start_time: datetime,
     arrival_time: datetime,
+    escort_fleet_id: Optional[int] = None,
 ) -> int:
     resource_rows = await db.fetch(
         "SELECT id, name FROM resources WHERE name = ANY($1)", list(resources.keys())
@@ -70,9 +71,9 @@ async def create_transfer(
     ])
     try:
         row = await db.fetchrow(
-            "SELECT sp_create_transfer($1, $2, $3, $4, $5::jsonb, $6, $7) as transfer_id",
+            "SELECT sp_create_transfer($1, $2, $3, $4, $5::jsonb, $6, $7, $8) as transfer_id",
             from_faction_id, to_faction_id, from_world_id, to_world_id,
-            resources_array, start_time, arrival_time
+            resources_array, start_time, arrival_time, escort_fleet_id
         )
         transfer_id = row['transfer_id']
         from services.event_queue import event_queue
@@ -91,9 +92,9 @@ async def deposit_transfer(transfer_id: int):
         raise ValueError(str(e)) from e
 
 
-async def intercept_transfer(transfer_id: int, fleet_id: int):
+async def intercept_transfer(transfer_id: int, fleet_id: int, world_id: int):
     try:
-        await db.execute("SELECT sp_intercept_transfer($1, $2)", transfer_id, fleet_id)
+        await db.execute("SELECT sp_intercept_transfer($1, $2, $3)", transfer_id, fleet_id, world_id)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
 
@@ -101,6 +102,13 @@ async def intercept_transfer(transfer_id: int, fleet_id: int):
 async def seize_transfer(transfer_id: int, faction_id: int, world_id: int):
     try:
         await db.execute("SELECT sp_seize_transfer($1, $2, $3)", transfer_id, faction_id, world_id)
+    except asyncpg.exceptions.RaiseError as e:
+        raise ValueError(str(e)) from e
+
+
+async def destroy_transfer(transfer_id: int):
+    try:
+        await db.execute("SELECT sp_destroy_transfer($1)", transfer_id)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
 
@@ -212,6 +220,7 @@ async def execute_physical_transfer(
     transfers: list,
     resource_map: dict,
     current_time: datetime,
+    escort_fleet_id: Optional[int] = None,
 ) -> dict:
     travel_time = await calculate_travel_time(from_world_name, to_world_name, current_time)
     arrival_time = current_time + travel_time
@@ -221,8 +230,15 @@ async def execute_physical_transfer(
     transfer_id = await create_transfer(
         from_faction_id, to_faction_id,
         from_world_id, to_world_id,
-        resources, current_time, arrival_time
+        resources, current_time, arrival_time, escort_fleet_id
     )
+
+    if escort_fleet_id is not None:
+        from services.fleet_service import move_fleet
+        from services.event_queue import event_queue
+        await move_fleet(escort_fleet_id, to_world_id, current_time)
+        await event_queue.push(arrival_time, 'fleet_arrival', {'fleet_id': escort_fleet_id, 'to_world_id': to_world_id})
+
     return {
         'transfer_id': transfer_id,
         'arrival_time': arrival_time,

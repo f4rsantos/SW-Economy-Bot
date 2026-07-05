@@ -111,6 +111,30 @@ async def buy_vehicle(faction_id: int, world_id: int, fleet_id: int, vehicle_id:
 
 
 
+async def refit_vehicle(faction_id: int, fleet_id: int, vehicle_id: int, amount: int,
+                        world_id: int, factory_space: int, completion, cost_deltas: list) -> int:
+    import json
+    from datetime import timezone
+    try:
+        row = await db.fetchrow(
+            "SELECT sp_refit_vehicle($1,$2,$3,$4,$5,$6,$7,$8::jsonb) as order_id",
+            faction_id, fleet_id, vehicle_id, amount, world_id, factory_space, completion,
+            json.dumps(cost_deltas)
+        )
+        order_id = row['order_id']
+        if hasattr(completion, 'tzinfo'):
+            due = completion if completion.tzinfo else completion.replace(tzinfo=timezone.utc)
+        else:
+            due = completion
+        from services.event_queue import event_queue
+        await event_queue.push(due, 'construction_complete', {
+            'order_id': order_id, 'fleet_id': fleet_id, 'vehicle_id': vehicle_id, 'quantity': amount
+        })
+        return order_id
+    except asyncpg.exceptions.RaiseError as e:
+        raise ValueError(str(e)) from e
+
+
 async def transfer_vehicle(from_fleet_id: int, to_fleet_id: int, vehicle_id: int, amount: int):
     try:
         await db.execute(
@@ -304,6 +328,22 @@ async def get_factory_info(world_id: int, faction_id: int, is_large: bool) -> tu
     used = used_row['used_space'] or 0
     return int(total), int(used)
 
+
+
+async def get_ftl_supply_capacity(faction_id: int) -> int:
+    row = await db.fetchrow("""
+        SELECT COALESCE(SUM(
+            CASE WHEN COALESCE(((v.vehicle_data[1])::jsonb->>'ftl')::text, 'NONE') != 'NONE'
+                 THEN COALESCE(((v.vehicle_data[1])::jsonb->>'cargo')::numeric, 0) * fv.amount
+                 ELSE 0 END
+        ), 0) as total_cargo
+        FROM fleets f
+        JOIN fleet_status fs ON f.status_id = fs.id
+        JOIN fleet_vehicles fv ON f.id = fv.fleet_id
+        JOIN vehicles v ON fv.vehicle_id = v.id
+        WHERE f.faction_id = $1 AND LOWER(fs.name) = 'ftl supply'
+    """, faction_id)
+    return int(row['total_cargo']) if row else 0
 
 
 async def get_vehicle_length(vehicle_id: int) -> float:

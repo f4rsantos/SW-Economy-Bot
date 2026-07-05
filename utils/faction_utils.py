@@ -4,9 +4,25 @@ from database.cache_manager import cache_manager
 
 _FACTION_QUERY = """
     SELECT id, name, COALESCE(formal_name, name) as display_name,
-           color, is_company, leader_id, leader
+           color, faction_type, capital_world_id,
+           (faction_type = 1) as is_company, (faction_type = 2) as is_pirate,
+           leader_id, leader
     FROM factions
 """
+
+FACTION_TYPE_NATION = 0
+FACTION_TYPE_COMPANY = 1
+FACTION_TYPE_PIRATE = 2
+
+FACTION_TYPE_LABELS = {0: "Nation", 1: "Company", 2: "Pirate"}
+
+
+def is_company(faction_type: int) -> bool:
+    return faction_type == FACTION_TYPE_COMPANY
+
+
+def is_pirate(faction_type: int) -> bool:
+    return faction_type == FACTION_TYPE_PIRATE
 
 
 def hex_to_int(hex_color: str) -> int:
