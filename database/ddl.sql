@@ -934,3 +934,4 @@ CREATE POLICY "bot_app_all" ON public.kanban_task_assignees FOR ALL TO bot_app U
 CREATE POLICY "bot_app_all" ON public.kanban_subtasks FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.games FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.comets FOR ALL TO bot_app USING (true) WITH CHECK (true);
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
