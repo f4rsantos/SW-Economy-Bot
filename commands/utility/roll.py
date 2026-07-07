@@ -10,18 +10,18 @@ from utils.embeds import error_embed
 async def roll(interaction: discord.Interaction, dice: str):
     match = re.match(r'^(\d+)d(\d+)$', dice.lower())
     if not match:
-        await interaction.response.send_message(embed=error_embed("Invalid Format", "Use format: XdX (e.g., 2d6, 1d20, 3d10)"), ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("Invalid Format", "Use format: XdX (e.g., 2d6, 1d20, 3d10)"))
         return
 
     num_dice = int(match.group(1))
     die_size = int(match.group(2))
 
     if not (1 <= num_dice <= 100):
-        await interaction.response.send_message(embed=error_embed("Invalid", "Number of dice must be between 1 and 100."), ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("Invalid", "Number of dice must be between 1 and 100."))
         return
 
     if not (2 <= die_size <= 1000):
-        await interaction.response.send_message(embed=error_embed("Invalid", "Die size must be between 2 and 1000."), ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("Invalid", "Die size must be between 2 and 1000."))
         return
 
     rolls = [random.randint(1, die_size) for _ in range(num_dice)]

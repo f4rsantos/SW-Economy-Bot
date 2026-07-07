@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 @app_commands.describe(faction="Faction name to recalculate fleet CS for")
 @require_access_level(9)
 async def force_cs_calc(interaction: discord.Interaction, faction: str):
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer()
 
     r_faction_data = await require_faction(faction)
-    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
+    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
     faction_id = faction_data['id']
@@ -25,10 +25,10 @@ async def force_cs_calc(interaction: discord.Interaction, faction: str):
     try:
         updated = await recalc_fleet_cs_for_faction(faction_id)
         logger.info(f"[FORCE-CS-CALC] {interaction.user} recalculated CS for {faction_name}: {updated} fleet(s) updated")
-        await interaction.followup.send(embed=success_embed("CS Recalculated", f"Recalculated `total_cs` for **{updated}** fleet(s) in **{faction_name}**."), ephemeral=True)
+        await interaction.followup.send(embed=success_embed("CS Recalculated", f"Recalculated `total_cs` for **{updated}** fleet(s) in **{faction_name}**."))
     except Exception as e:
         logger.exception(f"[FORCE-CS-CALC] Error for {faction_name}: {e}")
-        await interaction.followup.send(embed=error_embed("Error", f"CS recalculation failed for **{faction_name}**:\n```{e}```"), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", f"CS recalculation failed for **{faction_name}**:\n```{e}```"))
 
 
 async def setup(bot):

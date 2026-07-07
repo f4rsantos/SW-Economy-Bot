@@ -24,7 +24,7 @@ async def list_buildings(
     await interaction.response.defer()
 
     r_faction_data = await require_faction(faction)
-    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
+    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
     faction_color = hex_to_int(faction_data['color'])
@@ -33,7 +33,7 @@ async def list_buildings(
     world_display = None
     if world:
         r_world = await require_world(world)
-        if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error), ephemeral=True)
+        if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
         world_id = r_world.data['id']
         world_display = r_world.data['name']
 
@@ -42,7 +42,7 @@ async def list_buildings(
     if building:
         building_data = await get_building_by_name(building)
         if not building_data:
-            await interaction.followup.send(embed=error_embed("Error", f"Building '{building}' not found."), ephemeral=True)
+            await interaction.followup.send(embed=error_embed("Error", f"Building '{building}' not found."))
             return
         building_id = building_data['id']
         building_display = building_data['name']
@@ -65,7 +65,7 @@ async def list_buildings(
         if world_display:
             parts.append(f"on {world_display}")
         location = f" ({', '.join(parts)})" if parts else ""
-        await interaction.followup.send(embed=error_embed("No Buildings", f"No buildings found{location}."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("No Buildings", f"No buildings found{location}."))
         return
 
     by_world: dict = {}

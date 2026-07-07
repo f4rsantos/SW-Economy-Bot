@@ -15,13 +15,13 @@ async def claim_hex(interaction: discord.Interaction, faction: str, world: str, 
     await interaction.response.defer()
 
     r_faction_data, r_world = await asyncio.gather(require_faction(faction), require_world(world))
-    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
-    if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error), ephemeral=True)
+    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
+    if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
     faction_data = r_faction_data.data
     world_data = r_world.data
 
     if faction_data['is_company']:
-        await interaction.followup.send(embed=error_embed("Error", "Companies cannot claim territory."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "Companies cannot claim territory."))
         return
 
     faction_id = faction_data['id']
@@ -31,13 +31,13 @@ async def claim_hex(interaction: discord.Interaction, faction: str, world: str, 
     max_hexes = world_data['hex_count']
 
     if hexes <= 0:
-        await interaction.followup.send(embed=error_embed("Error", "Must claim at least 1 hex."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "Must claim at least 1 hex."))
         return
 
     try:
         result = await claim_hex_service(faction_id, world_id, world_data['name'], max_hexes, hexes)
     except ValueError as e:
-        await interaction.followup.send(embed=error_embed("Error", str(e)), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
     embed = success_embed(title="Hexes Claimed", description=f"**{faction_data['display_name']}** claimed **{hexes}** hex(es) on **{world_data['name']}**.")

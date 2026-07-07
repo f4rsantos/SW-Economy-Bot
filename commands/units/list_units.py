@@ -80,7 +80,7 @@ class UnitDetailView(View):
     @discord.ui.button(label="◀ Back to List", style=discord.ButtonStyle.secondary, row=0)
     async def back_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."))
             return
         view = UnitView(self.all_units, self.faction_id, self.faction_name, self.user_id, self.faction_color, world_mode=self.world_mode)
         await interaction.response.edit_message(embed=await view.create_list_embed(), view=view)
@@ -88,7 +88,7 @@ class UnitDetailView(View):
     @discord.ui.button(label="Hide", style=discord.ButtonStyle.secondary, row=0)
     async def hide_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."))
             return
         self.hidden = not self.hidden
         button.label = "Show" if self.hidden else "Hide"
@@ -111,7 +111,7 @@ class PageJumpModal(discord.ui.Modal, title="Jump to Page"):
             self.unit_view.add_unit_selector()
             await interaction.response.edit_message(embed=await self.unit_view.create_list_embed(), view=self.unit_view)
         except ValueError:
-            await interaction.response.send_message(embed=error_embed("Error", "Please enter a valid page number."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "Please enter a valid page number."))
 
 
 class UnitView(View):
@@ -149,7 +149,7 @@ class UnitView(View):
 
     async def unit_selected(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."))
             return
 
         unit_id = int(self.unit_select.values[0])
@@ -159,7 +159,7 @@ class UnitView(View):
             get_unit_vehicle_resource_totals(unit_id)
         )
         if not unit_row:
-            await interaction.response.send_message(embed=error_embed("Error", "Unit not found."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "Unit not found."))
             return
 
         unit_data = {
@@ -213,7 +213,7 @@ class UnitView(View):
     @discord.ui.button(label="◀ Previous", style=discord.ButtonStyle.secondary, row=1)
     async def prev_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."))
             return
         self.page = (self.page - 1) % self.total_pages
         self.add_unit_selector()
@@ -222,14 +222,14 @@ class UnitView(View):
     @discord.ui.button(label="Jump to Page", style=discord.ButtonStyle.primary, row=1)
     async def jump_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."))
             return
         await interaction.response.send_modal(PageJumpModal(self))
 
     @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary, row=1)
     async def next_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."))
             return
         self.page = (self.page + 1) % self.total_pages
         self.add_unit_selector()
@@ -238,7 +238,7 @@ class UnitView(View):
     @discord.ui.button(label="Hide", style=discord.ButtonStyle.secondary, row=1)
     async def hide_list_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."))
             return
         self.hidden = not self.hidden
         button.label = "Show" if self.hidden else "Hide"
@@ -259,7 +259,7 @@ async def faction_autocomplete(_: discord.Interaction, current: str) -> list[app
 @require_access_level(0)
 async def list_units(interaction: discord.Interaction, faction: str = None, world: str = None):
     if not faction and not world:
-        await interaction.response.send_message(embed=error_embed("Error", "You must provide at least a Faction OR a World."), ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("Error", "You must provide at least a Faction OR a World."))
         return
 
     faction_data = None
@@ -267,23 +267,23 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
     if faction and world:
         r_faction_data, r_world = await asyncio.gather(require_faction(faction), require_world(world))
         if not r_faction_data.ok:
-            await interaction.response.send_message(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", r_faction_data.error))
             return
         if not r_world.ok:
-            await interaction.response.send_message(embed=error_embed("Error", r_world.error), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", r_world.error))
             return
         faction_data = r_faction_data.data
         world_data = r_world.data
     elif faction:
         r_faction_data = await require_faction(faction)
         if not r_faction_data.ok:
-            await interaction.response.send_message(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", r_faction_data.error))
             return
         faction_data = r_faction_data.data
     elif world:
         r_world = await require_world(world)
         if not r_world.ok:
-            await interaction.response.send_message(embed=error_embed("Error", r_world.error), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", r_world.error))
             return
         world_data = r_world.data
 
@@ -292,7 +292,7 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
     units = await get_fleets(faction_id=faction_id, world_id=world_id)
 
     if not units:
-        await interaction.response.send_message(embed=error_embed("No Units Found", "No units found matching the given filters."), ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("No Units Found", "No units found matching the given filters."))
         return
 
     if faction_data:

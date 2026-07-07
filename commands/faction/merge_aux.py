@@ -56,16 +56,16 @@ async def merge_aux(interaction: discord.Interaction, from_faction: str, to_fact
         require_faction(to_faction)
     )
     if not r_from_faction_data.ok:
-        await interaction.response.send_message(embed=error_embed("Error", r_from_faction_data.error), ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("Error", r_from_faction_data.error))
         return
     from_faction_data = r_from_faction_data.data
     if not r_to_faction_data.ok:
-        await interaction.response.send_message(embed=error_embed("Error", r_to_faction_data.error), ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("Error", r_to_faction_data.error))
         return
     to_faction_data = r_to_faction_data.data
 
     if from_faction_data['id'] == to_faction_data['id']:
-        await interaction.response.send_message(embed=error_embed("Error", "Cannot merge a faction into itself."), ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("Error", "Cannot merge a faction into itself."))
         return
 
     territory_info = await get_faction_territory_summary(from_faction_data['id'])
@@ -94,7 +94,7 @@ async def merge_aux(interaction: discord.Interaction, from_faction: str, to_fact
         from_faction_data['id'], from_faction_data['display_name'],
         to_faction_data['id'], to_faction_data['display_name']
     )
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    await interaction.response.send_message(embed=embed, view=view)
 
 
 async def setup(bot):

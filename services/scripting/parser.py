@@ -10,7 +10,7 @@ from .ast_nodes import (
     ResourceCond, FleetHealthCond, FleetStatusCond, FleetAtWorldCond, FleetVehiclesCond,
     BuildingCountCond, WorldResourceCond,
     AtWarCond, BlockadedCond, TodayIsCond, FactorySpaceCond, ExprComparison, BinaryCond, NotCond,
-    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr,
+    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr,
     Expr, Cond, Statement, Literal,
 )
 
@@ -505,6 +505,15 @@ class Parser:
             self.expect(TT.KW_AT, msg="expected AT after FLEETS")
             world = self.parse_ref()
             return FleetsAtExpr(world=world, line=tok.line)
+
+        if tok.type == TT.KW_RANDI:
+            self.advance()
+            self.expect(TT.LPAREN, msg="expected ( after RANDI")
+            low = self.parse_expression()
+            self.expect(TT.COMMA, msg="expected , between RANDI arguments")
+            high = self.parse_expression()
+            self.expect(TT.RPAREN, msg="expected ) after RANDI arguments")
+            return RandiExpr(low=low, high=high, line=tok.line)
 
         if tok.type == TT.LPAREN:
             self.advance()

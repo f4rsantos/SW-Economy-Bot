@@ -42,11 +42,11 @@ async def remove_task_cmd(
     interaction: discord.Interaction,
     task_id: int,
 ):
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer()
 
     task = await get_task(task_id)
     if not task:
-        await interaction.followup.send(embed=error_embed("Error", f"Task #{task_id} not found."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", f"Task #{task_id} not found."))
         return
 
     subtask_count = await count_subtasks(task_id)
@@ -61,4 +61,4 @@ async def remove_task_cmd(
         color=0xe74c3c
     )
     view = ConfirmDeleteView(interaction.user.id, task_id, task['title'])
-    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    await interaction.followup.send(embed=embed, view=view)

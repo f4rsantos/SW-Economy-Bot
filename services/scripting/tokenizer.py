@@ -75,6 +75,8 @@ class TT(Enum):
     COLON = auto()
     LPAREN = auto()
     RPAREN = auto()
+    COMMA = auto()
+    KW_RANDI = auto()
     NEWLINE = auto()
     INDENT = auto()
     DEDENT = auto()
@@ -128,6 +130,7 @@ KEYWORDS: dict[str, TT] = {
     "BUILDINGS": TT.KW_BUILDINGS,
     "FACTORY": TT.KW_FACTORY,
     "SPACE": TT.KW_SPACE,
+    "RANDI": TT.KW_RANDI,
 }
 
 RESOURCE_NAMES = {"CM", "CS", "EL", "U-CM", "U-CS", "U-EL", "ER", "MILITARY", "INFLUENCE", "POPULATION"}
@@ -247,6 +250,7 @@ def tokenize(text: str) -> List[Token]:
                 "=": TT.OP_ASSIGN,
                 ":": TT.COLON,
                 "(": TT.LPAREN, ")": TT.RPAREN,
+                ",": TT.COMMA,
             }
             if ch in single_map:
                 tokens.append(Token(single_map[ch], ch, 0, line_num))

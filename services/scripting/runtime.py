@@ -1,4 +1,5 @@
 from __future__ import annotations
+import random
 from dataclasses import dataclass, field
 from typing import Literal, Union
 from .errors import FALRuntimeError
@@ -51,6 +52,7 @@ class RuntimeContext:
         self.variables: dict[str, FALValue] = {}
         self.total_actions: int = 0
         self.result = ExecutionResult(dry_run=dry_run)
+        self.rng = random.Random()
 
     def tick_action(self, description: str):
         self.total_actions += 1

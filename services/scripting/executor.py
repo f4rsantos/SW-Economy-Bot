@@ -18,7 +18,7 @@ from .ast_nodes import (
     ResourceCond, FleetHealthCond, FleetStatusCond, FleetVehiclesCond, FleetAtWorldCond,
     WorldResourceCond, BuildingCountCond,
     AtWarCond, BlockadedCond, TodayIsCond, FactorySpaceCond, ExprComparison, BinaryCond, NotCond,
-    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr,
+    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr,
 )
 
 
@@ -460,6 +460,15 @@ class Executor:
             else:
                 raise FALRuntimeError(f"Unknown operator '{node.op}'")
             return FALValue.int(self.ctx.safe_int(result))
+
+        if t is RandiExpr:
+            low = (await self.eval_expr(node.low)).value
+            high = (await self.eval_expr(node.high)).value
+            if not isinstance(low, int) or not isinstance(high, int):
+                raise FALRuntimeError(f"Line {node.line}: RANDI requires integer bounds")
+            if low > high:
+                raise FALRuntimeError(f"Line {node.line}: RANDI lower bound {low} exceeds upper bound {high}")
+            return FALValue.int(self.ctx.rng.randint(low, high))
 
         if t is UnaryOp:
             val = (await self.eval_expr(node.operand)).value

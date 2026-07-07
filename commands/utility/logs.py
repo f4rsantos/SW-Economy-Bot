@@ -39,7 +39,6 @@ class LogsView(discord.ui.View):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message(
                 embed=error_embed("Not Allowed", "You cannot interact with someone else's command."),
-                ephemeral=True,
             )
             return False
         return True

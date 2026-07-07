@@ -22,7 +22,6 @@ class RecruitmentPaginatorView(discord.ui.View):
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message(
                 embed=error_embed("Not Allowed", "You cannot interact with someone else's command."),
-                ephemeral=True,
             )
             return False
         return True
@@ -76,7 +75,6 @@ class OwnerOnlyView(discord.ui.View):
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message(
                 embed=error_embed("Not Allowed", "You cannot interact with someone else's command."),
-                ephemeral=True
             )
             return False
         return True
@@ -107,7 +105,7 @@ class RegisterVehicleView(OwnerOnlyView):
                 await register_vehicle(self.faction_id, self.vehicle_name, self.designation, self.vehicle_type, self.costs, self.vehicle_data)
                 title, label = f"{self.vehicle_type.title()} Registered", "Registered"
         except Exception as e:
-            await interaction.followup.send(embed=error_embed("Registration Failed", str(e)), ephemeral=True)
+            await interaction.followup.send(embed=error_embed("Registration Failed", str(e)))
             return
         _.label = label
         _.disabled = True

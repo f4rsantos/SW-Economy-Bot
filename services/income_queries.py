@@ -89,6 +89,7 @@ async def fetch_external_incoming_trades(faction_id: int) -> List[Dict]:
 async def fetch_all_trade_deals(faction_id: int) -> List[Dict]:
     return await db.fetch("""
         SELECT td.id, td.receiver_faction_id, td.sender_world_id, td.receiver_world_id,
+               td.escort_fleet_id,
                td.amount, r.name as resource_name, r.id as resource_id
         FROM trade_deals td
         JOIN resources r ON td.resource_id = r.id

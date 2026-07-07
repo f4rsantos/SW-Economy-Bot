@@ -19,7 +19,7 @@ async def view(interaction: discord.Interaction, world: str):
     await interaction.response.defer()
 
     r_world = await require_world(world)
-    if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error), ephemeral=True)
+    if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
     world_data = r_world.data
 
     world_id = world_data['id']
@@ -29,7 +29,6 @@ async def view(interaction: discord.Interaction, world: str):
     if not factions:
         await interaction.followup.send(
             embed=error_embed("No Claims", f"No factions have claimed hexes on {world_data['name']}."),
-            ephemeral=True,
         )
         return
 

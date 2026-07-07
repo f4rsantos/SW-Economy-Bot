@@ -44,11 +44,11 @@ async def missile_rate(
     if faction:
         r_faction_data = await require_faction(faction)
         if not r_faction_data.ok:
-            return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
+            return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         faction_data = r_faction_data.data
 
     if designation and len(designation) > 25:
-        await interaction.followup.send(embed=error_embed("Error", "Designation must be 25 characters or less."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "Designation must be 25 characters or less."))
         return
 
     data = {'length': length, 'type': missile_type, 'nuclear': nuclear, 'systems': systems}
@@ -56,7 +56,7 @@ async def missile_rate(
     try:
         costs = rate_missile(data)
     except Exception as e:
-        await interaction.followup.send(embed=error_embed("Error", f"Failed to calculate missile cost: {str(e)}"), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", f"Failed to calculate missile cost: {str(e)}"))
         return
 
     register_costs = {k: v for k, v in costs.items() if k != 'CS'}

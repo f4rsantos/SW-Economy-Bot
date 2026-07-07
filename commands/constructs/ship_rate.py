@@ -60,11 +60,11 @@ async def ship_rate(
     faction_data = None
     if faction:
         r_faction_data = await require_faction(faction)
-        if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
+        if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         faction_data = r_faction_data.data
 
     if designation and len(designation) > 25:
-        await interaction.followup.send(embed=error_embed("Error", "Designation must be 25 characters or less."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "Designation must be 25 characters or less."))
         return
 
     data = {

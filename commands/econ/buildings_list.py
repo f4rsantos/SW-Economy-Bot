@@ -28,7 +28,7 @@ async def buildings_list(interaction: discord.Interaction, faction: str = None, 
 
     if faction:
         r_faction_data = await require_faction(faction)
-        if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
+        if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         faction_data = r_faction_data.data
         curr_buildings = max(0, await get_faction_building_count_actual(faction_data['id']) - 27)
         curr_mega = await get_faction_mega_factory_count(faction_data['id'])
@@ -44,7 +44,7 @@ async def buildings_list(interaction: discord.Interaction, faction: str = None, 
 
     if not buildings_data:
         empty_msg = f"No buildings found at level {level}." if level is not None else "No buildings found."
-        await interaction.followup.send(embed=error_embed("No Data", empty_msg), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("No Data", empty_msg))
         return
 
     all_costs_rows = await get_all_building_cost_rows()

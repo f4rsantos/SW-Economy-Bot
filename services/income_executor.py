@@ -114,6 +114,7 @@ async def _process_trade_deals(
         receiver_id = trade['receiver_faction_id']
         sender_world_fixed = trade['sender_world_id']
         receiver_world_fixed = trade['receiver_world_id']
+        escort_fleet_id = trade['escort_fleet_id'] if sender_world_fixed else None
 
         if receiver_world_fixed:
             dest_world_id = receiver_world_fixed
@@ -159,6 +160,7 @@ async def _process_trade_deals(
             from_name = world_names.get(wid)
             to_name = world_names.get(dest_world_id)
             if from_name and to_name:
+                leg_escort = escort_fleet_id if wid == sender_world_fixed else None
                 pending_transfers.append({
                     'from_faction_id': faction_id,
                     'to_faction_id': receiver_id,
@@ -170,6 +172,7 @@ async def _process_trade_deals(
                     'start_time': current_time,
                     'from_world_name': from_name,
                     'to_world_name': to_name,
+                    'escort_fleet_id': leg_escort,
                 })
 
         if remaining > 0:
@@ -493,6 +496,7 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
                 'amount':          transfer['amount'],
                 'start_time':      transfer['start_time'].isoformat(),
                 'arrival_time':    transfer['arrival_time'].isoformat(),
+                'escort_fleet_id': transfer.get('escort_fleet_id'),
             })
 
     await db.execute(

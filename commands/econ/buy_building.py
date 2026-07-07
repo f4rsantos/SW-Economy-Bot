@@ -29,16 +29,16 @@ async def buy_building(
     await interaction.response.defer()
 
     if amount < 1:
-        await interaction.followup.send(embed=error_embed("Error", "Amount must be at least 1."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "Amount must be at least 1."))
         return
 
     if level < 1 or level > 10:
-        await interaction.followup.send(embed=error_embed("Error", "Level must be between 1 and 10."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "Level must be between 1 and 10."))
         return
 
     r_faction_data, r_world = await asyncio.gather(require_faction(faction), require_world(world))
-    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
-    if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error), ephemeral=True)
+    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
+    if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
     faction_data = r_faction_data.data
     world_data = r_world.data
 
@@ -51,7 +51,7 @@ async def buy_building(
     try:
         result = await buy_building_service(faction_id, world_id, building_id, amount, level, is_company)
     except ValueError as e:
-        await interaction.followup.send(embed=error_embed("Error", str(e)), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
     cost_str = ", ".join(f"{handle_return(cost)} {res}" for res, cost in result['costs'].items())

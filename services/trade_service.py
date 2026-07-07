@@ -18,10 +18,11 @@ _TRADE_QUERY = """
 
 
 async def begin_trade(sender_faction_id: int, receiver_faction_id: int, resource_id: int,
-                      amount: int, sender_world_id: Optional[int], receiver_world_id: Optional[int]) -> int:
+                      amount: int, sender_world_id: Optional[int], receiver_world_id: Optional[int],
+                      escort_fleet_id: Optional[int] = None) -> int:
     row = await db.fetchrow(
-        "INSERT INTO trade_deals (sender_faction_id, receiver_faction_id, resource_id, amount, sender_world_id, receiver_world_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-        sender_faction_id, receiver_faction_id, resource_id, amount, sender_world_id, receiver_world_id
+        "INSERT INTO trade_deals (sender_faction_id, receiver_faction_id, resource_id, amount, sender_world_id, receiver_world_id, escort_fleet_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+        sender_faction_id, receiver_faction_id, resource_id, amount, sender_world_id, receiver_world_id, escort_fleet_id
     )
     return row['id']
 
