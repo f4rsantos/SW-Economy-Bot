@@ -50,7 +50,13 @@ class RandiExpr:
     line: int = 0
 
 
-Expr = Union[IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr]
+@dataclass
+class OrdinalExpr:
+    operand: "Expr"
+    line: int = 0
+
+
+Expr = Union[IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr]
 Literal = Union[IntLiteral, StrLiteral]
 
 
@@ -211,6 +217,13 @@ class FleetStatusAction:
 
 
 @dataclass
+class RenameFleetAction:
+    fleet_ref: Expr
+    new_name: Expr
+    line: int = 0
+
+
+@dataclass
 class BuyVehiclesAction:
     vehicle_ref: Expr
     fleet_ref: Expr
@@ -230,7 +243,7 @@ class RecruitAction:
 
 Action = Union[
     TransferAction, BuyBuildingAction, UpgradeBuildingAction,
-    MoveFleetAction, FleetStatusAction, BuyVehiclesAction, RecruitAction,
+    MoveFleetAction, FleetStatusAction, RenameFleetAction, BuyVehiclesAction, RecruitAction,
 ]
 
 

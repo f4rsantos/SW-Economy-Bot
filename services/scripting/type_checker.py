@@ -4,11 +4,11 @@ from .errors import FALTypeError, FALSecurityError
 from .ast_nodes import (
     Program, AssignStmt, IfStmt, ForEachStmt, RepeatStmt, SwitchStmt,
     TransferAction, BuyBuildingAction, UpgradeBuildingAction,
-    MoveFleetAction, FleetStatusAction, BuyVehiclesAction, RecruitAction,
+    MoveFleetAction, FleetStatusAction, RenameFleetAction, BuyVehiclesAction, RecruitAction,
     ResourceCond, FleetHealthCond, FleetStatusCond, FleetVehiclesCond, FleetAtWorldCond,
     WorldResourceCond, BuildingCountCond,
     AtWarCond, BlockadedCond, TodayIsCond, FactorySpaceCond, ExprComparison, BinaryCond, NotCond,
-    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr,
+    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr,
     Expr, Cond, Statement,
 )
 
@@ -138,6 +138,9 @@ class TypeChecker:
             self._expect_non_list(node.destination, "MOVE FLEET destination")
         elif t is FleetStatusAction:
             self._expect_non_list(node.fleet_ref, "FLEET STATUS fleet reference")
+        elif t is RenameFleetAction:
+            self._expect_non_list(node.fleet_ref, "RENAME FLEET fleet reference")
+            self._expect_non_list(node.new_name, "RENAME FLEET new name")
         elif t is BuyVehiclesAction:
             self._expect_int(node.amount, "BUY VEHICLES amount")
         elif t is RecruitAction:
@@ -201,6 +204,9 @@ class TypeChecker:
             self._expect_int(node.low, "RANDI lower bound")
             self._expect_int(node.high, "RANDI upper bound")
             return T_INT
+        if t is OrdinalExpr:
+            self._expect_int(node.operand, "ORDINAL argument")
+            return T_STR
         if t is BinOp:
             lt = self.infer_expr(node.left)
             rt = self.infer_expr(node.right)
@@ -210,10 +216,12 @@ class TypeChecker:
                 )
                 return T_UNKNOWN
             if lt == T_STR or rt == T_STR:
-                self.result.error(
-                    f"Line {node.line}: Cannot use arithmetic on strings"
-                )
-                return T_UNKNOWN
+                if node.op != "+":
+                    self.result.error(
+                        f"Line {node.line}: Only '+' (concatenation) is allowed on strings"
+                    )
+                    return T_UNKNOWN
+                return T_STR
             return T_INT
         if t is UnaryOp:
             inner = self.infer_expr(node.operand)

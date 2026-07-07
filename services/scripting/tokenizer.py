@@ -36,6 +36,7 @@ class TT(Enum):
     KW_UPGRADE = auto()
     KW_LEVEL = auto()
     KW_MOVE = auto()
+    KW_RENAME = auto()
     KW_FLEET = auto()
     KW_FLEETS = auto()
     KW_STATUS = auto()
@@ -77,6 +78,7 @@ class TT(Enum):
     RPAREN = auto()
     COMMA = auto()
     KW_RANDI = auto()
+    KW_ORDINAL = auto()
     NEWLINE = auto()
     INDENT = auto()
     DEDENT = auto()
@@ -112,6 +114,7 @@ KEYWORDS: dict[str, TT] = {
     "UPGRADE": TT.KW_UPGRADE,
     "LEVEL": TT.KW_LEVEL,
     "MOVE": TT.KW_MOVE,
+    "RENAME": TT.KW_RENAME,
     "FLEET": TT.KW_FLEET,
     "FLEETS": TT.KW_FLEETS,
     "STATUS": TT.KW_STATUS,
@@ -131,6 +134,7 @@ KEYWORDS: dict[str, TT] = {
     "FACTORY": TT.KW_FACTORY,
     "SPACE": TT.KW_SPACE,
     "RANDI": TT.KW_RANDI,
+    "ORDINAL": TT.KW_ORDINAL,
 }
 
 RESOURCE_NAMES = {"CM", "CS", "EL", "U-CM", "U-CS", "U-EL", "ER", "MILITARY", "INFLUENCE", "POPULATION"}
