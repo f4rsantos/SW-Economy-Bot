@@ -158,40 +158,11 @@ async def record_execution(
     result: ExecutionResult,
     execution_ms: int,
 ) -> None:
-    now = datetime.now(timezone.utc)
-
-    await db.execute(
-        """INSERT INTO script_execution_log
-           (script_id, faction_id, executed_at, actions_taken, skipped, aborted, dry_run,
-            errors, warnings, execution_ms)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
-        script_id, faction_id, now,
-        result.actions_taken,
-        result.skipped,
-        result.aborted,
-        result.dry_run,
-        result.errors or [],
-        result.warnings or [],
-        execution_ms,
-    )
-
     if not result.dry_run:
+        now = datetime.now(timezone.utc)
         await db.execute(
             """UPDATE faction_scripts
                SET last_run_at = $1, run_count = run_count + 1
                WHERE id = $2""",
             now, script_id,
         )
-
-
-async def get_last_execution(script_id: int) -> Optional[dict]:
-    row = await db.fetchrow(
-        """SELECT id, executed_at, actions_taken, skipped, aborted, dry_run,
-                  errors, warnings, execution_ms
-           FROM script_execution_log
-           WHERE script_id = $1
-           ORDER BY executed_at DESC
-           LIMIT 1""",
-        script_id,
-    )
-    return dict(row) if row else None
