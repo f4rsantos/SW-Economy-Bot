@@ -1548,6 +1548,11 @@ DECLARE
     v_capacity      BIGINT;
     v_storable      BOOLEAN;
     v_transfer_id   INT;
+    v_escort_id     INT;
+    v_from_world    INT;
+    v_to_world      INT;
+    v_start_time    TIMESTAMPTZ;
+    v_escort_ok     BOOLEAN;
 BEGIN
     SELECT id INTO v_er_id  FROM resources WHERE name = 'ER';
     SELECT id INTO v_inf_id FROM resources WHERE name = 'Influence';
@@ -1619,21 +1624,44 @@ BEGIN
     
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_transfers)
     LOOP
+        v_from_world := (v_item->>'from_world_id')::INT;
+        v_to_world   := (v_item->>'to_world_id')::INT;
+        v_start_time := (v_item->>'start_time')::TIMESTAMPTZ;
+        v_escort_id  := (v_item->>'escort_fleet_id')::INT;
+
+        v_escort_ok := FALSE;
+        IF v_escort_id IS NOT NULL THEN
+            SELECT TRUE INTO v_escort_ok
+            FROM fleets f JOIN fleet_status fs ON f.status_id = fs.id
+            WHERE f.id = v_escort_id
+              AND f.position = v_from_world
+              AND LOWER(fs.name) IN ('idle', 'defence', 'defense', 'patrol', 'blockading', 'ftl supply');
+            IF NOT FOUND THEN
+                v_escort_ok := FALSE;
+                v_escort_id := NULL;
+            END IF;
+        END IF;
+
         INSERT INTO resource_transfers
-            (from_faction_id, to_faction_id, from_world_id, to_world_id, status_id, start_time, arrival_time)
+            (from_faction_id, to_faction_id, from_world_id, to_world_id, status_id, start_time, arrival_time, escort_fleet_id)
         VALUES (
             (v_item->>'from_faction_id')::INT,
             (v_item->>'to_faction_id')::INT,
-            (v_item->>'from_world_id')::INT,
-            (v_item->>'to_world_id')::INT,
+            v_from_world,
+            v_to_world,
             (SELECT id FROM transfer_statuses WHERE name = 'in_transit'),
-            (v_item->>'start_time')::TIMESTAMPTZ,
-            (v_item->>'arrival_time')::TIMESTAMPTZ
+            v_start_time,
+            (v_item->>'arrival_time')::TIMESTAMPTZ,
+            v_escort_id
         )
         RETURNING id INTO v_transfer_id;
 
         INSERT INTO transfer_resources (transfer_id, resource_id, amount)
         VALUES (v_transfer_id, (v_item->>'resource_id')::INT, (v_item->>'amount')::BIGINT);
+
+        IF v_escort_ok THEN
+            PERFORM sp_move_fleet(v_escort_id, v_to_world, v_start_time);
+        END IF;
     END LOOP;
 
     DELETE FROM national_spirits WHERE faction_id = p_faction_id AND expires_at IS NOT NULL AND expires_at <= now();

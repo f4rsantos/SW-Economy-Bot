@@ -20,10 +20,10 @@ async def backup(interaction: discord.Interaction):
     access_level = user['access_level'] if user else 0
 
     if access_level < 10 and not operator:
-        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        await interaction.response.send_message("You do not have permission to use this command.")
         return
 
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer()
 
     try:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -33,7 +33,7 @@ async def backup(interaction: discord.Interaction):
         table_names = await get_public_table_names_for_backup()
         tables = [{'tablename': t} for t in table_names]
         if not tables:
-            await interaction.followup.send(embed=error_embed("Error", "No tables found to backup."), ephemeral=True)
+            await interaction.followup.send(embed=error_embed("Error", "No tables found to backup."))
             return
 
         sql_content = [
@@ -72,21 +72,21 @@ async def backup(interaction: discord.Interaction):
 
         file_size = os.path.getsize(backup_path)
         if not file_size:
-            await interaction.followup.send(embed=error_embed("Error", "Backup file was not created or is empty."), ephemeral=True)
+            await interaction.followup.send(embed=error_embed("Error", "Backup file was not created or is empty."))
             return
 
         if file_size > 25 * 1024 * 1024:
             os.remove(backup_path)
-            await interaction.followup.send(embed=error_embed("Error", f"Backup file too large ({file_size / (1024*1024):.2f} MB). Maximum 25 MB."), ephemeral=True)
+            await interaction.followup.send(embed=error_embed("Error", f"Backup file too large ({file_size / (1024*1024):.2f} MB). Maximum 25 MB."))
             return
 
         embed = success_embed("Database Backup", f"**File:** {backup_file}\n**Size:** {file_size / (1024*1024):.2f} MB\n**Rows:** {total_rows:,}\n**Tables:** {len(tables)}\n**Time:** {timestamp}")
         with open(backup_path, 'rb') as f:
-            await interaction.followup.send(embed=embed, file=discord.File(f, filename=backup_file), ephemeral=True)
+            await interaction.followup.send(embed=embed, file=discord.File(f, filename=backup_file))
         os.remove(backup_path)
 
     except Exception as e:
-        await interaction.followup.send(embed=error_embed("Error", f"Backup failed: {str(e)}"), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", f"Backup failed: {str(e)}"))
 
 
 async def setup(bot):

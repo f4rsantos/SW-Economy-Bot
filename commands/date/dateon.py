@@ -30,7 +30,7 @@ async def dateon_command(
         day_text = first_day if first_day == final_day else f"a span from {first_day} to {final_day}"
         await interaction.response.send_message(f"The time on {y}/{mo}/{d} {hour_text} is {day_text}")
     except ValueError as e:
-        await interaction.response.send_message(f"Invalid date: {e}", ephemeral=True)
+        await interaction.response.send_message(f"Invalid date: {e}")
 
 
 async def setup(bot):

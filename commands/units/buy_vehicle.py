@@ -32,42 +32,45 @@ async def buy_vehicle_cmd(
     await interaction.response.defer()
 
     if amount < 1 or amount > 10000:
-        await interaction.followup.send(embed=error_embed("Error", "Amount must be between 1 and 10,000."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "Amount must be between 1 and 10,000."))
         return
 
     r_user_faction = await require_faction(faction)
-    if not r_user_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_user_faction.error), ephemeral=True)
+    if not r_user_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_user_faction.error))
     user_faction = r_user_faction.data
 
     faction_color = hex_to_int(user_faction['color'])
 
     r_unit_data = await require_unit(unit_id, user_faction['id'])
-    if not r_unit_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_unit_data.error), ephemeral=True)
+    if not r_unit_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_unit_data.error))
     unit_data = r_unit_data.data
 
     r_world = await require_world(world)
-    if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error), ephemeral=True)
+    if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
     world_data = r_world.data
+
+    if unit_data['position'] != world_data['id']:
+        return await interaction.followup.send(embed=error_embed("Error", f"Fleet must be on {world_data['name']} to build vehicles there. Fleet is on {unit_data['world_name']}."))
 
     if source_faction:
         r_src_faction = await require_faction(source_faction)
-        if not r_src_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_src_faction.error), ephemeral=True)
+        if not r_src_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_src_faction.error))
         target_faction_id = r_src_faction.data['id']
     else:
         target_faction_id = user_faction['id']
 
     r_vehicle_data = await require_vehicle(vehicle_id, target_faction_id)
-    if not r_vehicle_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_vehicle_data.error), ephemeral=True)
+    if not r_vehicle_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_vehicle_data.error))
     vehicle_data = r_vehicle_data.data
 
     vehicle_def = await get_vehicle_definition(vehicle_data['id'])
     if not vehicle_def:
-        await interaction.followup.send(embed=error_embed("Error", "Vehicle definition not found."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "Vehicle definition not found."))
         return
     vehicle_length = vehicle_def['length']
     costs = [{'name': k, 'amount': v} for k, v in vehicle_def['costs'].items()]
     if not costs:
-        await interaction.followup.send(embed=error_embed("Error", "Vehicle has no cost defined."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "Vehicle has no cost defined."))
         return
 
     is_missile = (vehicle_def.get('type_name') or '').lower() == 'missile'
@@ -86,16 +89,16 @@ async def buy_vehicle_cmd(
         if total_factory_space > available_space:
             if is_large:
                 if total_capacity == 0:
-                    await interaction.followup.send(embed=error_embed("No Mega Factory", f"This vehicle is {vehicle_length}m — you need a Mega Factory to build vehicles > 1000m."), ephemeral=True)
+                    await interaction.followup.send(embed=error_embed("No Mega Factory", f"This vehicle is {vehicle_length}m — you need a Mega Factory to build vehicles > 1000m."))
                     return
                 if available_space <= 0:
                     await interaction.followup.send(embed=error_embed("Insufficient Mega Factory Capacity",
-                        f"**Needed:** {total_factory_space:,.0f}m\n**Available:** {available_space:,.0f}m\n**Total Capacity:** {total_capacity:,.0f}m\nAll factory space is currently occupied."), ephemeral=True)
+                        f"**Needed:** {total_factory_space:,.0f}m\n**Available:** {available_space:,.0f}m\n**Total Capacity:** {total_capacity:,.0f}m\nAll factory space is currently occupied."))
                     return
                 shortfall_multiplier = math.ceil(total_factory_space / total_capacity)
             else:
                 await interaction.followup.send(embed=error_embed("Insufficient Factory Capacity",
-                    f"**Needed:** {total_factory_space:,.0f}m\n**Available:** {available_space:,.0f}m\n**Total Capacity:** {total_capacity:,.0f}m"), ephemeral=True)
+                    f"**Needed:** {total_factory_space:,.0f}m\n**Available:** {available_space:,.0f}m\n**Total Capacity:** {total_capacity:,.0f}m"))
                 return
         else:
             shortfall_multiplier = 1
@@ -110,7 +113,7 @@ async def buy_vehicle_cmd(
             vehicle_data['id'], amount, int(total_factory_space), completion, costs_list
         )
     except ValueError as e:
-        await interaction.followup.send(embed=error_embed("Error", str(e)), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
     unit_name = unit_data['name'] or f"Unit #{unit_data['faction_fleet_number']}"

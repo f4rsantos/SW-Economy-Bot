@@ -68,10 +68,12 @@ class TransfersView(discord.ui.View):
                     m = rem // 60
                     status_str = f"In Transit ({f'{d}d ' if d else ''}{f'{h}h ' if h else ''}{m}min remaining)"
 
+            escort_line = f"**Escort:** {t['escort_name']}\n" if t.get('escort_name') else ""
             embed.add_field(
                 name=header,
                 value=f"**Route:** {t['from_world_name']} → {t['to_world_name']}\n"
                       f"**Resources:** {resource_str}\n"
+                      f"{escort_line}"
                       f"**Status:** {status_str}\n"
                       f"**Arrival:** <t:{int(arrival.timestamp())}:R>",
                 inline=False
@@ -80,7 +82,7 @@ class TransfersView(discord.ui.View):
 
     async def _update(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(embed=error_embed("Error", "This is not your view."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "This is not your view."))
             return
         await interaction.response.edit_message(embed=self.get_page_embed(), view=self)
 

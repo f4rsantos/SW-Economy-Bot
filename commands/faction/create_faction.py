@@ -97,7 +97,7 @@ class FactionSetupModal(discord.ui.Modal, title="Faction Setup - Basic Info"):
         if not world_row and world_input.isdigit():
             world_row = await get_world_by_id(int(world_input))
         if not world_row:
-            await interaction.response.send_message(embed=error_embed("Invalid World", f"Could not find world '{world_input}'."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Invalid World", f"Could not find world '{world_input}'."))
             return
 
         if not name.replace(" ", "").isalpha() or not name.isascii():
@@ -126,7 +126,7 @@ class FactionSetupModal(discord.ui.Modal, title="Faction Setup - Basic Info"):
                         return
                     user_check = await conn.fetchrow("SELECT id FROM users WHERE id = $1", self.leader_user.id)
                     if not user_check:
-                        await interaction.response.send_message(embed=error_embed("Leader Not Registered", f"{self.leader_user.mention} is not registered."), ephemeral=True)
+                        await interaction.response.send_message(embed=error_embed("Leader Not Registered", f"{self.leader_user.mention} is not registered."))
                         return
                     faction = await create_faction_in_db(conn, name, name, color, leader_name, flag, self.leader_user.id, faction_type, starting_world_id)
 
@@ -187,7 +187,7 @@ async def create_faction(
                 if world_data:
                     starting_world_id = world_data['id']
                 else:
-                    await interaction.response.send_message(embed=error_embed("Error", f"World '{starting_world}' not found."), ephemeral=True)
+                    await interaction.response.send_message(embed=error_embed("Error", f"World '{starting_world}' not found."))
                     return
         view = SetupMethodView(interaction.user.id, leader)
         embed = discord.Embed(

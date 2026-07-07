@@ -31,20 +31,20 @@ async def buy(
     await interaction.response.defer()
 
     r_faction_data = await require_faction(faction)
-    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
+    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
     faction_id = faction_data['id']
     faction_color = hex_to_int(faction_data['color'])
 
     if quantity is not None and quantity < 1:
-        await interaction.followup.send(embed=error_embed("Error", "Quantity must be at least 1."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "Quantity must be at least 1."))
         return
 
     try:
         costs = parse_currency(cost)
     except Exception as e:
-        await interaction.followup.send(embed=error_embed("Error", f"Invalid cost format: {e}"), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", f"Invalid cost format: {e}"))
         return
 
     if quantity and quantity > 1:
@@ -54,21 +54,20 @@ async def buy(
     if needs_world and not world:
         await interaction.followup.send(
             embed=error_embed("Error", "World name is required for local resources (CM, EL, CS, Population, etc.)."),
-            ephemeral=True
         )
         return
 
     world_id = None
     if world:
         r_world = await require_world(world)
-        if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error), ephemeral=True)
+        if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
         world_id = r_world.data['id']
 
     resources_dict = {c['resource']: c['amount'] for c in costs}
     resource_names = list(resources_dict.keys())
     resource_map = await get_resource_name_to_id(resource_names)
     if len(resource_map) != len(resource_names):
-        await interaction.followup.send(embed=error_embed("Error", "One or more invalid resource types."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "One or more invalid resource types."))
         return
 
     try:
@@ -77,9 +76,9 @@ async def buy(
         msg = str(e)
         if 'INSUFFICIENT' in msg:
             resource = msg.split(':')[1].strip() if ':' in msg else 'resources'
-            await interaction.followup.send(embed=error_embed("Error", f"Not enough {resource}."), ephemeral=True)
+            await interaction.followup.send(embed=error_embed("Error", f"Not enough {resource}."))
         else:
-            await interaction.followup.send(embed=error_embed("Error", msg), ephemeral=True)
+            await interaction.followup.send(embed=error_embed("Error", msg))
         return
 
     cost_str = ", ".join([f"{handle_return(c['amount'])} {c['resource']}" for c in costs])

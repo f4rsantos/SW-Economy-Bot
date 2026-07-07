@@ -29,7 +29,7 @@ class CometDetailView(View):
     async def back_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message(
-                embed=error_embed("Error", "This is not your comet list."), ephemeral=True
+                embed=error_embed("Error", "This is not your comet list.")
             )
             return
         view = CometListView(self.all_comets, self.user_id, self.page)
@@ -69,14 +69,14 @@ class CometListView(View):
     async def comet_selected(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message(
-                embed=error_embed("Error", "This is not your comet list."), ephemeral=True
+                embed=error_embed("Error", "This is not your comet list.")
             )
             return
         comet_id = int(self.comet_select.values[0])
         comet = await get_comet(comet_id)
         if not comet:
             await interaction.response.send_message(
-                embed=error_embed("Error", "Comet not found."), ephemeral=True
+                embed=error_embed("Error", "Comet not found.")
             )
             return
         detail_view = CometDetailView(comet, self.user_id, self.comets, self.page)
@@ -105,7 +105,7 @@ class CometListView(View):
     async def prev_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message(
-                embed=error_embed("Error", "This is not your comet list."), ephemeral=True
+                embed=error_embed("Error", "This is not your comet list.")
             )
             return
         self.page = (self.page - 1) % self.total_pages
@@ -116,7 +116,7 @@ class CometListView(View):
     async def next_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message(
-                embed=error_embed("Error", "This is not your comet list."), ephemeral=True
+                embed=error_embed("Error", "This is not your comet list.")
             )
             return
         self.page = (self.page + 1) % self.total_pages
@@ -130,7 +130,7 @@ async def comet_list(interaction: discord.Interaction):
     comets = await get_comets(limit=200)
     if not comets:
         await interaction.response.send_message(
-            embed=error_embed("No Comets", "No comets have been discovered yet."), ephemeral=True
+            embed=error_embed("No Comets", "No comets have been discovered yet.")
         )
         return
     view = CometListView(comets, interaction.user.id)

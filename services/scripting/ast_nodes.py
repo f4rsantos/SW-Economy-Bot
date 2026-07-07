@@ -43,7 +43,14 @@ class FleetsAtExpr:
     line: int = 0
 
 
-Expr = Union[IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr]
+@dataclass
+class RandiExpr:
+    low: "Expr"
+    high: "Expr"
+    line: int = 0
+
+
+Expr = Union[IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr]
 Literal = Union[IntLiteral, StrLiteral]
 
 

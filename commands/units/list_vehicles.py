@@ -91,17 +91,17 @@ class VehicleDetailView(View):
     @discord.ui.button(label="◀ Back to List", style=discord.ButtonStyle.secondary, row=0)
     async def back_button(self, interaction: discord.Interaction, _: Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(embed=error_embed("Error", "This is not your vehicle list."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "This is not your vehicle list."))
             return
         if not self.original_view:
-            await interaction.response.send_message(embed=error_embed("Error", "No list to go back to."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "No list to go back to."))
             return
         await interaction.response.edit_message(embed=self.original_view.get_embed(), view=self.original_view)
 
     @discord.ui.button(label="Hide", style=discord.ButtonStyle.secondary, row=0)
     async def hide_button(self, interaction: discord.Interaction, button: Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(embed=error_embed("Error", "This is not your vehicle view."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "This is not your vehicle view."))
             return
         self.hidden = not self.hidden
         button.label = "Show" if self.hidden else "Hide"
@@ -129,7 +129,7 @@ class VehiclePageJumpModal(discord.ui.Modal, title="Jump to Page"):
             self.vehicle_view.add_selectors()
             await interaction.response.edit_message(embed=self.vehicle_view.get_embed(), view=self.vehicle_view)
         except ValueError:
-            await interaction.response.send_message(embed=error_embed("Error", "Please enter a valid page number."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "Please enter a valid page number."))
 
 
 class VehiclePaginationView(OwnerOnlyView):
@@ -264,14 +264,14 @@ class VehiclePaginationView(OwnerOnlyView):
 async def list_vehicles(interaction: discord.Interaction, faction: str):
     r_faction_data = await require_faction(faction)
     if not r_faction_data.ok:
-        await interaction.response.send_message(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("Error", r_faction_data.error))
         return
     faction_data = r_faction_data.data
 
     vehicles = await list_vehicles_service(faction_data['id'])
 
     if not vehicles:
-        await interaction.response.send_message(embed=error_embed("Error", f"No vehicles found for {faction_data['display_name']}."), ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("Error", f"No vehicles found for {faction_data['display_name']}."))
         return
 
     view = VehiclePaginationView(interaction.user.id, list(vehicles), dict(faction_data))

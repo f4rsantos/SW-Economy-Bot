@@ -30,7 +30,7 @@ async def capacities(
     await interaction.response.defer()
 
     r_faction_data = await require_faction(faction)
-    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
+    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
     faction_id = faction_data['id']
@@ -39,7 +39,7 @@ async def capacities(
     if resource:
         res_row = await get_producible_resource_by_name_upper(resource.upper())
         if not res_row:
-            await interaction.followup.send(embed=error_embed("Error", f"`{resource}` is not a producible resource."), ephemeral=True)
+            await interaction.followup.send(embed=error_embed("Error", f"`{resource}` is not a producible resource."))
             return
 
         rows = await get_world_capacities_for_resource(faction_id, res_row['id'])
@@ -76,7 +76,7 @@ async def capacities(
 
     if world:
         r_world = await require_world(world)
-        if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error), ephemeral=True)
+        if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
         world_data = r_world.data
         world_id = world_data['id']
         production_data, factory_capacity, mega_factory_capacity, eff_map = await asyncio.gather(

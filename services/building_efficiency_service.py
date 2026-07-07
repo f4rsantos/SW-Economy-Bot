@@ -244,7 +244,7 @@ async def calculate_effective_efficiency(faction_id: int, building_type: str = N
     factory_bonus = await get_active_factory_efficiency_bonus(faction_id) if building_type == 'factory' else 0.0
 
     if not is_specialized:
-        return max(min(base_efficiency + factory_bonus, 1.0), 0.001)
+        return max(base_efficiency + factory_bonus, 0.001)
 
     matches_specialization = False
     if resource_name and spec_type in ['CM', 'EL', 'CS']:
@@ -254,9 +254,9 @@ async def calculate_effective_efficiency(faction_id: int, building_type: str = N
         matches_specialization = True
 
     if matches_specialization:
-        return max(min(base_efficiency + 0.15 + factory_bonus, 1.0), 0.001)
+        return max(base_efficiency + 0.15 + factory_bonus, 0.001)
     else:
-        return max(min(base_efficiency + 0.075 + factory_bonus, 1.0), 0.001)
+        return max(base_efficiency + 0.075 + factory_bonus, 0.001)
 
 
 async def get_faction_efficiency_map(faction_id: int) -> Dict[tuple, float]:
@@ -267,13 +267,13 @@ async def get_faction_efficiency_map(faction_id: int) -> Dict[tuple, float]:
     if not is_specialized:
         def _eff(building_type, resource_name):
             bonus = factory_bonus if building_type == 'factory' else 0.0
-            return max(min(base + bonus, 1.0), 0.001)
+            return max(base + bonus, 0.001)
         return _eff
 
-    general = min(base + 0.075, 1.0)
-    matching = min(base + 0.15, 1.0)
-    general_factory = min(base + 0.075 + factory_bonus, 1.0)
-    matching_factory = min(base + 0.15 + factory_bonus, 1.0)
+    general = base + 0.075
+    matching = base + 0.15
+    general_factory = base + 0.075 + factory_bonus
+    matching_factory = base + 0.15 + factory_bonus
 
     def _eff(building_type, resource_name):
         is_factory = building_type == 'factory'

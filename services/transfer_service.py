@@ -324,7 +324,10 @@ async def list_pending_transfers(
                COALESCE(tf.formal_name, tf.name) as to_faction_name,
                fw.name as from_world_name, tw.name as to_world_name,
                iw.name as interception_world_name,
-               COALESCE(if_fac.formal_name, if_fac.name) as intercepting_faction_name
+               COALESCE(if_fac.formal_name, if_fac.name) as intercepting_faction_name,
+               CASE WHEN rt.escort_fleet_id IS NOT NULL
+                    THEN COALESCE(ef.name, 'Fleet #' || ef.faction_fleet_number)
+                    END as escort_name
         FROM resource_transfers rt
         JOIN transfer_statuses ts ON rt.status_id = ts.id
         JOIN factions ff ON rt.from_faction_id = ff.id
@@ -333,6 +336,7 @@ async def list_pending_transfers(
         JOIN worlds tw ON rt.to_world_id = tw.id
         LEFT JOIN worlds iw ON rt.interception_world_id = iw.id
         LEFT JOIN factions if_fac ON rt.intercepting_faction_id = if_fac.id
+        LEFT JOIN fleets ef ON rt.escort_fleet_id = ef.id
         WHERE {where_clause} AND ts.name IN ('in_transit', 'intercepted')
         ORDER BY rt.arrival_time ASC
         """,

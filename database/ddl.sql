@@ -593,12 +593,14 @@ CREATE TABLE public.trade_deals (
   date_started timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
   sender_world_id integer,
   receiver_world_id integer,
+  escort_fleet_id integer,
   CONSTRAINT trade_deals_pkey PRIMARY KEY (id),
   CONSTRAINT trade_deals_resource_id_fkey FOREIGN KEY (resource_id) REFERENCES public.resources(id),
   CONSTRAINT trade_deals_sender_world_id_fkey FOREIGN KEY (sender_world_id) REFERENCES public.worlds(id),
   CONSTRAINT trade_deals_receiver_world_id_fkey FOREIGN KEY (receiver_world_id) REFERENCES public.worlds(id),
   CONSTRAINT trade_deals_sender_faction_id_fkey FOREIGN KEY (sender_faction_id) REFERENCES public.factions(id),
-  CONSTRAINT trade_deals_receiver_faction_id_fkey FOREIGN KEY (receiver_faction_id) REFERENCES public.factions(id)
+  CONSTRAINT trade_deals_receiver_faction_id_fkey FOREIGN KEY (receiver_faction_id) REFERENCES public.factions(id),
+  CONSTRAINT trade_deals_escort_fleet_id_fkey FOREIGN KEY (escort_fleet_id) REFERENCES public.fleets(id)
 );
 
 CREATE TABLE public.transfer_resources (

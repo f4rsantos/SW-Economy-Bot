@@ -25,7 +25,7 @@ class ConfirmDeleteView(View):
         is_leader = faction_check and faction_check['id'] == self.faction_id
 
         if not (is_leader or user_level >= 1):
-            await interaction.response.send_message(embed=error_embed("Error", "You must be the faction leader or an admin to delete this unit."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "You must be the faction leader or an admin to delete this unit."))
             return
 
         await delete_fleet(self.unit_id)

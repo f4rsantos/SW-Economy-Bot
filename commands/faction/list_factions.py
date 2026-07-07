@@ -23,7 +23,7 @@ class FactionPageJumpModal(discord.ui.Modal, title="Jump to Page"):
             self.faction_view.page = page
             await interaction.response.edit_message(embed=self.faction_view.get_embed(), view=self.faction_view)
         except ValueError:
-            await interaction.response.send_message(embed=error_embed("Error", "Please enter a valid page number."), ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("Error", "Please enter a valid page number."))
 
 
 class FactionPaginationView(OwnerOnlyView):
@@ -74,7 +74,7 @@ async def list_factions(interaction: discord.Interaction, long: bool = False):
     factions = await list_factions_service(long)
 
     if not factions:
-        await interaction.response.send_message(embed=success_embed(title="Factions", description="No factions exist yet."), ephemeral=True)
+        await interaction.response.send_message(embed=success_embed(title="Factions", description="No factions exist yet."))
         return
 
     view = FactionPaginationView(interaction.user.id, list(factions), long)

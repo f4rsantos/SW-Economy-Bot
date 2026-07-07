@@ -45,7 +45,6 @@ class BadgeShopView(discord.ui.View):
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message(
                 embed=error_embed("Not Allowed", "You cannot interact with someone else's command."),
-                ephemeral=True,
             )
             return False
         return True
@@ -60,14 +59,12 @@ class BadgeShopView(discord.ui.View):
         if self.selected_badge_id is None:
             await interaction.response.send_message(
                 embed=error_embed("No Badge Selected", "Select a badge from the dropdown first."),
-                ephemeral=True,
             )
             return
 
         if not await _is_faction_leader(interaction.user.id, self.faction):
             await interaction.response.send_message(
                 embed=error_embed("Access Denied", "Only faction leaders can buy badges."),
-                ephemeral=True,
             )
             return
 
@@ -75,7 +72,6 @@ class BadgeShopView(discord.ui.View):
         if entry['needs_world'] and self.world_id is None:
             await interaction.response.send_message(
                 embed=error_embed("World Required", "This badge costs local resources (CM/EL/CS). Re-run `/badge shop` with a `world` argument."),
-                ephemeral=True,
             )
             return
 
@@ -87,9 +83,9 @@ class BadgeShopView(discord.ui.View):
             msg = str(e)
             if 'INSUFFICIENT' in msg:
                 resource = msg.split(':')[1].strip().split('—')[0].strip() if ':' in msg else 'resources'
-                await interaction.followup.send(embed=error_embed("Insufficient Resources", f"Not enough {resource}."), ephemeral=True)
+                await interaction.followup.send(embed=error_embed("Insufficient Resources", f"Not enough {resource}."))
             else:
-                await interaction.followup.send(embed=error_embed("Error", msg), ephemeral=True)
+                await interaction.followup.send(embed=error_embed("Error", msg))
             return
 
         badge_name = entry['name']

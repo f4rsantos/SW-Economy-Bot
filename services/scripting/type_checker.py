@@ -8,7 +8,7 @@ from .ast_nodes import (
     ResourceCond, FleetHealthCond, FleetStatusCond, FleetVehiclesCond, FleetAtWorldCond,
     WorldResourceCond, BuildingCountCond,
     AtWarCond, BlockadedCond, TodayIsCond, FactorySpaceCond, ExprComparison, BinaryCond, NotCond,
-    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr,
+    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr,
     Expr, Cond, Statement,
 )
 
@@ -197,6 +197,10 @@ class TypeChecker:
             return self.scope[node.name]
         if t is FleetsAtExpr:
             return T_LIST
+        if t is RandiExpr:
+            self._expect_int(node.low, "RANDI lower bound")
+            self._expect_int(node.high, "RANDI upper bound")
+            return T_INT
         if t is BinOp:
             lt = self.infer_expr(node.left)
             rt = self.infer_expr(node.right)

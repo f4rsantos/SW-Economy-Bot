@@ -25,32 +25,32 @@ async def conquer(interaction: discord.Interaction, my_faction: str, target_fact
     r_my_faction, r_target_faction, r_world = await asyncio.gather(
         require_faction(my_faction), require_faction(target_faction), require_world(world)
     )
-    if not r_my_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_my_faction.error), ephemeral=True)
-    if not r_target_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_target_faction.error), ephemeral=True)
-    if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error), ephemeral=True)
+    if not r_my_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_my_faction.error))
+    if not r_target_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_target_faction.error))
+    if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
 
     my_faction_data = r_my_faction.data
     target_faction_data = r_target_faction.data
     world_data = r_world.data
 
     if my_faction_data['id'] == target_faction_data['id']:
-        await interaction.followup.send(embed=error_embed("Error", "Cannot conquer your own faction."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "Cannot conquer your own faction."))
         return
 
     if hexes <= 0:
-        await interaction.followup.send(embed=error_embed("Error", "Must conquer at least 1 hex."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", "Must conquer at least 1 hex."))
         return
 
     if not no_resources:
         at_war = await are_factions_at_war(my_faction_data['id'], target_faction_data['id'])
         if not at_war:
-            await interaction.followup.send(embed=error_embed("Error", "Factions must be facing each other in an active war to conquer with rewards. Use no-resources mode otherwise."), ephemeral=True)
+            await interaction.followup.send(embed=error_embed("Error", "Factions must be facing each other in an active war to conquer with rewards. Use no-resources mode otherwise."))
             return
 
     try:
         result = await conquer_hexes(my_faction_data['id'], target_faction_data['id'], world_data['id'], hexes, not no_resources)
     except ValueError as e:
-        await interaction.followup.send(embed=error_embed("Error", str(e)), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
     faction_color = hex_to_int(my_faction_data['color'])

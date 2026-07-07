@@ -61,7 +61,7 @@ async def clean_cmd(
     scope: str,
     org: Optional[str] = None,
 ):
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer()
 
     org_id   = None
     org_name = None
@@ -70,7 +70,6 @@ async def clean_cmd(
         if not org_data:
             await interaction.followup.send(
                 embed=error_embed("Error", f"Organization `{org}` not found."),
-                ephemeral=True
             )
             return
         org_id   = org_data['id']
@@ -80,7 +79,6 @@ async def clean_cmd(
     if not board_ids:
         await interaction.followup.send(
             embed=error_embed("Error", "No matching boards found."),
-            ephemeral=True
         )
         return
 
@@ -89,7 +87,6 @@ async def clean_cmd(
     if count == 0:
         await interaction.followup.send(
             embed=discord.Embed(description="No tasks match that selection.", color=0x95a5a6),
-            ephemeral=True
         )
         return
 
@@ -113,4 +110,4 @@ async def clean_cmd(
         org_id=org_id,
         preview_count=count,
     )
-    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    await interaction.followup.send(embed=embed, view=view)

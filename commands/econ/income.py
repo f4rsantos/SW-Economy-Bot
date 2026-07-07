@@ -26,7 +26,7 @@ async def income(
     await interaction.response.defer()
 
     r_faction_data = await require_faction(faction)
-    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
+    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
     faction_id = faction_data['id']
@@ -67,12 +67,12 @@ async def income(
 
     if world:
         r_world = await require_world(world)
-        if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error), ephemeral=True)
+        if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
         world_data = r_world.data
 
         preview = await preview_income(faction_id)
         if world_data['id'] not in preview['worlds']:
-            await interaction.followup.send(embed=error_embed("Error", f"No income data found for world '{world}'."), ephemeral=True)
+            await interaction.followup.send(embed=error_embed("Error", f"No income data found for world '{world}'."))
             return
 
         final = preview['worlds'][world_data['id']].get('final', {})

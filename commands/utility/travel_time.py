@@ -13,7 +13,7 @@ async def travel_time(interaction: discord.Interaction, origin: str, destination
         time_delta = await calculate_travel_time(origin, destination)
         time_str = await format_travel_time(time_delta)
     except Exception as e:
-        await interaction.followup.send(embed=error_embed("Navigation Error", f"Failed to calculate course: {str(e)}"), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("Navigation Error", f"Failed to calculate course: {str(e)}"))
         return
 
     embed = discord.Embed(

@@ -14,7 +14,7 @@ MEGA_FACTORY_SCALE_RATE = 0.075
 
 
 def _calculate_mega_factory_cost(base_costs: dict, current_count: int, amount: int, level: int) -> dict:
-    upgrade_factor = 1.0
+    upgrade_factor = 0.1
     sum_n = lambda n: n * (n + 1) // 2
     total = {}
     for resource, base in base_costs.items():
@@ -57,7 +57,7 @@ def _calculate_refund(base_costs: dict, scaling_count: int, amount: int, level: 
 
 def _calculate_mega_factory_refund(base_costs: dict, current_count: int, amount: int, level: int, week: bool) -> dict:
     refund_rate = 1.0 if week else 0.3
-    upgrade_factor = 1.0
+    upgrade_factor = 0.1
     sum_n = lambda n: n * (n + 1) // 2
     total = {}
     for resource, base in base_costs.items():

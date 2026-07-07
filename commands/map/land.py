@@ -14,7 +14,7 @@ async def land(interaction: discord.Interaction, faction: str):
     await interaction.response.defer()
 
     r_faction_data = await require_faction(faction)
-    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error), ephemeral=True)
+    if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
     faction_id = faction_data['id']
@@ -23,7 +23,7 @@ async def land(interaction: discord.Interaction, faction: str):
     worlds = await get_faction_land(faction_id)
 
     if not worlds:
-        await interaction.followup.send(embed=error_embed("No Territory", f"{faction_data['display_name']} has no claimed hexes."), ephemeral=True)
+        await interaction.followup.send(embed=error_embed("No Territory", f"{faction_data['display_name']} has no claimed hexes."))
         return
 
     total_hexes = sum(w['territory'] for w in worlds)

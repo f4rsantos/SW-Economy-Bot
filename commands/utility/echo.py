@@ -11,10 +11,10 @@ _ALLOWED_IDS = {int(i) for i in os.getenv("ECHO_ALLOWED_IDS", "").split(",") if 
 @require_access_level(0)
 async def echo_command(interaction: discord.Interaction, message: str):
     if interaction.user.id not in _ALLOWED_IDS:
-        await interaction.response.send_message("I am the supreme ruler of thy economy, you do not get to boss me, I boss you.", ephemeral=True)
+        await interaction.response.send_message("I am the supreme ruler of thy economy, you do not get to boss me, I boss you.")
         return
 
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer()
     await interaction.channel.send(message)
     try:
         await interaction.delete_original_response()
