@@ -6,11 +6,11 @@ from .ast_nodes import (
     Program, StartOnDirective,
     AssignStmt, IfStmt, IfBranch, ForEachStmt, RepeatStmt, SwitchStmt, SwitchCase,
     TransferAction, BuyBuildingAction, UpgradeBuildingAction,
-    MoveFleetAction, FleetStatusAction, BuyVehiclesAction, RecruitAction,
+    MoveFleetAction, FleetStatusAction, RenameFleetAction, BuyVehiclesAction, RecruitAction,
     ResourceCond, FleetHealthCond, FleetStatusCond, FleetAtWorldCond, FleetVehiclesCond,
     BuildingCountCond, WorldResourceCond,
     AtWarCond, BlockadedCond, TodayIsCond, FactorySpaceCond, ExprComparison, BinaryCond, NotCond,
-    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr,
+    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr,
     Expr, Cond, Statement, Literal,
 )
 
@@ -234,6 +234,8 @@ class Parser:
             return self.parse_upgrade()
         if tok.type == TT.KW_MOVE:
             return self.parse_move_fleet()
+        if tok.type == TT.KW_RENAME:
+            return self.parse_rename_fleet()
         if tok.type == TT.KW_FLEET:
             return self.parse_fleet_status_action()
         if tok.type == TT.KW_RECRUIT:
@@ -303,6 +305,14 @@ class Parser:
         self.expect(TT.KW_TO, msg="expected TO")
         dest = self.parse_ref()
         return MoveFleetAction(fleet_ref=fleet_ref, destination=dest, line=tok.line)
+
+    def parse_rename_fleet(self) -> RenameFleetAction:
+        tok = self.advance()
+        self.expect(TT.KW_FLEET, msg="expected FLEET after RENAME")
+        fleet_ref = self.parse_ref()
+        self.expect(TT.KW_TO, msg="expected TO")
+        new_name = self.parse_expression()
+        return RenameFleetAction(fleet_ref=fleet_ref, new_name=new_name, line=tok.line)
 
     def parse_fleet_status_action(self) -> FleetStatusAction:
         tok = self.advance()
@@ -514,6 +524,13 @@ class Parser:
             high = self.parse_expression()
             self.expect(TT.RPAREN, msg="expected ) after RANDI arguments")
             return RandiExpr(low=low, high=high, line=tok.line)
+
+        if tok.type == TT.KW_ORDINAL:
+            self.advance()
+            self.expect(TT.LPAREN, msg="expected ( after ORDINAL")
+            operand = self.parse_expression()
+            self.expect(TT.RPAREN, msg="expected ) after ORDINAL argument")
+            return OrdinalExpr(operand=operand, line=tok.line)
 
         if tok.type == TT.LPAREN:
             self.advance()

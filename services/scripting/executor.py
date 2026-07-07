@@ -14,12 +14,20 @@ from .ast_nodes import (
     Program, StartOnDirective,
     AssignStmt, IfStmt, ForEachStmt, RepeatStmt, SwitchStmt,
     TransferAction, BuyBuildingAction, UpgradeBuildingAction,
-    MoveFleetAction, FleetStatusAction, BuyVehiclesAction, RecruitAction,
+    MoveFleetAction, FleetStatusAction, RenameFleetAction, BuyVehiclesAction, RecruitAction,
     ResourceCond, FleetHealthCond, FleetStatusCond, FleetVehiclesCond, FleetAtWorldCond,
     WorldResourceCond, BuildingCountCond,
     AtWarCond, BlockadedCond, TodayIsCond, FactorySpaceCond, ExprComparison, BinaryCond, NotCond,
-    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr,
+    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr,
 )
+
+
+def ordinal(n: int) -> str:
+    if 10 <= (n % 100) <= 20:
+        suf = "th"
+    else:
+        suf = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suf}"
 
 
 async def execute_script(
@@ -196,6 +204,8 @@ class Executor:
             await self.exec_move_fleet(stmt)
         elif t is FleetStatusAction:
             await self.exec_fleet_status(stmt)
+        elif t is RenameFleetAction:
+            await self.exec_rename_fleet(stmt)
         elif t is BuyVehiclesAction:
             await self.exec_buy_vehicles(stmt)
         elif t is RecruitAction:
@@ -286,6 +296,14 @@ class Executor:
         fleet = await self.sandbox.resolve_fleet(fleet_ref_val)
         msg = await self.sandbox.do_fleet_status(fleet_id=fleet["id"], status_name=stmt.status)
 
+
+    async def exec_rename_fleet(self, stmt: RenameFleetAction):
+        fleet_ref_val = (await self.eval_expr(stmt.fleet_ref)).value
+        new_name = (await self.eval_expr(stmt.new_name)).value
+        if not isinstance(new_name, str):
+            new_name = str(new_name)
+        fleet = await self.sandbox.resolve_fleet(fleet_ref_val)
+        msg = await self.sandbox.do_rename_fleet(fleet_id=fleet["id"], new_name=new_name)
 
     async def exec_buy_vehicles(self, stmt: BuyVehiclesAction):
         vehicle_ref_val = (await self.eval_expr(stmt.vehicle_ref)).value
@@ -443,6 +461,12 @@ class Executor:
         if t is BinOp:
             left = (await self.eval_expr(node.left)).value
             right = (await self.eval_expr(node.right)).value
+            if isinstance(left, str) or isinstance(right, str):
+                if node.op != "+":
+                    raise FALRuntimeError(
+                        f"Line {node.line}: Only '+' (concatenation) is allowed on strings"
+                    )
+                return FALValue.str_(str(left) + str(right))
             if not isinstance(left, int) or not isinstance(right, int):
                 raise FALRuntimeError(
                     f"Line {node.line}: Arithmetic requires integers, got {type(left).__name__} and {type(right).__name__}"
@@ -469,6 +493,12 @@ class Executor:
             if low > high:
                 raise FALRuntimeError(f"Line {node.line}: RANDI lower bound {low} exceeds upper bound {high}")
             return FALValue.int(self.ctx.rng.randint(low, high))
+
+        if t is OrdinalExpr:
+            n = (await self.eval_expr(node.operand)).value
+            if not isinstance(n, int):
+                raise FALRuntimeError(f"Line {node.line}: ORDINAL requires an integer")
+            return FALValue.str_(ordinal(n))
 
         if t is UnaryOp:
             val = (await self.eval_expr(node.operand)).value

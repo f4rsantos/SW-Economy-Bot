@@ -16,6 +16,7 @@ from services.econ_query_service import get_global_resource_amount
 from services.fleet_service import (
     get_fleet,
     move_fleet,
+    rename_fleet,
     set_fleet_status,
     buy_vehicle,
     get_factory_info,
@@ -379,6 +380,23 @@ class FALSandbox:
         from services.travel_time_service import calculate_travel_time
         await move_fleet(fleet_id, dest_world_id, current_time)
         return f"Fleet {fleet_id} moving to {dest_world_name}"
+
+    async def do_rename_fleet(self, fleet_id: int, new_name: str) -> str:
+        fleet = await get_fleet(fleet_id)
+        if not fleet or fleet["faction_id"] != self._faction_id:
+            raise ValueError(f"Fleet {fleet_id} not found or does not belong to your faction")
+
+        new_name = new_name.strip()
+        if not new_name:
+            raise ValueError("RENAME FLEET new name cannot be empty")
+        if len(new_name) > 100:
+            raise ValueError("RENAME FLEET new name must be 100 characters or less")
+
+        if self._dry_run:
+            return f"[dry-run] RENAME FLEET {fleet_id} to '{new_name}'"
+
+        await rename_fleet(fleet_id, new_name)
+        return f"Fleet {fleet_id} renamed to '{new_name}'"
 
     async def do_fleet_status(self, fleet_id: int, status_name: str) -> str:
         fleet = await get_fleet(fleet_id)
