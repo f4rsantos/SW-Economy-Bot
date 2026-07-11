@@ -8,6 +8,42 @@ from services.fleet_service import transfer_vehicle
 from services.validation_service import require_faction, require_unit, require_vehicle
 
 
+class TransferSuccessView(discord.ui.View):
+    def __init__(self, amount: int, vehicle_data: dict, from_unit: dict, to_unit: dict, from_name: str, to_name: str, user_id: int, faction_color: int):
+        super().__init__(timeout=180)
+        self.amount = amount
+        self.vehicle_data = vehicle_data
+        self.from_unit = from_unit
+        self.to_unit = to_unit
+        self.from_name = from_name
+        self.to_name = to_name
+        self.user_id = user_id
+        self.faction_color = faction_color
+        self.hidden = False
+
+    async def create_detail_embed(self) -> discord.Embed:
+        if self.hidden:
+            return discord.Embed(title="Vehicles Transferred", description="[HIDDEN]", color=self.faction_color)
+        
+        embed = success_embed(
+            "Vehicles Transferred",
+            f"**{self.amount:,}x {self.vehicle_data['name']}**\n\n"
+            f"From: **{self.from_name}** ({self.from_unit['world_name']})\n"
+            f"To: **{self.to_name}** ({self.to_unit['world_name']})"
+        )
+        embed.color = self.faction_color
+        return embed
+
+    @discord.ui.button(label="Hide", style=discord.ButtonStyle.secondary, row=0)
+    async def hide_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(embed=error_embed("Error", "This is not your confirmation."), ephemeral=True)
+            return
+        self.hidden = not self.hidden
+        button.label = "Show" if self.hidden else "Hide"
+        await interaction.response.edit_message(embed=await self.create_detail_embed(), view=self)
+
+
 @app_commands.command(name="transfer", description="Transfer vehicles between units")
 @app_commands.describe(
     faction="Faction name or ID that owns the source unit",
@@ -93,14 +129,18 @@ async def transfer_vehicle_cmd(
     from_name = from_unit['name'] or f"Unit #{from_unit['faction_fleet_number']}"
     to_name = to_unit['name'] or f"Unit #{to_unit['faction_fleet_number']}"
 
-    embed = success_embed(
-        "Vehicles Transferred",
-        f"**{amount:,}x {vehicle_data['name']}**\n\n"
-        f"From: **{from_name}** ({from_unit['world_name']})\n"
-        f"To: **{to_name}** ({to_unit['world_name']})"
+    view = TransferSuccessView(
+        amount=amount,
+        vehicle_data=vehicle_data,
+        from_unit=from_unit,
+        to_unit=to_unit,
+        from_name=from_name,
+        to_name=to_name,
+        user_id=interaction.user.id,
+        faction_color=faction_color
     )
-    embed.color = faction_color
-    await interaction.followup.send(embed=embed)
+
+    await interaction.followup.send(embed=await view.create_detail_embed(), view=view)
 
 
 async def setup(bot):

@@ -11,10 +11,10 @@ def calculate_influence_cost_from_pacts(pact_rows) -> int:
 
 def calculate_fleet_cs_cost(row) -> int:
     idle_cost          = math.ceil((row['idle_cs'] or 0) / 8)
-    defense_patrol_cost = math.ceil((row['defense_patrol_cs'] or 0) / 6)
+    defence_patrol_cost = math.ceil((row['defence_patrol_cs'] or 0) / 6)
     battle_cost        = math.ceil((row['battle_cs'] or 0) / 4)
     mothballed_cost    = math.ceil((row['mothballed_cs'] or 0) / 60)
-    return idle_cost + defense_patrol_cost + battle_cost + mothballed_cost
+    return idle_cost + defence_patrol_cost + battle_cost + mothballed_cost
 
 
 def calculate_fleet_cs_cost_for_fleet(fleet) -> int:
@@ -22,7 +22,7 @@ def calculate_fleet_cs_cost_for_fleet(fleet) -> int:
     cs = fleet['total_cs']
     if status == 'idle':
         return math.ceil(cs / 8)
-    if status in ('defense', 'patrol', 'travelling', 'ftl supply'):
+    if status in ('defence', 'patrol', 'travelling', 'ftl supply'):
         return math.ceil(cs / 6)
     if status in ('battle', 'in combat', 'blockading'):
         return math.ceil(cs / 4)

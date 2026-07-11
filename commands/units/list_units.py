@@ -15,7 +15,7 @@ from services.validation_service import require_faction, require_world
 UNITS_PER_PAGE = 10
 
 UPKEEP_DIVISORS = {
-    'idle': 8, 'defense': 6, 'patrol': 6,
+    'idle': 8, 'defence': 6, 'patrol': 6,
     'battle': 4, 'debris': 0
 }
 

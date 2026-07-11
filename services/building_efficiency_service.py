@@ -228,11 +228,11 @@ async def detect_specialization(faction_id: int) -> Tuple[bool, str, float]:
     threshold = total_weighted * 0.5
 
     for resource, count in breakdown['by_resource_weighted'].items():
-        if count > threshold:
+        if count >= threshold:
             return True, resource, 0.075
 
     for building_type, count in breakdown['by_type_weighted'].items():
-        if building_type != 'other' and count > threshold:
+        if building_type != 'other' and count >= threshold:
             return True, building_type, 0.075
 
     return False, '', 0.0

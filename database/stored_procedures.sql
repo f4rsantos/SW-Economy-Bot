@@ -674,7 +674,7 @@ BEGIN
         RAISE EXCEPTION 'FLEET_NOT_FOUND: Fleet #% does not exist', p_fleet_id;
     END IF;
 
-    IF LOWER(v_current_name) NOT IN ('idle', 'defence', 'defense', 'patrol', 'blockading', 'ftl supply') THEN
+    IF LOWER(v_current_name) NOT IN ('idle', 'defence', 'defence', 'patrol', 'blockading', 'ftl supply') THEN
         RAISE EXCEPTION 'FLEET_INVALID_STATUS: Fleet cannot move while status is %', v_current_name;
     END IF;
 
@@ -1635,7 +1635,7 @@ BEGIN
             FROM fleets f JOIN fleet_status fs ON f.status_id = fs.id
             WHERE f.id = v_escort_id
               AND f.position = v_from_world
-              AND LOWER(fs.name) IN ('idle', 'defence', 'defense', 'patrol', 'blockading', 'ftl supply');
+              AND LOWER(fs.name) IN ('idle', 'defence', 'defence', 'patrol', 'blockading', 'ftl supply');
             IF NOT FOUND THEN
                 v_escort_ok := FALSE;
                 v_escort_id := NULL;
@@ -1821,6 +1821,46 @@ BEGIN
         WHERE faction_id = p_faction_id AND world_id = p_world_id
           AND building_id = p_building_id AND level = p_level;
     END IF;
+END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION sp_transfer_building(
+    p_from_faction  INT,
+    p_to_faction    INT,
+    p_world_id      INT,
+    p_building_id   INT,
+    p_amount        INT,
+    p_level         INT
+) RETURNS VOID LANGUAGE plpgsql AS $$
+DECLARE
+    v_current   INT;
+    v_new       INT;
+BEGIN
+    SELECT amount INTO v_current FROM faction_world_buildings
+    WHERE faction_id = p_from_faction AND world_id = p_world_id
+      AND building_id = p_building_id AND level = p_level;
+
+    IF COALESCE(v_current, 0) < p_amount THEN
+        RAISE EXCEPTION 'INSUFFICIENT_BUILDINGS: Not enough level % buildings — have %, need %',
+            p_level, COALESCE(v_current, 0), p_amount;
+    END IF;
+
+    v_new := v_current - p_amount;
+    IF v_new = 0 THEN
+        DELETE FROM faction_world_buildings
+        WHERE faction_id = p_from_faction AND world_id = p_world_id
+          AND building_id = p_building_id AND level = p_level;
+    ELSE
+        UPDATE faction_world_buildings SET amount = v_new
+        WHERE faction_id = p_from_faction AND world_id = p_world_id
+          AND building_id = p_building_id AND level = p_level;
+    END IF;
+
+    INSERT INTO faction_world_buildings (faction_id, world_id, building_id, level, amount)
+    VALUES (p_to_faction, p_world_id, p_building_id, p_level, p_amount)
+    ON CONFLICT (faction_id, world_id, building_id, level)
+    DO UPDATE SET amount = faction_world_buildings.amount + p_amount;
 END;
 $$;
 

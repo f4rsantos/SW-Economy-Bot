@@ -14,7 +14,7 @@ async def fetch_pact_types_for_faction(faction_id: int) -> List[Dict]:
 
 async def fetch_fleet_cs_by_status(faction_id: int, status_ids: dict) -> Dict:
     idle_id       = status_ids.get('idle', -1)
-    defense_id    = status_ids.get('defense', -1)
+    defence_id    = status_ids.get('defence', -1)
     patrol_id     = status_ids.get('patrol', -1)
     travelling_id = status_ids.get('travelling', -1)
     ftl_supply_id = status_ids.get('ftl supply', -1)
@@ -25,7 +25,7 @@ async def fetch_fleet_cs_by_status(faction_id: int, status_ids: dict) -> Dict:
     query = f"""
         SELECT
             COALESCE(SUM(CASE WHEN status_id = {idle_id} THEN total_cs ELSE 0 END), 0) as idle_cs,
-            COALESCE(SUM(CASE WHEN status_id IN ({defense_id}, {patrol_id}, {travelling_id}, {ftl_supply_id}) THEN total_cs ELSE 0 END), 0) as defense_patrol_cs,
+            COALESCE(SUM(CASE WHEN status_id IN ({defence_id}, {patrol_id}, {travelling_id}, {ftl_supply_id}) THEN total_cs ELSE 0 END), 0) as defence_patrol_cs,
             COALESCE(SUM(CASE WHEN status_id = {battle_id} THEN total_cs ELSE 0 END), 0) as battle_cs,
             COALESCE(SUM(CASE WHEN status_id = {mothballed_id} THEN total_cs ELSE 0 END), 0) as mothballed_cs
         FROM fleets
@@ -48,7 +48,7 @@ async def fetch_non_debris_fleets(faction_id: int, debris_status_id: int) -> Lis
         ORDER BY
             CASE
                 WHEN fs.name IN ('battle', 'in combat', 'blockading') THEN 1
-                WHEN fs.name IN ('defense', 'patrol') THEN 2
+                WHEN fs.name IN ('defence', 'patrol') THEN 2
                 WHEN fs.name = 'idle' THEN 3
                 WHEN fs.name = 'mothballed' THEN 4
                 ELSE 5
