@@ -65,7 +65,7 @@ async def efficiency(interaction: discord.Interaction, faction: str):
 
     breakdown_lines = [f"Base: **{base_pct}%**"]
     if info['is_specialized']:
-        breakdown_lines.append(f"Specialization ({info['specialization_type'].title()}): **+15%** matching, **+7.5%** other")
+        breakdown_lines.append(f"Specialization ({info['specialization_type'].upper()}): **+15%** matching, **+7.5%** other")
     for s in efficiency_spirits:
         breakdown_lines.append(f"{s['display_name']}: **+{int(s['modifier_value'] * 100)}%**")
     description += "\n" + "\n".join(breakdown_lines)
