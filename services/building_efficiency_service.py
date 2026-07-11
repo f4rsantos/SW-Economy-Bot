@@ -46,6 +46,7 @@ async def get_faction_building_count_weighted(faction_id: int) -> int:
                 CASE
                     WHEN bg.is_refinery THEN fwb.amount * fwb.level * 1.5
                     WHEN bs.building_id IS NOT NULL THEN fwb.amount * fwb.level * 5
+                    WHEN b.name LIKE '%Mega Factory%' THEN fwb.amount * fwb.level * 5
                     WHEN b.name LIKE '%Factory%' THEN fwb.amount * fwb.level * 2
                     ELSE fwb.amount * fwb.level
                 END
@@ -114,15 +115,17 @@ async def calculate_efficiency(faction_id: int) -> float:
 async def get_building_breakdown(faction_id: int) -> Dict[str, int]:
     resource_query = """
         SELECT
-            r.name as resource_name,
+            COALESCE(rg.name, rs.name) as resource_name,
             SUM(fwb.amount * fwb.level) as count
         FROM faction_world_buildings fwb
         JOIN buildings b ON fwb.building_id = b.id
         LEFT JOIN buildings_generators bg ON b.id = bg.building_id
-        LEFT JOIN resources r ON bg.resource_id = r.id
+        LEFT JOIN resources rg ON bg.resource_id = rg.id
+        LEFT JOIN buildings_storages bs ON b.id = bs.building_id
+        LEFT JOIN resources rs ON bs.resource_id = rs.id
         WHERE fwb.faction_id = $1
-        AND r.name IS NOT NULL
-        GROUP BY r.name
+        AND COALESCE(rg.name, rs.name) IS NOT NULL
+        GROUP BY COALESCE(rg.name, rs.name)
     """
     resource_results = await db.fetch(resource_query, faction_id)
 
@@ -133,11 +136,12 @@ async def get_building_breakdown(faction_id: int) -> Dict[str, int]:
 
     resource_weighted_query = """
         SELECT
-            r.name as resource_name,
+            COALESCE(rg.name, rs.name) as resource_name,
             SUM(
                 CASE
                     WHEN bg.is_refinery THEN fwb.amount * fwb.level * 1.5
                     WHEN bs.building_id IS NOT NULL THEN fwb.amount * fwb.level * 5
+                    WHEN b.name LIKE '%Mega Factory%' THEN fwb.amount * fwb.level * 5
                     WHEN b.name LIKE '%Factory%' THEN fwb.amount * fwb.level * 2
                     ELSE fwb.amount * fwb.level
                 END
@@ -146,10 +150,11 @@ async def get_building_breakdown(faction_id: int) -> Dict[str, int]:
         JOIN buildings b ON fwb.building_id = b.id
         LEFT JOIN buildings_generators bg ON b.id = bg.building_id
         LEFT JOIN buildings_storages bs ON b.id = bs.building_id
-        LEFT JOIN resources r ON bg.resource_id = r.id
+        LEFT JOIN resources rg ON bg.resource_id = rg.id
+        LEFT JOIN resources rs ON bs.resource_id = rs.id
         WHERE fwb.faction_id = $1
-        AND r.name IS NOT NULL
-        GROUP BY r.name
+        AND COALESCE(rg.name, rs.name) IS NOT NULL
+        GROUP BY COALESCE(rg.name, rs.name)
     """
     resource_weighted_results = await db.fetch(resource_weighted_query, faction_id)
 
@@ -193,6 +198,7 @@ async def get_building_breakdown(faction_id: int) -> Dict[str, int]:
                 CASE
                     WHEN bg.is_refinery THEN fwb.amount * fwb.level * 1.5
                     WHEN bs.building_id IS NOT NULL THEN fwb.amount * fwb.level * 5
+                    WHEN b.name LIKE '%Mega Factory%' THEN fwb.amount * fwb.level * 5
                     WHEN b.name LIKE '%Factory%' THEN fwb.amount * fwb.level * 2
                     ELSE fwb.amount * fwb.level
                 END
