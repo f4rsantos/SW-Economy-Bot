@@ -21,7 +21,7 @@ async def faction_autocomplete(_: discord.Interaction, current: str) -> list[app
 )
 @app_commands.choices(status=[
     app_commands.Choice(name="Idle",    value="idle"),
-    app_commands.Choice(name="Defense", value="defence"),
+    app_commands.Choice(name="defence", value="defence"),
     app_commands.Choice(name="Patrol",  value="patrol"),
 ])
 @require_access_level(0)

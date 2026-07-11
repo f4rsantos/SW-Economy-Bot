@@ -211,6 +211,27 @@ async def destroy_building(faction_id: int, world_id: int, building_id: int, amo
     return {'building_name': building['name']}
 
 
+async def transfer_building(from_faction_id: int, to_faction_id: int, world_id: int, building_id: int, amount: int, level: int) -> dict:
+    building = await get_building(building_id)
+    if not building:
+        raise ValueError("Building not found.")
+    if not await db.fetchrow("SELECT 1 FROM world_factions WHERE world_id = $1 AND faction_id = $2", world_id, to_faction_id):
+        raise ValueError("Destination faction has no presence on this world.")
+    current = await get_faction_building_count_unweighted(to_faction_id)
+    building_cap = await calculate_building_cap(to_faction_id)
+    new_total = current + (amount * level)
+    if new_total > building_cap:
+        raise ValueError(f"Building cap exceeded. Cap: {building_cap:,}, Current: {current:,}, Adding: {amount * level:,}")
+    try:
+        await db.execute(
+            "SELECT sp_transfer_building($1, $2, $3, $4, $5, $6)",
+            from_faction_id, to_faction_id, world_id, building_id, amount, level
+        )
+    except Exception as e:
+        raise ValueError(str(e)) from e
+    return {'building_name': building['name']}
+
+
 async def refund_building(faction_id: int, world_id: int, building_id: int, amount: int, level: int, week: bool) -> dict:
     building = await get_building(building_id)
     if not building:

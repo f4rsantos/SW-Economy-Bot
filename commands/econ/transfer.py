@@ -173,9 +173,10 @@ async def transfer(
         if fleet_data['position'] != from_world_id:
             await interaction.followup.send(embed=error_embed("Error", f"Escort fleet must be at {from_world_data['name']} to escort this transfer."))
             return
-        if fleet_data['status_name'].lower() not in ('idle', 'defence', 'defense', 'patrol', 'blockading', 'ftl supply'):
+        if fleet_data['status_name'].lower() not in ('idle', 'defence', 'defence', 'patrol', 'blockading', 'ftl supply'):
             await interaction.followup.send(embed=error_embed("Error", f"Escort fleet cannot travel while status is {fleet_data['status_name']}."))
             return
+        escort_fleet_name = fleet_data['name']
         escort_fleet_id = fleet_data['id']
 
     try:
@@ -210,7 +211,7 @@ async def transfer(
                         f"**Transfer ID:** {result['transfer_id']}"
         )
     else:
-        escort_line = f"**Escort:** {escort_fleet}\n" if escort_fleet_id is not None else ""
+        escort_line = f"**Escort:** {escort_fleet_name}\n" if escort_fleet_id is not None else ""
         embed = success_embed(
             title="Transfer In Transit",
             description=f"**{from_faction_data['display_name']}** is transferring {transfer_str} from **{from_world_data['name']}** to **{to_faction_data['display_name']}** at **{to_world_data['name']}**\n\n"
