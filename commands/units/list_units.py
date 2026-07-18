@@ -7,8 +7,7 @@ from utils.checks import require_access_level
 from utils.embeds import error_embed
 from utils.faction_utils import hex_to_int
 from services.fleet_service import get_fleets, get_fleet, get_fleet_vehicles, get_unit_vehicle_resource_totals
-from services.map_service import search_world_names
-from services.faction_service import search_faction_names
+from utils.autocomplete import faction_autocomplete, world_autocomplete
 from utils.currency import handle_return
 from services.validation_service import require_faction, require_world
 
@@ -246,11 +245,6 @@ class UnitView(View):
         await interaction.response.edit_message(embed=await self.create_list_embed(), view=self)
 
 
-async def faction_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    names = await search_faction_names(current)
-    return [app_commands.Choice(name=name, value=name) for name in names]
-
-
 @app_commands.command(name="list", description="List units (filter by faction, world, or both)")
 @app_commands.describe(
     faction="Filter by Faction name (optional)",
@@ -312,10 +306,5 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
 
 async def setup(bot):
     list_units.autocomplete('faction')(faction_autocomplete)
-
-    async def world_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-        names = await search_world_names(current)
-        return [app_commands.Choice(name=name, value=name) for name in names]
-
     list_units.autocomplete('world')(world_autocomplete)
     bot.tree.add_command(list_units)

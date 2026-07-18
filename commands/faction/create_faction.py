@@ -8,7 +8,14 @@ from utils.views import OwnerOnlyView
 from database.db_manager import db
 from database.cache_manager import cache_manager
 from services.map_service import get_world, get_world_by_id
-from services.faction_service import create_faction_in_db, check_world_space
+from services.faction_service import (
+    create_faction_in_db,
+    check_world_space,
+    faction_name_exists,
+    user_is_registered,
+    get_world_hex_count,
+    get_world_available_hexes,
+)
 from utils.faction_utils import FACTION_TYPE_LABELS, FACTION_TYPE_NATION, FACTION_TYPE_COMPANY, FACTION_TYPE_PIRATE
 
 
@@ -120,12 +127,10 @@ class FactionSetupModal(discord.ui.Modal, title="Faction Setup - Basic Info"):
                     if not await check_world_space(conn, starting_world_id):
                         await interaction.response.send_message(embed=error_embed("Error", "Not enough space on world. Need 50 hexes."))
                         return
-                    existing = await conn.fetchrow("SELECT id FROM factions WHERE LOWER(name) = $1", name)
-                    if existing:
+                    if await faction_name_exists(conn, name):
                         await interaction.response.send_message(embed=error_embed("Name Taken", f"A faction with the name '{name}' already exists."))
                         return
-                    user_check = await conn.fetchrow("SELECT id FROM users WHERE id = $1", self.leader_user.id)
-                    if not user_check:
+                    if not await user_is_registered(conn, self.leader_user.id):
                         await interaction.response.send_message(embed=error_embed("Leader Not Registered", f"{self.leader_user.mention} is not registered."))
                         return
                     faction = await create_faction_in_db(conn, name, name, color, leader_name, flag, self.leader_user.id, faction_type, starting_world_id)
@@ -235,21 +240,18 @@ async def create_faction(
         async with db.get_connection() as conn:
             async with conn.transaction():
                 if starting_world_id:
-                    world_exists = await conn.fetchrow("SELECT hex_count FROM worlds WHERE id = $1", starting_world_id)
-                    if not world_exists:
+                    hex_count = await get_world_hex_count(conn, starting_world_id)
+                    if hex_count is None:
                         await interaction.followup.send(embed=error_embed("Error", "Starting world not found."))
                         return
                     if not await check_world_space(conn, starting_world_id):
-                        claimed = await conn.fetchrow("SELECT COALESCE(SUM(territory), 0) as c FROM world_factions WHERE world_id = $1", starting_world_id)
-                        available_hexes = world_exists['hex_count'] - (claimed['c'] if claimed else 0)
+                        available_hexes = await get_world_available_hexes(conn, starting_world_id, hex_count)
                         await interaction.followup.send(embed=error_embed("Error", f"Not enough space on world. Need 50 hexes, have {available_hexes}."))
                         return
-                existing = await conn.fetchrow("SELECT id FROM factions WHERE LOWER(name) = $1", name)
-                if existing:
+                if await faction_name_exists(conn, name):
                     await interaction.followup.send(embed=error_embed("Name Taken", f"A faction with the name '{name}' already exists."))
                     return
-                user_check = await conn.fetchrow("SELECT id FROM users WHERE id = $1", leader.id)
-                if not user_check:
+                if not await user_is_registered(conn, leader.id):
                     await interaction.followup.send(embed=error_embed("Leader Not Registered", f"{leader.mention} is not registered in the bot."))
                     return
                 faction = await create_faction_in_db(conn, name, formal_name, color, leader_name, flag, leader.id, ftype, starting_world_id)

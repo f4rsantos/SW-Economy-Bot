@@ -6,13 +6,8 @@ from utils.embeds import error_embed
 from utils.faction_utils import hex_to_int
 from services.travel_time_service import calculate_travel_time, format_travel_time
 from services.fleet_service import move_fleet
-from services.faction_service import search_faction_names
+from utils.autocomplete import faction_autocomplete
 from services.validation_service import require_faction, require_unit, require_world
-
-
-async def faction_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    names = await search_faction_names(current)
-    return [app_commands.Choice(name=name, value=name) for name in names]
 
 
 @app_commands.command(name="move", description="Move a unit to another world")

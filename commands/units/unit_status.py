@@ -4,13 +4,8 @@ from utils.checks import require_access_level
 from utils.embeds import success_embed, error_embed
 from utils.faction_utils import hex_to_int
 from services.fleet_service import set_fleet_status
-from services.faction_service import search_faction_names
 from services.validation_service import require_faction, require_unit
-
-
-async def faction_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    names = await search_faction_names(current)
-    return [app_commands.Choice(name=name, value=name) for name in names]
+from utils.autocomplete import faction_autocomplete
 
 
 @app_commands.command(name="status", description="Change unit status")
@@ -20,9 +15,10 @@ async def faction_autocomplete(_: discord.Interaction, current: str) -> list[app
     status="New status"
 )
 @app_commands.choices(status=[
-    app_commands.Choice(name="Idle",    value="idle"),
-    app_commands.Choice(name="defence", value="defence"),
-    app_commands.Choice(name="Patrol",  value="patrol"),
+    app_commands.Choice(name="Idle",       value="idle"),
+    app_commands.Choice(name="defence",    value="defence"),
+    app_commands.Choice(name="Patrol",     value="patrol"),
+    app_commands.Choice(name="FTL Supply", value="ftl supply"),
 ])
 @require_access_level(0)
 async def unit_status_command(

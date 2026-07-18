@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import io
 import json
 import math
@@ -8,6 +9,8 @@ from typing import Optional
 import httpx
 from PIL import Image, ImageDraw
 
+
+BACKGROUND_CACHE_DIR = os.getenv("MAP_BACKGROUND_CACHE_DIR", os.path.join("data", "map_background_cache"))
 
 HEX_SIZE = 25
 HEX_APOTHEM = math.sqrt(3) * HEX_SIZE / 2
@@ -180,7 +183,17 @@ def _target_canvas_size(width: int, height: int) -> tuple[int, int]:
     return int(math.ceil(map_width)), int(math.ceil(map_height))
 
 
-async def render_world_overlay_image(background_url: str, overlay_raw, defaults: Optional[dict] = None) -> bytes:
+def _background_cache_path(background_url: str) -> str:
+    key = hashlib.sha256(background_url.encode("utf-8")).hexdigest()
+    return os.path.join(BACKGROUND_CACHE_DIR, f"{key}.bin")
+
+
+async def _fetch_background_bytes(background_url: str) -> bytes:
+    cache_path = _background_cache_path(background_url)
+    if os.path.exists(cache_path):
+        with open(cache_path, "rb") as f:
+            return f.read()
+
     async with httpx.AsyncClient(timeout=25) as client:
         for attempt in range(3):
             bg_resp = await client.get(background_url)
@@ -189,7 +202,15 @@ async def render_world_overlay_image(background_url: str, overlay_raw, defaults:
                 break
             await asyncio.sleep(1)
 
-    original_bg = Image.open(io.BytesIO(bg_resp.content)).convert("RGBA")
+    os.makedirs(BACKGROUND_CACHE_DIR, exist_ok=True)
+    with open(cache_path, "wb") as f:
+        f.write(bg_resp.content)
+    return bg_resp.content
+
+
+async def render_world_overlay_image(background_url: str, overlay_raw, defaults: Optional[dict] = None) -> bytes:
+    background_bytes = await _fetch_background_bytes(background_url)
+    original_bg = Image.open(io.BytesIO(background_bytes)).convert("RGBA")
 
     overlay_data = await _load_overlay_data(overlay_raw)
     if not isinstance(overlay_data, dict):

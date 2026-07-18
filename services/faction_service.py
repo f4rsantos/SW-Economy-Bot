@@ -275,3 +275,23 @@ async def check_world_space(conn, world_id: int) -> bool:
         return False
     claimed = await conn.fetchrow("SELECT COALESCE(SUM(territory), 0) as claimed FROM world_factions WHERE world_id = $1", world_id)
     return world_check['hex_count'] - (claimed['claimed'] if claimed else 0) >= 50
+
+
+async def faction_name_exists(conn, name: str) -> bool:
+    row = await conn.fetchrow("SELECT id FROM factions WHERE LOWER(name) = $1", name)
+    return row is not None
+
+
+async def user_is_registered(conn, user_id: int) -> bool:
+    row = await conn.fetchrow("SELECT id FROM users WHERE id = $1", user_id)
+    return row is not None
+
+
+async def get_world_hex_count(conn, world_id: int) -> Optional[int]:
+    row = await conn.fetchrow("SELECT hex_count FROM worlds WHERE id = $1", world_id)
+    return row['hex_count'] if row else None
+
+
+async def get_world_available_hexes(conn, world_id: int, hex_count: int) -> int:
+    claimed = await conn.fetchrow("SELECT COALESCE(SUM(territory), 0) as c FROM world_factions WHERE world_id = $1", world_id)
+    return hex_count - (claimed['c'] if claimed else 0)
