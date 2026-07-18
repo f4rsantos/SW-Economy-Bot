@@ -9,12 +9,12 @@ _vehicle_def_cache: dict[int, dict] = {}
 
 def build_days(length: float) -> float:
     if length <= 20.0:
-        return 2.0
-    if length <= 200.0:
-        return 2.0 + (length - 20.0) / (200.0 - 20.0) * 6.0
+        return 1.0
+    if length <= 250.0:
+        return 1.0 + (length - 20.0) / (250.0 - 20.0) * 6.0
     if length >= 1000.0:
         return 14.0
-    return 8.0 + (length - 200.0) / (1000.0 - 200.0) * 6.0
+    return 7.0 + (length - 250.0) / (1000.0 - 250.0) * 7.0
 
 
 def compute_refit(new_costs: dict, old_costs: dict) -> tuple:

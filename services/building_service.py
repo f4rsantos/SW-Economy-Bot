@@ -55,6 +55,18 @@ def _calculate_refund(base_costs: dict, scaling_count: int, amount: int, level: 
     return total
 
 
+def calculate_upgrade_cost(base_costs: dict, building_id: int, amount: int, source_level: int, target_level: int) -> dict:
+    sum_n = lambda n: n * (n + 1) // 2
+    upgrade_factor = 0.1 if building_id == MEGA_FACTORY_BUILDING_ID else 1.0
+    multiplier = sum_n(target_level - 1) - sum_n(source_level - 1)
+    return {name: int(base * multiplier * upgrade_factor * amount) for name, base in base_costs.items()}
+
+
+def check_building_cap(current_weighted: int, delta: int, building_cap: int) -> None:
+    if current_weighted + delta > building_cap:
+        raise ValueError(f"Building cap exceeded. Cap: {building_cap:,}, Current: {current_weighted:,}, Adding: {delta:,}")
+
+
 def _calculate_mega_factory_refund(base_costs: dict, current_count: int, amount: int, level: int, week: bool) -> dict:
     refund_rate = 1.0 if week else 0.3
     upgrade_factor = 0.1
@@ -177,9 +189,7 @@ async def buy_building(faction_id: int, world_id: int, building_id: int, amount:
         building_cap = _company_building_cap(er)
     else:
         building_cap = await calculate_building_cap(faction_id)
-    new_total = current_weighted + (amount * level)
-    if new_total > building_cap:
-        raise ValueError(f"Building cap exceeded. Cap: {building_cap:,}, Current: {current_weighted:,}, Adding: {amount * level:,}")
+    check_building_cap(current_weighted, amount * level, building_cap)
     if building_id == MEGA_FACTORY_BUILDING_ID:
         current_mega = await get_faction_mega_factory_count(faction_id)
         total_costs = _calculate_mega_factory_cost(base_costs, current_mega, amount, level)

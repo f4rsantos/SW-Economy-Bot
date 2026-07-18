@@ -114,12 +114,12 @@ async def update_script(
     return dict(row)
 
 
-async def deactivate_script(script_id: int, faction_id: int) -> bool:
+async def delete_script(script_id: int, faction_id: int) -> bool:
     result = await db.execute(
-        "UPDATE faction_scripts SET is_active = FALSE WHERE id = $1 AND faction_id = $2 AND is_active = TRUE",
+        "DELETE FROM faction_scripts WHERE id = $1 AND faction_id = $2",
         script_id, faction_id,
     )
-    return result == "UPDATE 1"
+    return result == "DELETE 1"
 
 
 async def get_scripts_for_income_day(income_weekday_name: str) -> list[dict]:

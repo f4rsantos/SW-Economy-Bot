@@ -1,5 +1,6 @@
 from typing import Optional
 from database.db_manager import db
+from database.static_cache import static_cache
 from services.fleet_service import get_ftl_supply_capacity
 
 
@@ -70,6 +71,7 @@ async def add_world(name: str, orbit_of_id: int, hex_count: int, population_capa
         res_data = await db.fetchrow("SELECT id FROM resources WHERE name = $1", res_name)
         if res_data:
             await db.execute("INSERT INTO world_resources (world_id, resource_id, percentage) VALUES ($1, $2, $3)", world_id, res_data['id'], percentage)
+    await static_cache.load()
     return {'world_id': world_id}
 
 
@@ -82,6 +84,7 @@ async def delete_world(world_id: int, world_name: str) -> dict:
     if fleet_count > 0:
         await db.execute("DELETE FROM fleets WHERE position = $1", world_id)
     await db.execute("DELETE FROM worlds WHERE id = $1", world_id)
+    await static_cache.load()
     return {'fleets_deleted': fleet_count}
 
 
@@ -100,6 +103,7 @@ async def rename_world(world_id: int, new_name: str):
     if await db.fetchrow("SELECT id FROM worlds WHERE LOWER(name) = LOWER($1)", new_name):
         raise ValueError(f"World named '{new_name}' already exists.")
     await db.execute("UPDATE worlds SET name = $2 WHERE id = $1", world_id, new_name)
+    await static_cache.load()
 
 
 async def modify_world(world_id: int, world_data: dict, hex_count: Optional[int], population_capacity_per_hex: Optional[int],
@@ -138,6 +142,7 @@ async def modify_world(world_id: int, world_data: dict, hex_count: Optional[int]
                 INSERT INTO world_resources (world_id, resource_id, percentage) VALUES ($1, $2, $3)
                 ON CONFLICT (world_id, resource_id) DO UPDATE SET percentage = $3
             """, world_id, res_data['id'], percentage)
+    await static_cache.load()
 
 
 async def claim_hex(faction_id: int, world_id: int, world_name: str, max_hexes: int, hexes: int) -> dict:

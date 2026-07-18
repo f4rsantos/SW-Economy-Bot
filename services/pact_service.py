@@ -1,6 +1,6 @@
 from typing import Optional, List
 from database.db_manager import db
-from services.income_executor import calculate_influence_usage
+from services.income_executor import calculate_influence_usage, preview_income
 from services.income_queries import fetch_hex_count, fetch_current_influence
 from services.income_calculator import calculate_influence_income
 
@@ -66,7 +66,9 @@ async def create_pact(pact_name: str, pact_type_id: int, faction_id: int) -> dic
     hex_count = await fetch_hex_count(faction_id)
     current_influence = await fetch_current_influence(faction_id)
     influence_usage = await calculate_influence_usage(faction_id)
-    income = calculate_influence_income(hex_count, influence_usage, current_influence)
+    preview = await preview_income(faction_id)
+    total_cs_upkeep = preview['usages']['fleet_cs'] + sum(preview['usages']['population_cs'].values())
+    income = calculate_influence_income(hex_count, influence_usage, current_influence, total_cs_upkeep)
     if income < 0:
         raise ValueError(f"Influence income is {income:,} per week. Cannot create new pacts with negative influence income.")
     pact_row = await db.fetchrow("INSERT INTO pacts (name, pact_type_id, leader_id) VALUES ($1, $2, $3) RETURNING id", pact_name, pact_type_id, faction_id)

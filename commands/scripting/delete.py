@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from utils.checks import require_access_level
 from utils.embeds import success_embed, error_embed
-from services.scripting.script_service import get_script_by_name, deactivate_script
+from services.scripting.script_service import get_script_by_name, delete_script
 from utils.scripting_helpers import resolve_faction_with_access
 
 
@@ -14,12 +14,12 @@ class ConfirmDeleteView(discord.ui.View):
 
     @discord.ui.button(label="Confirm Delete", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        success = await deactivate_script(self.script["id"], self.faction["id"])
+        success = await delete_script(self.script["id"], self.faction["id"])
         if success:
             await interaction.response.edit_message(
                 embed=success_embed(
                     title="Script Deleted",
-                    description=f"Script **{self.script['name']}** has been deactivated.",
+                    description=f"Script **{self.script['name']}** has been permanently deleted.",
                 ),
                 view=None,
             )
@@ -57,7 +57,7 @@ async def script_delete(interaction: discord.Interaction, faction: str, name: st
 
     embed = discord.Embed(
         title="Confirm Script Deletion",
-        description=f"Delete script **{script['name']}** for **{faction_data['display_name']}**?\nThis cannot be undone (execution history is preserved).",
+        description=f"Delete script **{script['name']}** for **{faction_data['display_name']}**?\nThis cannot be undone.",
         color=0xFF6600,
     )
     view = ConfirmDeleteView(faction=faction_data, script=script)

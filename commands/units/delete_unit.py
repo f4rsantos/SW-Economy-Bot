@@ -6,8 +6,8 @@ from utils.embeds import success_embed, error_embed
 from utils.faction_utils import get_faction_by_leader, hex_to_int
 from services.user_service import get_user_access_level
 from services.fleet_service import delete_fleet, get_fleet_vehicle_count
-from services.faction_service import search_faction_names
 from services.validation_service import require_faction, require_unit
+from utils.autocomplete import faction_autocomplete
 
 
 class ConfirmDeleteView(View):
@@ -41,11 +41,6 @@ class ConfirmDeleteView(View):
     async def cancel(self, interaction: discord.Interaction, _: Button):
         await interaction.response.edit_message(embed=error_embed("Deletion Cancelled", f"Unit **{self.unit_name}** was not deleted."), view=None)
         self.stop()
-
-
-async def faction_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    names = await search_faction_names(current)
-    return [app_commands.Choice(name=name, value=name) for name in names]
 
 
 @app_commands.command(name="delete", description="Permanently delete a unit")

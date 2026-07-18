@@ -6,6 +6,7 @@ firebaseKey.json
 ADMIN/
 .claude/
 api/
+graphify-out/
 
 .venv/
 venv/

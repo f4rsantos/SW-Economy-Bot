@@ -7,8 +7,7 @@ from utils.checks import require_access_level
 from utils.embeds import success_embed, error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
-from services.map_service import search_world_names
-from services.faction_service import search_faction_names
+from utils.autocomplete import faction_autocomplete, world_autocomplete
 from services.transfer_service import list_pending_transfers, get_transfer_resource_rows
 from services.validation_service import require_faction, require_world
 
@@ -95,16 +94,6 @@ class TransfersView(discord.ui.View):
     async def next_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         self.page = (self.page + 1) % self.total_pages
         await self._update(interaction)
-
-
-async def world_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    names = await search_world_names(current, 25)
-    return [app_commands.Choice(name=name, value=name) for name in names]
-
-
-async def faction_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    names = await search_faction_names(current, 25)
-    return [app_commands.Choice(name=name, value=name) for name in names]
 
 
 @app_commands.command(name="transfers", description="View pending resource transfers")

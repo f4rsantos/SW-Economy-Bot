@@ -4,10 +4,9 @@ from discord import app_commands
 from typing import Optional
 from utils.checks import require_access_level
 from utils.embeds import error_embed
-from services.faction_service import search_faction_names
-from services.map_service import search_world_names
 from services.fleet_service import list_debris_fleets
 from services.validation_service import require_faction, require_world
+from utils.autocomplete import faction_autocomplete, world_autocomplete
 
 
 class DebrisGroup(app_commands.Group):
@@ -15,16 +14,6 @@ class DebrisGroup(app_commands.Group):
         super().__init__(name="debris", description="Manage debris")
 
 debris_group = DebrisGroup()
-
-
-async def faction_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    names = await search_faction_names(current, 25)
-    return [app_commands.Choice(name=name, value=name) for name in names]
-
-
-async def world_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    names = await search_world_names(current, 25)
-    return [app_commands.Choice(name=name, value=name) for name in names]
 
 
 @debris_group.command(name="list", description="List all debris fleets")

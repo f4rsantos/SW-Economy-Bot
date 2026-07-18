@@ -4,7 +4,7 @@ from typing import Optional
 from utils.checks import require_access_level
 from utils.embeds import error_embed
 from utils.faction_utils import hex_to_int
-from services.building_service import get_building_by_name, list_faction_buildings
+from services.building_service import get_building, get_building_by_name, list_faction_buildings
 from services.validation_service import require_faction, require_world
 
 
@@ -40,7 +40,10 @@ async def list_buildings(
     building_id = None
     building_display = None
     if building:
-        building_data = await get_building_by_name(building)
+        if building.lower().startswith("building:") and building[len("building:"):].isdigit():
+            building_data = await get_building(int(building[len("building:"):]))
+        else:
+            building_data = await get_building_by_name(building)
         if not building_data:
             await interaction.followup.send(embed=error_embed("Error", f"Building '{building}' not found."))
             return

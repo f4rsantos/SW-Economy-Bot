@@ -6,7 +6,7 @@ from utils.embeds import success_embed, error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
 from services.transfer_service import upgrade_buildings
-from services.building_service import get_building, get_building_base_costs, get_building_cap_info
+from services.building_service import get_building, get_building_base_costs, get_building_cap_info, calculate_upgrade_cost, check_building_cap
 from services.validation_service import require_faction, require_world
 
 
@@ -63,18 +63,14 @@ async def upgrade(
     current_weighted = cap_info['building_count']
     building_cap = cap_info['building_cap']
     delta = amount * (target_level - source_level)
-    if current_weighted + delta > building_cap:
-        await interaction.followup.send(embed=error_embed(
-            "Error",
-            f"Building cap exceeded. Cap: {building_cap:,}, Current: {current_weighted:,}, Adding: {delta:,}"
-        ))
+    try:
+        check_building_cap(current_weighted, delta, building_cap)
+    except ValueError as e:
+        await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
     base_costs = await get_building_base_costs(building_id)
-
-    upgrade_multiplier = ((target_level - 1) * target_level - (source_level - 1) * source_level) // 2
-    upgrade_factor = 0.1 if building_id == 18 else 1.0
-    costs = {name: int(base * upgrade_multiplier * upgrade_factor * amount) for name, base in base_costs.items()}
+    costs = calculate_upgrade_cost(base_costs, building_id, amount, source_level, target_level)
 
     try:
         await upgrade_buildings(
