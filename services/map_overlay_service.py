@@ -11,6 +11,8 @@ from PIL import Image, ImageDraw
 
 
 BACKGROUND_CACHE_DIR = os.getenv("MAP_BACKGROUND_CACHE_DIR", os.path.join("data", "map_background_cache"))
+LOCAL_BACKGROUND_DIR = os.getenv("MAP_BACKGROUND_DIR", "map-backgrounds")
+LOCAL_BACKGROUND_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
 HEX_SIZE = 25
 HEX_APOTHEM = math.sqrt(3) * HEX_SIZE / 2
@@ -188,7 +190,22 @@ def _background_cache_path(background_url: str) -> str:
     return os.path.join(BACKGROUND_CACHE_DIR, f"{key}.bin")
 
 
-async def _fetch_background_bytes(background_url: str) -> bytes:
+def _local_background_path(world_name: Optional[str]) -> Optional[str]:
+    if not world_name:
+        return None
+    for ext in LOCAL_BACKGROUND_EXTS:
+        path = os.path.join(LOCAL_BACKGROUND_DIR, f"{world_name}{ext}")
+        if os.path.exists(path):
+            return path
+    return None
+
+
+async def _fetch_background_bytes(background_url: str, world_name: Optional[str] = None) -> bytes:
+    local_path = _local_background_path(world_name)
+    if local_path:
+        with open(local_path, "rb") as f:
+            return f.read()
+
     cache_path = _background_cache_path(background_url)
     if os.path.exists(cache_path):
         with open(cache_path, "rb") as f:
@@ -208,8 +225,8 @@ async def _fetch_background_bytes(background_url: str) -> bytes:
     return bg_resp.content
 
 
-async def render_world_overlay_image(background_url: str, overlay_raw, defaults: Optional[dict] = None) -> bytes:
-    background_bytes = await _fetch_background_bytes(background_url)
+async def render_world_overlay_image(background_url: str, overlay_raw, defaults: Optional[dict] = None, world_name: Optional[str] = None) -> bytes:
+    background_bytes = await _fetch_background_bytes(background_url, world_name)
     original_bg = Image.open(io.BytesIO(background_bytes)).convert("RGBA")
 
     overlay_data = await _load_overlay_data(overlay_raw)
