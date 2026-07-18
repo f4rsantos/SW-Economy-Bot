@@ -61,7 +61,7 @@ async def view(interaction: discord.Interaction, world: str):
         return
 
     try:
-        image_bytes = await render_world_overlay_image(background, overlay, defaults=config.get("_hmg_defaults"))
+        image_bytes = await render_world_overlay_image(background, overlay, defaults=config.get("_hmg_defaults"), world_name=world_data['name'])
         file = discord.File(fp=io.BytesIO(image_bytes), filename="map_view.png")
         embed.set_image(url="attachment://map_view.png")
         await interaction.followup.send(embed=embed, file=file)
