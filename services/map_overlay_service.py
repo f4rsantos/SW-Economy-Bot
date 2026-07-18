@@ -4,14 +4,17 @@ import io
 import json
 import math
 import os
+import sys
 from typing import Optional
 
 import httpx
 from PIL import Image, ImageDraw
 
 
+_APP_ROOT = getattr(sys, "_MEIPASS", os.getcwd())
+
 BACKGROUND_CACHE_DIR = os.getenv("MAP_BACKGROUND_CACHE_DIR", os.path.join("data", "map_background_cache"))
-LOCAL_BACKGROUND_DIR = os.getenv("MAP_BACKGROUND_DIR", "map-backgrounds")
+LOCAL_BACKGROUND_DIR = os.getenv("MAP_BACKGROUND_DIR", os.path.join(_APP_ROOT, "map-backgrounds"))
 LOCAL_BACKGROUND_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
 HEX_SIZE = 25
@@ -193,10 +196,12 @@ def _background_cache_path(background_url: str) -> str:
 def _local_background_path(world_name: Optional[str]) -> Optional[str]:
     if not world_name:
         return None
-    for ext in LOCAL_BACKGROUND_EXTS:
-        path = os.path.join(LOCAL_BACKGROUND_DIR, f"{world_name}{ext}")
-        if os.path.exists(path):
-            return path
+    candidates = {world_name, world_name.replace(" ", "")}
+    for name in candidates:
+        for ext in LOCAL_BACKGROUND_EXTS:
+            path = os.path.join(LOCAL_BACKGROUND_DIR, f"{name}{ext}")
+            if os.path.exists(path):
+                return path
     return None
 
 
