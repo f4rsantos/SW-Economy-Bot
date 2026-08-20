@@ -121,7 +121,7 @@ def rule(width: int = 30) -> str:
 
 
 def banner(title: str, width: int = PANEL_W) -> str:
-    return f"**{title.upper()}**"
+    return f"**{title}**"
 
 
 def route_bar(src: str, dst: str, width: int = PANEL_W, broken: bool = False) -> str:
@@ -146,7 +146,7 @@ def panel(lines: list) -> str:
 
 
 def terminal_panel(title: str, meta: list = None, body: list = None, width: int = PANEL_W) -> str:
-    parts = [f"**{title.upper()}**"] if title else []
+    parts = [f"**{title}**"] if title else []
     for line in (meta or []):
         text = " ".join(str(line).split())
         if text:
@@ -224,7 +224,7 @@ def log_embed(
     if description:
         parts.append(description)
     return create_embed(
-        title=title.upper() if title else title,
+        title=title,
         description="\n".join(parts) if parts else None,
         color=color,
         faction_id=faction_id,

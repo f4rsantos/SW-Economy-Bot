@@ -2,8 +2,8 @@ import json
 import discord
 from discord import app_commands
 from discord.ui import View, Select, Button
-from utils.checks import require_access_level
-from utils.embeds import error_embed
+from utils.checks import require_access_level, ephemeral_capable, resolve_ephemeral
+from utils.embeds import error_embed, log_embed, manifest_block
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
 from utils.views import OwnerOnlyView
@@ -210,29 +210,37 @@ class VehiclePaginationView(OwnerOnlyView):
         start = self.page * VEHICLES_PER_PAGE
         page_vehicles = self.vehicles[start:start + VEHICLES_PER_PAGE]
         faction_color = hex_to_int(self.faction_data['color'])
-        embed = discord.Embed(
-            title=f"Vehicles: {self.faction_data['display_name']}",
-            description=f"Page {self.page + 1}/{self.total_pages} • {len(self.vehicles)} total vehicles",
-            color=faction_color
-        )
+        subtitle = f"{len(self.vehicles)} designs"
 
         if self.hidden:
-            embed.add_field(name="Content Hidden", value="[HIDDEN]", inline=False)
-            return embed
+            return log_embed(
+                title=f"Vehicle Register -- {self.faction_data['display_name']}",
+                subtitle=subtitle,
+                color=faction_color,
+                description="Hidden",
+            )
 
+        rows = []
         for vehicle in page_vehicles:
             costs_raw = vehicle['costs']
             costs_list = json.loads(costs_raw) if isinstance(costs_raw, str) else (costs_raw or [])
-            cost_str = ", ".join(f"{handle_return(c['amount'])} {c['resource']}" for c in costs_list) if costs_list else "No cost defined"
+            cost_str = ", ".join(f"{handle_return(c['amount'])} {c['resource']}" for c in costs_list) if costs_list else "-"
             designation = f" [{vehicle['designation']}]" if vehicle['designation'] else ""
-            type_name = vehicle['type_name'] or "Unknown Type"
-            embed.add_field(
-                name=f"#{vehicle['faction_vehicle_number']}: {vehicle['name']}{designation}",
-                value=f"**Type:** {type_name}\n**Cost:** {cost_str}",
-                inline=False
-            )
-        embed.set_footer(text="Select a vehicle from the dropdown to view details")
-        return embed
+            type_name = vehicle['type_name'] or "Unknown"
+            rows.append([
+                f"#{vehicle['faction_vehicle_number']}",
+                f"{vehicle['name']}{designation}",
+                type_name,
+                cost_str,
+            ])
+
+        return log_embed(
+            title=f"Vehicle Register -- {self.faction_data['display_name']}",
+            subtitle=subtitle,
+            color=faction_color,
+            description=manifest_block(rows, headers=["ID", "DESIGN", "TYPE", "UNIT COST"], align=['>', '<', '<', '<']),
+            footer=f"Page {self.page + 1} of {self.total_pages} | Select a vehicle from the dropdown for details",
+        )
 
     @discord.ui.button(label="◀ Previous", style=discord.ButtonStyle.secondary, row=1)
     async def prev_button(self, interaction: discord.Interaction, _: discord.ui.Button):
@@ -261,6 +269,7 @@ class VehiclePaginationView(OwnerOnlyView):
 @app_commands.command(name="list", description="List all vehicles for a faction")
 @app_commands.describe(faction="Faction name")
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def list_vehicles(interaction: discord.Interaction, faction: str):
     r_faction_data = await require_faction(faction)
     if not r_faction_data.ok:
@@ -275,7 +284,9 @@ async def list_vehicles(interaction: discord.Interaction, faction: str):
         return
 
     view = VehiclePaginationView(interaction.user.id, list(vehicles), dict(faction_data))
-    await interaction.response.send_message(embed=view.get_embed(), view=view)
+    await interaction.response.send_message(
+        embed=view.get_embed(), view=view, ephemeral=await resolve_ephemeral(interaction)
+    )
 
 
 async def setup(bot):

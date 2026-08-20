@@ -11,9 +11,10 @@ def _resources_to_array(resources: dict) -> str:
     return json.dumps([{"name": k, "amount": v} for k, v in resources.items()])
 
 
-async def deduct_resources(faction_id: int, world_id: Optional[int], resources: dict):
+async def deduct_resources(faction_id: int, world_id: Optional[int], resources: dict, conn=None):
+    executor = conn if conn is not None else db
     try:
-        await db.execute(
+        await executor.execute(
             "SELECT sp_deduct_resources($1, $2, $3::jsonb)",
             faction_id, world_id, _resources_to_array(resources)
         )
@@ -325,8 +326,11 @@ async def list_pending_transfers(
                fw.name as from_world_name, tw.name as to_world_name,
                iw.name as interception_world_name,
                COALESCE(if_fac.formal_name, if_fac.name) as intercepting_faction_name,
+               CASE WHEN rt.intercepted_by_fleet_id IS NOT NULL
+                    THEN COALESCE(inf.name, 'Unit #' || inf.faction_fleet_number)
+                    END as intercepting_unit_name,
                CASE WHEN rt.escort_fleet_id IS NOT NULL
-                    THEN COALESCE(ef.name, 'Fleet #' || ef.faction_fleet_number)
+                    THEN COALESCE(ef.name, 'Unit #' || ef.faction_fleet_number)
                     END as escort_name
         FROM resource_transfers rt
         JOIN transfer_statuses ts ON rt.status_id = ts.id
@@ -336,6 +340,7 @@ async def list_pending_transfers(
         JOIN worlds tw ON rt.to_world_id = tw.id
         LEFT JOIN worlds iw ON rt.interception_world_id = iw.id
         LEFT JOIN factions if_fac ON rt.intercepting_faction_id = if_fac.id
+        LEFT JOIN fleets inf ON rt.intercepted_by_fleet_id = inf.id
         LEFT JOIN fleets ef ON rt.escort_fleet_id = ef.id
         WHERE {where_clause} AND ts.name IN ('in_transit', 'intercepted')
         ORDER BY rt.arrival_time ASC
