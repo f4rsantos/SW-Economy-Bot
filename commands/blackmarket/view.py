@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
-from utils.embeds import log_embed, error_embed, manifest_block
+from utils.embeds import log_embed, error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
 from services.validation_service import require_faction
@@ -26,24 +26,23 @@ async def view_cmd(interaction: discord.Interaction, faction: str):
 
     if can_buy > 0:
         next_price = buy_price_for_tier(held)
-        buy_line = f"`{handle_return(next_price)}` each of CM, EL, CS"
+        buy_line = f"{handle_return(next_price)} each of CM, EL, CS"
     else:
-        buy_line = "`Refused, holdings at cap`"
+        buy_line = "Refused, holdings at cap"
 
-    table_rows = [
-        ["Held", str(held)],
-        ["Cap", str(ALLOY_HOLD_CAP)],
-        ["Can buy", str(can_buy)],
-    ]
+    sell_low = handle_return(round(SELL_PAYOUT_BASE * 0.9))
+    sell_high = handle_return(SELL_PAYOUT_BASE)
 
     embed = log_embed(
-        title="Black Market -- Alloys",
+        title="Black Market: Alloys",
         subtitle=f"ACCOUNT // {faction_data['display_name']}",
         color=faction_color,
-        description=manifest_block(table_rows, headers=["STAT", "VALUE"], align=['<', '>']),
         fields=[
+            {'name': "Alloys Held", 'value': f"{held} of {ALLOY_HOLD_CAP}", 'inline': True},
+            {'name': "Can Still Buy", 'value': str(can_buy), 'inline': True},
+            {'name': "​", 'value': "​", 'inline': True},
             {'name': "Next Buy Price", 'value': buy_line, 'inline': True},
-            {'name': "Sell Payout", 'value': f"`{handle_return(round(SELL_PAYOUT_BASE * 0.9))}-{handle_return(SELL_PAYOUT_BASE)}` each of CM, EL, CS", 'inline': True},
+            {'name': "Sell Payout", 'value': f"{sell_low} to {sell_high} each of CM, EL, CS", 'inline': True},
         ],
     )
     await interaction.followup.send(embed=embed)
