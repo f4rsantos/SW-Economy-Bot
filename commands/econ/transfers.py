@@ -4,7 +4,7 @@ from discord import app_commands
 from typing import Optional
 from datetime import timezone
 from utils.checks import require_access_level
-from utils.embeds import success_embed, error_embed
+from utils.embeds import success_embed, error_embed, create_embed, panel, banner, meta_line, stamp, PANEL_W
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
 from utils.autocomplete import faction_autocomplete, world_autocomplete
@@ -32,52 +32,68 @@ class TransfersView(discord.ui.View):
         page_transfers = self.transfers[start:start + TRANSFERS_PER_PAGE]
         now = discord.utils.utcnow()
 
-        embed = discord.Embed(
-            title=self.title,
-            description=f"Page {self.page + 1}/{self.total_pages} • {len(self.transfers)} total",
-            color=self.color,
-            timestamp=now
-        )
-
+        fields = []
         for t in page_transfers:
             arrival = t['arrival_time']
             if arrival.tzinfo is None:
                 arrival = arrival.replace(tzinfo=timezone.utc)
 
             resources = self.resources_map.get(t['id'], [])
-            resource_str = ", ".join(f"{handle_return(r['amount'])} {r['name']}" for r in resources) or "—"
+            resource_str = ", ".join(f"{handle_return(r['amount'])} {r['name']}" for r in resources) or "-"
 
             from_name, to_name = t['from_faction_name'], t['to_faction_name']
-            if self.viewing_faction_name:
-                arrow = "→" if from_name == self.viewing_faction_name else "←"
-                other = to_name if from_name == self.viewing_faction_name else from_name
-                header = f"Transfer #{t['id']} {arrow} {other}"
-            else:
-                header = f"Transfer #{t['id']}: {from_name} → {to_name}"
+            stopped = t['status'] == 'intercepted'
+            arrow = "===X" if stopped else "==>"
 
-            if t['status'] == 'intercepted':
-                status_str = f"**INTERCEPTED** by {t['intercepting_faction_name']} at {t['interception_world_name']}"
+            if from_name == to_name:
+                direction = "internal"
+                party = None
+            elif self.viewing_faction_name and from_name == self.viewing_faction_name:
+                direction = "out"
+                party = f"to {to_name}"
+            elif self.viewing_faction_name and to_name == self.viewing_faction_name:
+                direction = "in"
+                party = f"from {from_name}"
             else:
+                direction = "transfer"
+                party = f"{from_name} to {to_name}"
+
+            lines = [f"{t['from_world_name']} {arrow} {t['to_world_name']}"]
+            if party:
+                lines.append(party)
+            lines.append(resource_str)
+
+            if stopped:
+                blocker = t.get('intercepting_faction_name')
+                unit = t.get('intercepting_unit_name')
+                held = f"held at {t['interception_world_name']}"
+                if blocker:
+                    held += f" by {blocker}"
+                    if unit:
+                        held += f" ({unit})"
+                lines.append(held)
+            else:
+                if t.get('escort_name'):
+                    lines.append(f"escort {t['escort_name']}")
                 secs = int((arrival - now).total_seconds())
-                if secs <= 0:
-                    status_str = "**Arrived** (pending sync)"
-                else:
-                    d, rem = divmod(secs, 86400)
-                    h, rem = divmod(rem, 3600)
-                    m = rem // 60
-                    status_str = f"In Transit ({f'{d}d ' if d else ''}{f'{h}h ' if h else ''}{m}min remaining)"
+                lines.append("arriving now" if secs <= 0 else f"arrives {stamp(arrival, 'R')}")
 
-            escort_line = f"**Escort:** {t['escort_name']}\n" if t.get('escort_name') else ""
-            embed.add_field(
-                name=header,
-                value=f"**Route:** {t['from_world_name']} → {t['to_world_name']}\n"
-                      f"**Resources:** {resource_str}\n"
-                      f"{escort_line}"
-                      f"**Status:** {status_str}\n"
-                      f"**Arrival:** <t:{int(arrival.timestamp())}:R>",
-                inline=False
-            )
-        return embed
+            fields.append({
+                'name': f"ID {t['id']} - {direction}",
+                'value': "\n".join(lines),
+                'inline': False,
+            })
+
+        return create_embed(
+            title=self.title,
+            description=panel([
+                banner("Transfer Register"),
+                f"{len(self.transfers)} pending",
+            ]),
+            color=self.color,
+            fields=fields,
+            footer=f"Page {self.page + 1} of {self.total_pages}",
+        )
 
     async def _update(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
@@ -187,7 +203,7 @@ async def transfers_cmd(
         transfers=list(rows),
         resources_map=resources_map,
         user_id=interaction.user.id,
-        title=f"Pending Transfers {' '.join(title_parts)}",
+        title=f"Transfers: {viewing_faction_name}" if viewing_faction_name else "Transfers",
         color=faction_color,
         viewing_faction_name=viewing_faction_name
     )

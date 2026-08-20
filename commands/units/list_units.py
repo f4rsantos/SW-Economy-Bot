@@ -3,13 +3,19 @@ import math
 import discord
 from discord import app_commands
 from discord.ui import View, Select
-from utils.checks import require_access_level
-from utils.embeds import error_embed
+from utils.checks import require_access_level, ephemeral_capable, resolve_ephemeral
+from utils.embeds import error_embed, create_embed, panel, banner, meta_line, progress_bar, PANEL_W
 from utils.faction_utils import hex_to_int
 from services.fleet_service import get_fleets, get_fleet, get_fleet_vehicles, get_unit_vehicle_resource_totals
 from utils.autocomplete import faction_autocomplete, world_autocomplete
 from utils.currency import handle_return
 from services.validation_service import require_faction, require_world
+from services.intelligence_service import (
+    get_user_faction_id,
+    has_presence_at_world,
+    get_observed_worlds,
+    filter_visible_vehicles,
+)
 
 UNITS_PER_PAGE = 10
 
@@ -27,8 +33,10 @@ def calculate_unit_upkeep(total_cs: int, status: str) -> int:
 class UnitDetailView(View):
     def __init__(self, unit_data: dict, vehicles: list, faction_name: str, user_id: int,
                  faction_color: int, all_units: list, faction_id: int, world_mode: bool = False,
-                 vehicle_resource_totals: dict = None):
+                 vehicle_resource_totals: dict = None, hidden_count: int = 0, ref_mode: bool = False,
+                 viewer_faction_id: int = None):
         super().__init__(timeout=180)
+        self.viewer_faction_id = viewer_faction_id
         self.unit_data = unit_data
         self.vehicles = vehicles
         self.faction_name = faction_name
@@ -37,6 +45,8 @@ class UnitDetailView(View):
         self.all_units = all_units
         self.faction_id = faction_id
         self.world_mode = world_mode
+        self.hidden_count = hidden_count
+        self.ref_mode = ref_mode
         self.hidden = False
         self.vehicle_resource_totals = vehicle_resource_totals or {}
 
@@ -51,37 +61,56 @@ class UnitDetailView(View):
             position_text = f"{self.unit_data['position']} → **{self.unit_data['moving_to_name']}**"
 
         type_label = self.unit_data.get('type_name') or "Unclassified"
-        embed = discord.Embed(title=unit_name, description=f"Unit #{self.unit_data['faction_fleet_number']}", color=self.faction_color)
-        embed.add_field(name="Faction",        value=self.faction_name,                   inline=True)
-        embed.add_field(name="Type",           value=type_label,                           inline=True)
-        embed.add_field(name="Status",         value=self.unit_data['status'],             inline=True)
-        embed.add_field(name="Position",       value=position_text,                        inline=True)
-        embed.add_field(name="Health",         value=f"{self.unit_data['health']}%",       inline=True)
-        embed.add_field(name="Total CS",          value=f"{self.unit_data['total_cs']:,}", inline=True)
-        res_str = "\n".join(f"**{name}:** {handle_return(amt)}" for name, amt in self.vehicle_resource_totals.items()) if self.vehicle_resource_totals else "None"
-        embed.add_field(name="Total Resources", value=res_str,                            inline=True)
-        embed.add_field(name="Upkeep",         value=f"{upkeep:,} CS/week",                inline=True)
         infantry = self.unit_data.get('infantry_count', 0)
+        health = self.unit_data['health']
+
+        fields = [
+            {'name': "Type", 'value': type_label, 'inline': True},
+            {'name': "Total CS", 'value': f"{self.unit_data['total_cs']:,}", 'inline': True},
+            {'name': "Upkeep", 'value': f"{upkeep:,} CS/week", 'inline': True},
+        ]
         if infantry:
-            embed.add_field(name="Infantry",   value=f"{infantry:,}",                      inline=True)
+            fields.append({'name': "Infantry", 'value': f"{infantry:,}", 'inline': True})
+
+        if self.vehicle_resource_totals:
+            worth = "\n".join(f"{handle_return(amt)} {name}" for name, amt in self.vehicle_resource_totals.items())
+            fields.append({'name': "Worth", 'value': worth, 'inline': True})
 
         if self.vehicles:
             lines = []
             for v in self.vehicles:
                 display = f"{v['vehicle_name']} {v['designation']}" if v['designation'] else v['vehicle_name']
-                lines.append(f"**{display} ({v['faction_vehicle_number']})**: {v['amount']:,}")
-            embed.add_field(name="Vehicles", value="\n".join(lines), inline=False)
+                lines.append(f"{v['amount']:,}x {display} (#{v['faction_vehicle_number']})")
+            if self.hidden_count:
+                lines.append(f"{self.hidden_count:,} not identified")
+            fields.append({'name': "Vehicles", 'value': "\n".join(lines), 'inline': False})
+        elif self.hidden_count:
+            fields.append({'name': "Vehicles", 'value': f"{self.hidden_count:,} not identified", 'inline': False})
         else:
-            embed.add_field(name="Vehicles", value="No vehicles in this unit", inline=False)
+            fields.append({'name': "Vehicles", 'value': "No vehicles assigned", 'inline': False})
 
-        return embed
+        return create_embed(
+            title=unit_name,
+            description=panel([
+                banner(f"UNIT #{self.unit_data['faction_fleet_number']}"),
+                meta_line(self.faction_name[:14].upper(), self.unit_data['status'].upper()),
+                meta_line(f"AT {position_text[:26].upper()}"),
+                "-" * PANEL_W,
+                meta_line(f"HEALTH  {progress_bar(health, 100)}  {health}%"),
+                "=" * PANEL_W,
+            ]),
+            color=self.faction_color,
+            fields=fields,
+        )
 
     @discord.ui.button(label="◀ Back to List", style=discord.ButtonStyle.secondary, row=0)
     async def back_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message(embed=error_embed("Error", "This is not your unit list."))
             return
-        view = UnitView(self.all_units, self.faction_id, self.faction_name, self.user_id, self.faction_color, world_mode=self.world_mode)
+        view = UnitView(self.all_units, self.faction_id, self.faction_name, self.user_id,
+                        self.faction_color, world_mode=self.world_mode,
+                        viewer_faction_id=self.viewer_faction_id, ref_mode=self.ref_mode)
         await interaction.response.edit_message(embed=await view.create_list_embed(), view=view)
 
     @discord.ui.button(label="Hide", style=discord.ButtonStyle.secondary, row=0)
@@ -115,7 +144,8 @@ class PageJumpModal(discord.ui.Modal, title="Jump to Page"):
 
 class UnitView(View):
     def __init__(self, units: list, faction_id: int, faction_name: str, user_id: int,
-                 faction_color: int = 0x2ecc71, world_mode: bool = False):
+                 faction_color: int = 0x2ecc71, world_mode: bool = False,
+                 viewer_faction_id: int = None, ref_mode: bool = False):
         super().__init__(timeout=180)
         self.units = units
         self.faction_id = faction_id
@@ -123,6 +153,8 @@ class UnitView(View):
         self.user_id = user_id
         self.faction_color = faction_color
         self.world_mode = world_mode
+        self.viewer_faction_id = viewer_faction_id
+        self.ref_mode = ref_mode
         self.page = 0
         self.hidden = False
         self.total_pages = (len(units) - 1) // UNITS_PER_PAGE + 1
@@ -174,10 +206,19 @@ class UnitView(View):
             'infantry_count': unit_row.get('infantry_count', 0),
         }
 
+        is_own = self.ref_mode or (
+            self.viewer_faction_id is not None and unit_row['faction_id'] == self.viewer_faction_id
+        )
+        vehicles, hidden_count = filter_visible_vehicles(
+            [dict(v) for v in vehicles], is_own, unit_row['status_name']
+        )
+
         detail_view = UnitDetailView(unit_data, vehicles, self.faction_name,
                                      self.user_id, self.faction_color, self.units,
                                      self.faction_id, world_mode=self.world_mode,
-                                     vehicle_resource_totals=vehicle_resource_totals)
+                                     vehicle_resource_totals=vehicle_resource_totals,
+                                     hidden_count=hidden_count, ref_mode=self.ref_mode,
+                                     viewer_faction_id=self.viewer_faction_id)
         await interaction.response.edit_message(embed=await detail_view.create_detail_embed(), view=detail_view)
 
     async def create_list_embed(self) -> discord.Embed:
@@ -186,28 +227,39 @@ class UnitView(View):
 
         start = self.page * UNITS_PER_PAGE
         page_units = self.units[start:start + UNITS_PER_PAGE]
-        embed = discord.Embed(
-            title=f"Units: {self.faction_name}",
-            description=f"Page {self.page + 1}/{self.total_pages} • {len(self.units)} total units",
-            color=self.faction_color
-        )
+
+        fields = []
         for unit in page_units:
             unit_name = unit['name'] or f"Unit #{unit['faction_fleet_number']}"
             upkeep = calculate_unit_upkeep(unit['total_cs'], unit['status'])
             position_text = unit['position']
             if unit.get('moving_to_name'):
-                position_text = f"{unit['position']} → **{unit['moving_to_name']}**"
-            info = (
-                f"**ID:** #{unit['faction_fleet_number']}\n"
-                + (f"**Faction:** {unit['faction_name']}\n" if self.world_mode else "")
-                + f"**Status:** {unit['status']}\n"
-                f"**Position:** {position_text}\n"
-                f"**Health:** {unit['health']}%\n"
-                f"**Upkeep:** {upkeep:,}/week"
-            )
-            embed.add_field(name=unit_name, value=info, inline=False)
-        embed.set_footer(text="Select a unit from the dropdown to view details")
-        return embed
+                position_text = f"moving to {unit['moving_to_name']}"
+            else:
+                position_text = f"{unit['status']} at {unit['position']}"
+
+            lines = [f"`{progress_bar(unit['health'], 100)}` {unit['health']}%"]
+            if self.world_mode:
+                lines.append(unit['faction_name'])
+            lines.append(position_text)
+            lines.append(f"Upkeep {upkeep:,}/week")
+
+            fields.append({
+                'name': f"#{unit['faction_fleet_number']} - {unit_name}",
+                'value': "\n".join(lines),
+                'inline': True,
+            })
+
+        return create_embed(
+            title=f"Units: {self.faction_name}",
+            description=panel([
+                banner("Unit Roster"),
+                f"{len(self.units)} units",
+            ]),
+            color=self.faction_color,
+            fields=fields,
+            footer=f"Page {self.page + 1} of {self.total_pages} | Select a unit from the dropdown for details",
+        )
 
     @discord.ui.button(label="◀ Previous", style=discord.ButtonStyle.secondary, row=1)
     async def prev_button(self, interaction: discord.Interaction, _: discord.ui.Button):
@@ -248,13 +300,20 @@ class UnitView(View):
 @app_commands.command(name="list", description="List units (filter by faction, world, or both)")
 @app_commands.describe(
     faction="Filter by Faction name (optional)",
-    world="Filter by World name (optional)"
+    world="Filter by World name (optional)",
+    ref="Referee mode: see every unit in full. Never private."
 )
 @require_access_level(0)
-async def list_units(interaction: discord.Interaction, faction: str = None, world: str = None):
+@ephemeral_capable('faction')
+async def list_units(interaction: discord.Interaction, faction: str = None, world: str = None, ref: bool = False):
     if not faction and not world:
         await interaction.response.send_message(embed=error_embed("Error", "You must provide at least a Faction OR a World."))
         return
+
+    if ref:
+        interaction.extras['ephemeral'] = False
+
+    viewer_faction_id = None if ref else await get_user_faction_id(interaction.user.id)
 
     faction_data = None
     world_data = None
@@ -283,7 +342,34 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
 
     faction_id = faction_data['id'] if faction_data else None
     world_id = world_data['id'] if world_data else None
+
+    if not ref:
+        if viewer_faction_id is None:
+            await interaction.response.send_message(embed=error_embed(
+                "Intelligence insufficient",
+                "You do not lead a faction. Use `ref:true` to view units openly."
+            ))
+            return
+
+        if faction_id is not None and faction_id != viewer_faction_id:
+            await interaction.response.send_message(embed=error_embed(
+                "Intelligence insufficient",
+                "You can only look up your own faction. Use `ref:true` to view another faction openly."
+            ))
+            return
+
+        if world_id is not None and not await has_presence_at_world(viewer_faction_id, world_id):
+            await interaction.response.send_message(embed=error_embed(
+                "Intelligence insufficient",
+                "You have no units or territory at this world."
+            ))
+            return
+
     units = await get_fleets(faction_id=faction_id, world_id=world_id)
+
+    if not ref and world_id is None:
+        observed = await get_observed_worlds(viewer_faction_id)
+        units = [u for u in units if u['faction_id'] == viewer_faction_id or u['position_id'] in observed]
 
     if not units:
         await interaction.response.send_message(embed=error_embed("No Units Found", "No units found matching the given filters."))
@@ -300,8 +386,12 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
         view_faction_id = 0
         world_mode = True
 
-    view = UnitView(list(units), view_faction_id, view_name, interaction.user.id, view_color, world_mode=world_mode)
-    await interaction.response.send_message(embed=await view.create_list_embed(), view=view)
+    view = UnitView(list(units), view_faction_id, view_name, interaction.user.id, view_color,
+                    world_mode=world_mode, viewer_faction_id=viewer_faction_id, ref_mode=ref)
+    ephemeral = False if ref else await resolve_ephemeral(interaction)
+    await interaction.response.send_message(
+        embed=await view.create_list_embed(), view=view, ephemeral=ephemeral
+    )
 
 
 async def setup(bot):
