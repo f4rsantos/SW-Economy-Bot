@@ -657,6 +657,12 @@ CREATE TABLE public.users (
   access_level integer NOT NULL,
   badge_ids integer[] DEFAULT '{}'::integer[],
   ephemeral_commands boolean NOT NULL DEFAULT false,
+  notify_mode text NOT NULL DEFAULT 'off' CHECK (notify_mode IN ('off', 'dm', 'channel')),
+  notify_channel_id bigint,
+  notify_transfers boolean NOT NULL DEFAULT true,
+  notify_movements boolean NOT NULL DEFAULT true,
+  notify_origin boolean NOT NULL DEFAULT true,
+  notify_destination boolean NOT NULL DEFAULT true,
   CONSTRAINT users_pkey PRIMARY KEY (id)
 );
 
@@ -792,6 +798,12 @@ END
 $migrate_faction_type$;
 
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS ephemeral_commands boolean NOT NULL DEFAULT false;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_mode text NOT NULL DEFAULT 'off';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_channel_id bigint;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_transfers boolean NOT NULL DEFAULT true;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_movements boolean NOT NULL DEFAULT true;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_origin boolean NOT NULL DEFAULT true;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_destination boolean NOT NULL DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS public.fleet_types (
   id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
