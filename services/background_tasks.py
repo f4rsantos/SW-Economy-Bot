@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from repositories import background_tasks_repo
 from services.income_service import execute_income
 from services.event_queue import event_queue
+from services import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +239,7 @@ async def run_background_tasks(bot=None, skip_income: bool = False):
     global _bot, _skip_income
     _bot = bot
     _skip_income = skip_income
+    notification_service.set_bot(bot)
     _register_handlers()
     logger.info("Background tasks started")
 

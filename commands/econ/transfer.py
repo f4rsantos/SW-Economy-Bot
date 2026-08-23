@@ -177,6 +177,7 @@ async def transfer(
             return
 
     escort_fleet_id = None
+    escort_fleet_name = None
     if escort_fleet:
         fleet_data = await get_fleet_by_identifier(escort_fleet, from_faction_id)
         if not fleet_data:
@@ -196,7 +197,7 @@ async def transfer(
             from_faction_id, to_faction_id,
             from_world_id, to_world_id,
             from_world_data['name'], to_world_data['name'],
-            transfers, resource_map, current_time, escort_fleet_id
+            transfers, resource_map, current_time, escort_fleet_id, escort_fleet_name
         )
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))

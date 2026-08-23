@@ -5,12 +5,15 @@
 
 import asyncpg
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Optional, List
 from dtos.transfer import Transfer, TransferResource, PendingTransfer
 from repositories import transfer_repo
 from services.travel_time_service import calculate_travel_time, format_travel_time
 from services.treasury_service import find_best_worlds_for_multiple_resources
+
+logger = logging.getLogger(__name__)
 
 
 def _resources_to_array(resources: dict) -> str:
@@ -162,6 +165,7 @@ async def execute_physical_transfer(
     resource_map: dict,
     current_time: datetime,
     escort_fleet_id: Optional[int] = None,
+    escort_fleet_name: Optional[str] = None,
 ) -> dict:
     travel_time = await calculate_travel_time(from_world_name, to_world_name, current_time)
     arrival_time = current_time + travel_time
@@ -177,8 +181,19 @@ async def execute_physical_transfer(
     if escort_fleet_id is not None:
         from services.fleet_service import move_fleet
         from services.event_queue import event_queue
-        await move_fleet(escort_fleet_id, to_world_id, current_time)
+        await move_fleet(escort_fleet_id, to_world_id, current_time, notify=False)
         await event_queue.push(arrival_time, 'fleet_arrival', {'fleet_id': escort_fleet_id, 'to_world_id': to_world_id})
+
+    from utils.currency import handle_return
+    from services import notification_service
+    cargo_lines = [f"{handle_return(t['amount'])} {t['resource']}" for t in transfers]
+    try:
+        await notification_service.notify_transfer_departure(
+            from_faction_id, from_world_name, to_world_name,
+            from_world_id, to_world_id, cargo_lines, escort_fleet_name
+        )
+    except Exception:
+        logger.exception(f"Transfer {transfer_id} departure notification failed")
 
     return {
         'transfer_id': transfer_id,

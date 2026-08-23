@@ -4,12 +4,15 @@
 # permission from the copyright holder. Contact: f4rsantos@gmail.com
 
 import asyncpg
+import logging
 import math
 from typing import List, Optional
 from repositories import fleet_repo
 from dtos.fleet import Fleet, FleetDamageInfo, FleetListing
 from services.building_efficiency_service import calculate_effective_efficiency
 from services.local_deduction import deduct_local_proportional
+
+logger = logging.getLogger(__name__)
 
 
 async def create_fleet(faction_id: int, name: Optional[str], world_id: int) -> dict:
@@ -26,11 +29,46 @@ async def set_fleet_status(fleet_id: int, status_name: str):
         raise ValueError(str(e)) from e
 
 
-async def move_fleet(fleet_id: int, destination_id: int, moved_since):
+async def move_fleet(fleet_id: int, destination_id: int, moved_since, notify: bool = True):
+    origin = await fleet_repo.get_fleet_row(fleet_id) if notify else None
     try:
         await fleet_repo.call_move_fleet(fleet_id, destination_id, moved_since)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
+
+    if not notify:
+        return
+
+    try:
+        await _notify_movement(origin, destination_id)
+    except Exception:
+        logger.exception(f"Fleet {fleet_id} departure notification failed")
+
+
+async def _notify_movement(origin, destination_id: int):
+    if origin is None or origin.position is None:
+        return
+    if origin.position == destination_id:
+        return
+
+    from repositories import notification_repo
+    from services import notification_service
+    from services.map_service import get_world_by_id
+
+    vehicle_count = await notification_repo.get_fleet_vehicle_count(origin.id)
+    if vehicle_count <= 0:
+        return
+
+    destination = await get_world_by_id(destination_id)
+    if not destination:
+        return
+
+    fleet_name = origin.name or f"Unit #{origin.faction_fleet_number}"
+    await notification_service.notify_fleet_departure(
+        origin.faction_id, fleet_name, vehicle_count,
+        origin.position_name, destination['name'],
+        origin.position, destination_id
+    )
 
 
 async def add_vehicle_to_fleet(fleet_id: int, vehicle_id: int, amount: int):
