@@ -1,13 +1,18 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from datetime import datetime, timezone
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import error_embed
 from utils.faction_utils import hex_to_int
 from utils.currency import handle_currency
 from services.recruit_service import parse_irp_time
 from services.fleet_service import recruit_infantry_to_unit
-from services.econ_query_service import get_resource_ids_by_names
+from repositories.econ_repo import get_resource_ids_by_names
 from services.validation_service import require_faction, require_unit
 
 
@@ -21,6 +26,7 @@ from services.validation_service import require_faction, require_unit
     name="Role name (default: soldiers)"
 )
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def recruit(
     interaction: discord.Interaction,
     faction: str,
@@ -30,7 +36,7 @@ async def recruit(
     time: str = "1 week",
     name: str = "soldiers"
 ):
-    await interaction.response.defer()
+    await defer_response(interaction)
 
     try:
         personnel_amount = int(handle_currency(amount))
@@ -44,9 +50,9 @@ async def recruit(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
-    display_name = faction_data['display_name']
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
+    display_name = faction_data.display_name
 
     r_unit_data = await require_unit(unit, faction_id)
     if not r_unit_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_unit_data.error))

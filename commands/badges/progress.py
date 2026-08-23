@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from typing import Optional
 import discord
 from discord import app_commands
@@ -20,7 +25,7 @@ def _build_progress_embed(badge_id: int, entry: dict, progress: dict[str, int]) 
         current = progress.get(resource_name, 0)
         pct = min(100, int(current * 100 / target)) if target > 0 else 0
         bar = _progress_bar(current, target)
-        lines.append(f"{bar} {handle_return(current)} / {handle_return(target)} {resource_name} ({pct}%)")
+        lines.append(f"`{bar}` {handle_return(current)} / {handle_return(target)} {resource_name} ({pct}%)")
     embed = discord.Embed(
         title=f"Badge Progress: [{entry['name']}] (ID: {badge_id})",
         description="\n".join(lines),
@@ -106,7 +111,7 @@ async def badge_progress(
         result = await log_badge_progress(
             user_id=interaction.user.id,
             badge_id=badge_id,
-            faction_id=faction_data['id'],
+            faction_id=faction_data.id,
             world_id=world_id,
             contributions=contributions,
             catalog_entry=entry,

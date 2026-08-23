@@ -1,30 +1,24 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncpg
 from typing import Optional
-from database.db_manager import db
+from dtos.comet import Comet
+from repositories import comet_repo
 
 
-async def create_comet(name: str, message: str, discoverer: int) -> dict:
+async def create_comet(name: str, message: str, discoverer: int) -> Comet:
     try:
-        row = await db.fetchrow(
-            "SELECT * FROM sp_create_comet($1, $2, $3)",
-            name, message, discoverer
-        )
-        return dict(row)
+        return await comet_repo.create_comet(name, message, discoverer)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
 
 
-async def get_comets(limit: int = 50, offset: int = 0) -> list[dict]:
-    rows = await db.fetch(
-        "SELECT * FROM sp_get_comets($1, $2)",
-        limit, offset
-    )
-    return [dict(r) for r in rows]
+async def get_comets(limit: int = 50, offset: int = 0) -> list[Comet]:
+    return await comet_repo.get_comets(limit, offset)
 
 
-async def get_comet(comet_id: int) -> Optional[dict]:
-    row = await db.fetchrow(
-        "SELECT * FROM sp_get_comet($1)",
-        comet_id
-    )
-    return dict(row) if row else None
+async def get_comet(comet_id: int) -> Optional[Comet]:
+    return await comet_repo.get_comet(comet_id)

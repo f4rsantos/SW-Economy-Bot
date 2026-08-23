@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import hashlib
 import io
@@ -14,7 +19,7 @@ from PIL import Image, ImageDraw
 _APP_ROOT = getattr(sys, "_MEIPASS", os.getcwd())
 
 BACKGROUND_CACHE_DIR = os.getenv("MAP_BACKGROUND_CACHE_DIR", os.path.join("data", "map_background_cache"))
-LOCAL_BACKGROUND_DIR = os.getenv("MAP_BACKGROUND_DIR", os.path.join(_APP_ROOT, "map-backgrounds"))
+LOCAL_BACKGROUND_DIR = os.getenv("MAP_BACKGROUND_DIR", os.path.join(_APP_ROOT, "assets", "map-backgrounds"))
 LOCAL_BACKGROUND_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
 HEX_SIZE = 25
@@ -205,16 +210,25 @@ def _local_background_path(world_name: Optional[str]) -> Optional[str]:
     return None
 
 
+def _read_file_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _write_cache_bytes(cache_path: str, content: bytes) -> None:
+    os.makedirs(BACKGROUND_CACHE_DIR, exist_ok=True)
+    with open(cache_path, "wb") as f:
+        f.write(content)
+
+
 async def _fetch_background_bytes(background_url: str, world_name: Optional[str] = None) -> bytes:
-    local_path = _local_background_path(world_name)
+    local_path = await asyncio.to_thread(_local_background_path, world_name)
     if local_path:
-        with open(local_path, "rb") as f:
-            return f.read()
+        return await asyncio.to_thread(_read_file_bytes, local_path)
 
     cache_path = _background_cache_path(background_url)
-    if os.path.exists(cache_path):
-        with open(cache_path, "rb") as f:
-            return f.read()
+    if await asyncio.to_thread(os.path.exists, cache_path):
+        return await asyncio.to_thread(_read_file_bytes, cache_path)
 
     async with httpx.AsyncClient(timeout=25) as client:
         for attempt in range(3):
@@ -224,21 +238,24 @@ async def _fetch_background_bytes(background_url: str, world_name: Optional[str]
                 break
             await asyncio.sleep(1)
 
-    os.makedirs(BACKGROUND_CACHE_DIR, exist_ok=True)
-    with open(cache_path, "wb") as f:
-        f.write(bg_resp.content)
+    await asyncio.to_thread(_write_cache_bytes, cache_path, bg_resp.content)
     return bg_resp.content
 
 
 async def render_world_overlay_image(background_url: str, overlay_raw, defaults: Optional[dict] = None, world_name: Optional[str] = None) -> bytes:
     background_bytes = await _fetch_background_bytes(background_url, world_name)
-    original_bg = Image.open(io.BytesIO(background_bytes)).convert("RGBA")
 
     overlay_data = await _load_overlay_data(overlay_raw)
     if not isinstance(overlay_data, dict):
         raise ValueError("Overlay must be a JSON object (or URL returning one).")
 
     parsed = _parse_editor_overlay(overlay_data, defaults=defaults)
+    return await asyncio.to_thread(_render_overlay_sync, background_bytes, parsed)
+
+
+def _render_overlay_sync(background_bytes: bytes, parsed: dict) -> bytes:
+    original_bg = Image.open(io.BytesIO(background_bytes)).convert("RGBA")
+
     width = int(parsed.get("width", 0))
     height = int(parsed.get("height", 0))
     factions = parsed["factions"]

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
@@ -9,7 +14,7 @@ from utils.faction_utils import hex_to_int
 from services.validation_service import require_faction, require_world
 from services.casino_wager import parse_casino_wager, requires_world
 from services.casino_service import open_blackjack_round, close_blackjack_round
-from services.casino_games import (
+from utils.casino_games import (
     draw_blackjack_card,
     blackjack_card_label,
     blackjack_hand_value,
@@ -182,8 +187,8 @@ async def blackjack_cmd(interaction: discord.Interaction, faction: str, amount: 
     r_faction_data = await require_faction(faction)
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     try:
         wagers = parse_casino_wager(amount)

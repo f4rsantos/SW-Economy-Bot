@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import logging
 import discord
 from discord import app_commands
@@ -19,8 +24,8 @@ async def force_cs_calc(interaction: discord.Interaction, faction: str):
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_id = faction_data['id']
-    faction_name = faction_data.get('display_name') or faction_data['name']
+    faction_id = faction_data.id
+    faction_name = faction_data.display_name
 
     try:
         updated = await recalc_fleet_cs_for_faction(faction_id)

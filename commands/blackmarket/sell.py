@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -21,8 +26,8 @@ async def sell_cmd(interaction: discord.Interaction, faction: str, quantity: int
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     if quantity < 1:
         await interaction.followup.send(embed=error_embed("Error", "Quantity must be at least 1."))
@@ -42,7 +47,7 @@ async def sell_cmd(interaction: discord.Interaction, faction: str, quantity: int
     embed = success_embed(
         title="Alloys Sold",
         description=(
-            f"**{faction_data['display_name']}** sold {quantity} Alloys to the black market for {payout_str}.\n"
+            f"**{faction_data.display_name}** sold {quantity} Alloys to the black market for {payout_str}.\n"
             f"The pirates shortchanged you, as usual.\n"
             f"Holdings: {result['held_before']} -> {result['held_after']}"
         ),

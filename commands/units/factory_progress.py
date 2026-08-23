@@ -1,6 +1,11 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import error_embed
 from utils.faction_utils import hex_to_int
 from services.fleet_service import get_factory_progress
@@ -13,21 +18,22 @@ from services.validation_service import require_faction, require_world
     world="World name (optional, shows all if not specified)"
 )
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def factory_progress(interaction: discord.Interaction, faction: str, world: str = None):
-    await interaction.response.defer()
+    await defer_response(interaction)
 
     r_faction_data = await require_faction(faction)
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
     if world:
         r_world = await require_world(world)
         if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
-        orders = await get_factory_progress(faction_data['id'], r_world.data['id'])
+        orders = await get_factory_progress(faction_data.id, r_world.data['id'])
     else:
-        orders = await get_factory_progress(faction_data['id'])
+        orders = await get_factory_progress(faction_data.id)
 
     if not orders:
         location = f" on {world}" if world else ""
@@ -36,7 +42,7 @@ async def factory_progress(interaction: discord.Interaction, faction: str, world
 
     embed = discord.Embed(
         title=f"Factory Construction Progress{' - ' + world if world else ''}",
-        description=f"**{faction_data['display_name']}**",
+        description=f"**{faction_data.display_name}**",
         color=faction_color
     )
 

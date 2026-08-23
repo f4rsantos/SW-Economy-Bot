@@ -1,16 +1,20 @@
-import random
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
 from utils.checks import require_access_level
-from utils.embeds import create_embed, error_embed, terminal_panel, meta_line, route_bar
-from utils.currency import split_currency, handle_return
+from utils.embeds import error_embed
+from utils.currency import split_currency, handle_return, handle_return_multiple, resource_array_to_object
 from utils.faction_utils import hex_to_int
 from services.trade_service import get_trade_delivery_world, execute_ceres_trade
 from services.blockade_service import check_belt_station_blockade
 from services.validation_service import require_faction
 
-STATION_NAME = "Ceres Commerce Terminal"
+STATION_NAME = "Ceres Station"
 WELCOME = (
     "Welcome to Ceres!\n\n"
     "We have the best prices in the system...\n"
@@ -19,21 +23,15 @@ WELCOME = (
 
 
 def _info_embed() -> discord.Embed:
-    return create_embed(
+    embed = discord.Embed(
         title=STATION_NAME,
-        description=terminal_panel(
-            "CERES COMMERCE TERMINAL",
-            [meta_line("TRADE POST")],
-            ["4 units in, 1 unit out"],
-        ),
-        fields=[
-            {'name': "Welcome", 'value': WELCOME, 'inline': False},
-            {'name': "Rate", 'value': "4 : 1", 'inline': True},
-            {'name': "Accepts", 'value': "CM, CS, EL", 'inline': True},
-            {'name': "Delivery", 'value': "Any world you hold. Defaults to your capital.", 'inline': False},
-            {'name': "Usage", 'value': "`/ceres faction: choice: payment: world:`", 'inline': False},
-        ],
+        description=WELCOME,
     )
+    embed.add_field(name="Rate", value="4 : 1", inline=True)
+    embed.add_field(name="Accepts", value="CM, CS, EL", inline=True)
+    embed.add_field(name="Delivery", value="Any world you hold. Defaults to your capital.", inline=False)
+    embed.add_field(name="Usage", value="`/ceres faction: choice: payment: world:`", inline=False)
+    return embed
 
 
 @app_commands.command(name="ceres", description="Access the Ceres trading market")
@@ -78,12 +76,12 @@ async def ceres(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    if await check_belt_station_blockade(faction_data['id']):
+    if await check_belt_station_blockade(faction_data.id):
         await interaction.followup.send(embed=error_embed("Blockaded", "Your faction is blockaded at Ceres or Vesta and cannot use belt station markets."))
         return
 
     try:
-        world_data = await get_trade_delivery_world(faction_data['id'], world)
+        world_data = await get_trade_delivery_world(faction_data.id, world)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
@@ -97,28 +95,23 @@ async def ceres(
     gain_amount = sum(amt for amt, _ in costs) // 4
 
     try:
-        await execute_ceres_trade(faction_data['id'], world_data['id'], gain, costs)
+        await execute_ceres_trade(faction_data.id, world_data['id'], gain, costs)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
-    bay = random.randint(1, 24)
-    paid = "\n".join(f"{handle_return(amt)} {name}" for amt, name in costs)
-
-    embed = create_embed(
+    embed = discord.Embed(
         title=STATION_NAME,
-        description=terminal_panel(
-            "CERES COMMERCE TERMINAL",
-            [meta_line(f"DOCK: BAY-{bay:02d}", f"BUYER: {faction_data['name'][:10].upper()}")],
-            ["", "   " + route_bar("CERES", world_data['name'][:9], 31), ""],
-        ),
-        color=hex_to_int(faction_data['color']),
-        fields=[
-            {'name': "Bought", 'value': f"{handle_return(gain_amount)} {gain}", 'inline': True},
-            {'name': "Paid", 'value': paid, 'inline': True},
-            {'name': "Delivered to", 'value': world_data['name'], 'inline': True},
-        ],
+        description=f"Welcome to Ceres, **{faction_data.display_name}**!\n\n"
+                    f"We have the best prices in the system...\n"
+                    f"Buy any resource for 4 other resources!\n\n"
+                    f"You've bought **{handle_return(gain_amount)} {gain}**\n"
+                    f"for {handle_return_multiple(resource_array_to_object(costs))}.\n\n"
+                    f"Delivered to **{world_data['name']}**.",
+        color=hex_to_int(faction_data.color)
     )
+    embed.set_footer(text="Trade complete")
+    embed.timestamp = discord.utils.utcnow()
     await interaction.followup.send(embed=embed)
 
 

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -32,23 +37,23 @@ async def unit_set_type(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    unit_data = await get_fleet_by_identifier(unit, faction_data['id'])
+    unit_data = await get_fleet_by_identifier(unit, faction_data.id)
     if not unit_data:
-        await interaction.followup.send(embed=error_embed("Error", f"Unit '{unit}' not found for {faction_data['display_name']}."))
+        await interaction.followup.send(embed=error_embed("Error", f"Unit '{unit}' not found for {faction_data.display_name}."))
         return
 
     try:
-        await set_unit_type(unit_data['id'], unit_type)
+        await set_unit_type(unit_data.id, unit_type)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
-    unit_label = unit_data['name'] or f"Unit #{unit_data['faction_fleet_number']}"
+    unit_label = unit_data.name or f"Unit #{unit_data.faction_fleet_number}"
     embed = success_embed(
         "Unit Type Set",
         f"**{unit_label}** is now classified as **{unit_type}**.",
     )
-    embed.color = hex_to_int(faction_data['color'])
+    embed.color = hex_to_int(faction_data.color)
     await interaction.followup.send(embed=embed)
 
 

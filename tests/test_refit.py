@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import pytest
 from services.vehicle_service import compute_refit, build_days
 
@@ -48,5 +53,5 @@ def test_zero_delta_resources_are_omitted():
 
 def test_full_refit_time_formula():
     deltas, ratio = compute_refit({"CM": 2000}, {"CM": 1000})
-    days = build_days(200) * 0.75 * ratio
-    assert days == pytest.approx(8.0 * 0.75 * 2.0)
+    days = build_days(250) * 0.75 * ratio
+    assert days == pytest.approx(7.0 * 0.75 * 2.0)

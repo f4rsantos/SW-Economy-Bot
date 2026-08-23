@@ -1,8 +1,14 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import logging
 import os
+import discord
 from datetime import datetime, timedelta, timezone
-from database.db_manager import db
+from repositories import background_tasks_repo
 from services.income_service import execute_income
 from services.event_queue import event_queue
 
@@ -18,40 +24,23 @@ async def handle_transfer_arrival(payload: dict):
     transfer_id = payload['transfer_id']
     to_faction_id = payload['to_faction_id']
     to_world_id = payload['to_world_id']
-    status_row = await db.fetchrow("""
-        SELECT ts.name FROM resource_transfers rt
-        JOIN transfer_statuses ts ON rt.status_id = ts.id
-        WHERE rt.id = $1
-    """, transfer_id)
+    status_row = await background_tasks_repo.get_transfer_status(transfer_id)
     if not status_row or status_row['name'] != 'in_transit':
         return
-    resources = await db.fetch("SELECT resource_id, amount FROM transfer_resources WHERE transfer_id = $1", transfer_id)
+    resources = await background_tasks_repo.get_transfer_resources(transfer_id)
     for resource in resources:
-        await db.execute(
-            """
-            INSERT INTO local_treasury (faction_id, world_id, resource_id, amount)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (faction_id, world_id, resource_id)
-            DO UPDATE SET amount = local_treasury.amount + EXCLUDED.amount
-            """,
+        await background_tasks_repo.deposit_local_treasury(
             to_faction_id, to_world_id, resource['resource_id'], resource['amount']
         )
-    await db.execute("DELETE FROM transfer_resources WHERE transfer_id = $1", transfer_id)
-    result = await db.execute("DELETE FROM resource_transfers WHERE id = $1", transfer_id)
+    await background_tasks_repo.delete_transfer_resources(transfer_id)
+    result = await background_tasks_repo.delete_resource_transfer(transfer_id)
     if result != "DELETE 0":
         logger.info(f"Transfer {transfer_id} completed")
 
 
 async def handle_fleet_arrival(payload: dict):
     fleet_id = payload['fleet_id']
-    await db.execute(
-        """
-        UPDATE fleets
-        SET position = moving_to, moving_to = NULL, moving_since = NULL, status_id = 1
-        WHERE id = $1 AND moving_to IS NOT NULL
-        """,
-        fleet_id
-    )
+    await background_tasks_repo.complete_fleet_arrival(fleet_id)
     logger.info(f"Fleet #{fleet_id} arrived")
 
 
@@ -60,32 +49,11 @@ async def handle_construction_complete(payload: dict):
     fleet_id = payload['fleet_id']
     vehicle_id = payload['vehicle_id']
     quantity = payload['quantity']
-    async with db.get_connection() as conn:
+    async with background_tasks_repo.get_connection() as conn:
         async with conn.transaction():
-            await conn.execute(
-                """
-                INSERT INTO fleet_vehicles (fleet_id, vehicle_id, amount)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (fleet_id, vehicle_id)
-                DO UPDATE SET amount = fleet_vehicles.amount + EXCLUDED.amount
-                """,
-                fleet_id, vehicle_id, quantity
-            )
-            await conn.execute(
-                """
-                UPDATE fleets
-                SET total_cs = (
-                    SELECT COALESCE(SUM(fv.amount * vc.amount), 0)
-                    FROM fleet_vehicles fv
-                    JOIN vehicle_costs vc ON fv.vehicle_id = vc.vehicle_id
-                    JOIN resources r ON vc.resource_id = r.id
-                    WHERE fv.fleet_id = fleets.id AND r.name = 'CS'
-                )
-                WHERE id = $1
-                """,
-                fleet_id
-            )
-            result = await conn.execute("DELETE FROM vehicle_construction WHERE id = $1", order_id)
+            await background_tasks_repo.add_fleet_vehicles(conn, fleet_id, vehicle_id, quantity)
+            await background_tasks_repo.recalc_fleet_cs(conn, fleet_id)
+            result = await background_tasks_repo.delete_construction_order(conn, order_id)
             if result == "DELETE 0":
                 raise Exception(f"Construction order {order_id} already processed")
     logger.info(f"Construction order {order_id} completed — {quantity} vehicles added to fleet {fleet_id}")
@@ -95,9 +63,9 @@ async def handle_recruitment_complete(payload: dict):
     recruitment_id = payload['recruitment_id']
     fleet_id = payload['fleet_id']
     amount = payload['amount']
-    result = await db.execute("DELETE FROM military_recruitment WHERE id = $1 AND status = 'training'", recruitment_id)
+    result = await background_tasks_repo.delete_completed_recruitment(recruitment_id)
     if result != "DELETE 0":
-        await db.execute("UPDATE fleets SET infantry_count = infantry_count + $1 WHERE id = $2", amount, fleet_id)
+        await background_tasks_repo.add_fleet_infantry(fleet_id, amount)
         logger.info(f"Recruitment {recruitment_id} completed — {amount} soldiers added to fleet {fleet_id}")
 
 
@@ -106,10 +74,10 @@ async def check_income_cycle(skip_income: bool = False):
         return
     now = datetime.now(timezone.utc)
     try:
-        settings = await db.fetchrow("SELECT last_income, income_day FROM settings LIMIT 1")
+        settings = await background_tasks_repo.get_settings()
         if not settings:
             income_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            await db.execute("INSERT INTO settings (last_income, income_day) VALUES ($1, 6)", income_date)
+            await background_tasks_repo.insert_initial_settings(income_date)
             return
 
         last_income = settings['last_income']
@@ -120,7 +88,7 @@ async def check_income_cycle(skip_income: bool = False):
 
     if not last_income:
         income_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        await db.execute("UPDATE settings SET last_income = $1", income_date)
+        await background_tasks_repo.set_last_income(income_date)
         return
 
     target_weekday = income_day - 1
@@ -143,7 +111,7 @@ async def check_income_cycle(skip_income: bool = False):
         logger.info("=" * 60)
 
         from database.static_cache import static_cache
-        factions = await db.fetch("SELECT id, name, (faction_type = 1) as is_company FROM factions")
+        factions = await background_tasks_repo.get_factions()
 
         shared_cache = {
             'status_ids': dict(static_cache.fleet_status),
@@ -170,9 +138,9 @@ async def check_income_cycle(skip_income: bool = False):
 
             async def _run_one(faction):
                 try:
-                    await execute_income(faction['id'], shared_cache)
+                    await execute_income(faction.id, shared_cache)
                 except Exception as e:
-                    logger.exception(f"  ✗ Error processing income for {faction['name']}: {e}")
+                    logger.exception(f"  ✗ Error processing income for {faction.name}: {e}")
 
             await asyncio.gather(*[_run_one(f) for f in factions])
 
@@ -191,7 +159,7 @@ async def check_income_cycle(skip_income: bool = False):
                 logger.error(f"  Script runner (income day) error: {e}")
 
         income_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        await db.execute("UPDATE settings SET last_income = $1", income_date)
+        await background_tasks_repo.set_last_income(income_date)
         logger.info("=" * 60)
         logger.info("INCOME PROCESSED")
         logger.info(f"   {cycles_to_run} cycle(s) completed. Next check from: {income_date}")
@@ -202,6 +170,47 @@ async def check_income_cycle(skip_income: bool = False):
                 record_income_run()
         except Exception:
             pass
+
+        for _ in range(cycles_to_run):
+            try:
+                await run_casino_weekly_trim()
+            except Exception as e:
+                logger.error(f"  Casino weekly trim error: {e}")
+
+
+NATIONAL_UPDATES_CHANNEL_NAME = "national-updates"
+
+
+async def _find_channel_by_name(channel_name: str):
+    if _bot is None:
+        return None
+    for channel in _bot.get_all_channels():
+        if isinstance(channel, discord.TextChannel) and channel.name == channel_name:
+            return channel
+    return None
+
+
+async def run_casino_weekly_trim():
+    from services.casino_service import apply_weekly_trim
+    from utils.currency import handle_return
+
+    results = await apply_weekly_trim()
+    trimmed_total = sum(r['trimmed'] for r in results)
+    pool_total = sum(r['pool_after'] for r in results)
+
+    if trimmed_total <= 0:
+        return
+
+    channel = await _find_channel_by_name(NATIONAL_UPDATES_CHANNEL_NAME)
+    if not channel:
+        logger.warning(f"Casino weekly trim: channel '{NATIONAL_UPDATES_CHANNEL_NAME}' not found, skipping post")
+        return
+
+    lines = [
+        f"Weekly Pool: {handle_return(pool_total)}",
+        f"Resources Trimmed this Week: {handle_return(trimmed_total)}",
+    ]
+    await channel.send("\n".join(lines))
 
 
 async def handle_income_cycle(payload: dict):

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import random
 import pytest
 
@@ -10,7 +15,7 @@ from services.casino_service import (
     RICH_MULTIPLIER,
     EDGE_MIN,
 )
-from services.casino_games import (
+from utils.casino_games import (
     slot_weights_for_edge,
     spin_reel,
     evaluate_slots,

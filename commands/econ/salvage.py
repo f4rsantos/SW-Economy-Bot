@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 import random
@@ -27,10 +32,10 @@ async def salvage(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
     try:
-        result = await salvage_fleet(faction_data['id'], debris_fleet_id)
+        result = await salvage_fleet(faction_data.id, debris_fleet_id)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
@@ -47,12 +52,12 @@ async def salvage(
         await interaction.followup.send(embed=error_embed("Salvage Failed", "Nothing of value could be recovered from the debris."))
         return
 
-    await add_resources(faction_data['id'], result['world_id'], salvaged)
+    await add_resources(faction_data.id, result['world_id'], salvaged)
 
     salvage_str = ", ".join([f"{handle_return(v)} {k}" for k, v in salvaged.items()])
     embed = success_embed(
         title="Salvage Complete",
-        description=f"**{faction_data['display_name']}** salvaged {salvage_str} from fleet #{debris_fleet_id}."
+        description=f"**{faction_data.display_name}** salvaged {salvage_str} from fleet #{debris_fleet_id}."
     )
     embed.color = faction_color
     await interaction.followup.send(embed=embed)

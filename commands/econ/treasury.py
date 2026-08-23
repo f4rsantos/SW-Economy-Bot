@@ -1,8 +1,13 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
 from typing import Optional
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import error_embed
 from utils.embeds import send_response
 from utils.currency import handle_return
@@ -10,7 +15,7 @@ from utils.faction_utils import hex_to_int
 from services.fleet_service import get_total_faction_infantry
 from database.static_cache import static_cache
 from services.validation_service import require_faction, require_world
-from services.econ_query_service import (
+from repositories.econ_repo import (
     get_resource_treasury_scope,
     get_local_resource_by_world,
     get_global_resource_amount,
@@ -23,20 +28,21 @@ from services.econ_query_service import (
 @app_commands.command(name="treasury", description="View faction's resources")
 @app_commands.describe(faction="Faction name", world="World name", resource="Resource name")
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def treasury(
     interaction: discord.Interaction,
     faction: str,
     world: Optional[str] = None,
     resource: Optional[str] = None
 ):
-    await interaction.response.defer()
+    await defer_response(interaction)
 
     r_faction_data = await require_faction(faction)
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     if resource:
         res_name = resource.upper()
@@ -52,7 +58,7 @@ async def treasury(
 
         if local_check:
             rows = await get_local_resource_by_world(faction_id, res_exists['id'])
-            embed = discord.Embed(title=f"Treasury ({actual_name}): {faction_data['display_name']} per World", color=faction_color)
+            embed = discord.Embed(title=f"Treasury ({actual_name}): {faction_data.display_name} per World", color=faction_color)
             total = 0
             lines = []
             for row in rows:
@@ -64,7 +70,7 @@ async def treasury(
                 embed.set_footer(text=f"Total: {handle_return(total)}")
         elif global_check:
             amount = await get_global_resource_amount(faction_id, res_exists['id'])
-            embed = discord.Embed(title=f"Treasury ({actual_name}): {faction_data['display_name']}", color=faction_color)
+            embed = discord.Embed(title=f"Treasury ({actual_name}): {faction_data.display_name}", color=faction_color)
             embed.description = f"{actual_name} is a global resource (not world-specific).\n**Total:** {handle_return(amount)}"
         else:
             await interaction.followup.send(embed=error_embed("Error", f"`{actual_name}` has no treasury data."))
@@ -78,7 +84,7 @@ async def treasury(
         if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
         world_data = r_world.data
         resources = await get_local_treasury_for_world(faction_id, world_data['id'])
-        title = f"Treasury - {faction_data['display_name']} on {world_data['name']}"
+        title = f"Treasury - {faction_data.display_name} on {world_data['name']}"
     else:
         (global_res, local_res), total_infantry = await asyncio.gather(
             asyncio.gather(
@@ -91,7 +97,7 @@ async def treasury(
         if total_infantry > 0:
             resources = [r for r in resources if r['name'] != 'Military']
             resources.append({'name': 'Military', 'amount': total_infantry})
-        title = f"Treasury - {faction_data['display_name']} (Overall)"
+        title = f"Treasury - {faction_data.display_name} (Overall)"
 
     embed = discord.Embed(title=title, description="Current resource amounts", color=faction_color)
     for r in resources:

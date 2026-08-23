@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -17,8 +22,8 @@ async def create_pact(interaction: discord.Interaction, faction: str, pact_name:
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     pact_type_data = await get_pact_type(pact_type)
     if not pact_type_data:
@@ -27,20 +32,20 @@ async def create_pact(interaction: discord.Interaction, faction: str, pact_name:
         return
 
     try:
-        result = await create_pact_service(pact_name, pact_type_data['id'], faction_id)
+        result = await create_pact_service(pact_name, pact_type_data.id, faction_id)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Negative Influence Income", str(e)))
         return
 
     pact_id = result['pact_id']
 
-    influence_cost = pact_type_data['influence_cost'] or 0
+    influence_cost = pact_type_data.influence_cost or 0
     embed = success_embed(
         title="Pact Created",
-        description=f"**{faction_data['display_name']}** has created the **{pact_name}** ({pact_type}).\n\n"
+        description=f"**{faction_data.display_name}** has created the **{pact_name}** ({pact_type}).\n\n"
                     f"**Pact ID:** {pact_id}\n"
                     f"**Influence Cost:** {influence_cost} per additional member\n"
-                    f"**Leader:** {faction_data['display_name']}\n\n"
+                    f"**Leader:** {faction_data.display_name}\n\n"
                     f"Other factions can join with `/join-pact {pact_id}`"
     )
     embed.color = faction_color

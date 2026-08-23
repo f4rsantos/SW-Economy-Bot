@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from datetime import datetime, timezone, timedelta
@@ -41,9 +46,9 @@ async def refit_cmd(
     r_user_faction = await require_faction(faction)
     if not r_user_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_user_faction.error))
     user_faction = r_user_faction.data
-    faction_color = hex_to_int(user_faction['color'])
+    faction_color = hex_to_int(user_faction.color)
 
-    r_unit = await require_unit(unit_id, user_faction['id'])
+    r_unit = await require_unit(unit_id, user_faction.id)
     if not r_unit.ok: return await interaction.followup.send(embed=error_embed("Error", r_unit.error))
     unit_data = r_unit.data
 
@@ -88,7 +93,7 @@ async def refit_cmd(
 
     try:
         order_id = await refit_vehicle(
-            user_faction['id'], unit_data['id'], target_vehicle['id'], amount,
+            user_faction.id, unit_data['id'], target_vehicle['id'], amount,
             world_data['id'], factory_space, completion, cost_deltas
         )
     except ValueError as e:

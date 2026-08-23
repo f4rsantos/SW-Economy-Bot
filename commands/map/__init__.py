@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 
@@ -9,7 +14,7 @@ async def setup(bot):
     from commands.map import (
         land, claim_hex, unclaim_hex, view,
         add_place, delete_place, rename_place, modify_place,
-        conquer
+        conquer, solar
     )
 
     map_group = MapGroup()
@@ -23,5 +28,6 @@ async def setup(bot):
     map_group.add_command(rename_place.rename_place)
     map_group.add_command(modify_place.modify_place)
     map_group.add_command(conquer.conquer)
+    map_group.add_command(solar.solar)
 
     bot.tree.add_command(map_group)

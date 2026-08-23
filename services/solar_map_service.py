@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import io
 import math
 import os
@@ -5,7 +10,7 @@ import sys
 from datetime import datetime, timedelta
 from typing import Optional
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 import services.orbital_config as config
 from services.travel_time_service import get_absolute_position_3d, get_config_key
@@ -14,7 +19,7 @@ from utils.date_utils import get_solar_date, is_leap_year
 
 
 _APP_ROOT = getattr(sys, "_MEIPASS", os.getcwd())
-WORLDS_DIR = os.getenv("WORLDS_DIR", os.path.join(_APP_ROOT, "worlds"))
+WORLDS_DIR = os.getenv("WORLDS_DIR", os.path.join(_APP_ROOT, "assets", "worlds"))
 PLACEHOLDER_ICON = os.path.join(WORLDS_DIR, "placeholder.png")
 
 SOLAR_EPOCH = datetime(2023, 5, 1)
@@ -200,7 +205,7 @@ def _draw_orbit_path(draw: ImageDraw.Draw, cx: float, cy: float, points: list):
     draw.line(points + [points[0]], fill=ORBIT_COLOR, width=2, joint="curve")
 
 
-def _orbit_points(name: str, system_data: dict, when: datetime, radius_px, center: float, relative_to: str = None, samples: int = 240) -> list:
+def _orbit_points(name: str, system_data: dict, when: datetime, radius_px, cx: float, cy: float, relative_to: str = None, samples: int = 360) -> list:
     data = system_data[name]
     period_years = data.get("period", 0) or 0
     if period_years <= 0:
@@ -217,7 +222,7 @@ def _orbit_points(name: str, system_data: dict, when: datetime, radius_px, cente
         d = math.hypot(px, py)
         angle = math.atan2(py, px)
         r = radius_px(d)
-        points.append((center + r * math.cos(angle), center + r * math.sin(angle)))
+        points.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
     return points
 
 
@@ -235,13 +240,21 @@ def _draw_gradient_background(size: int) -> Image.Image:
 
 
 def _draw_sun(image: Image.Image, cx: float, cy: float, radius: float):
-    glow_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    glow_box_r = int(radius * 4)
+    glow_layer = Image.new("RGBA", (glow_box_r * 2, glow_box_r * 2), (0, 0, 0, 0))
     gdraw = ImageDraw.Draw(glow_layer, "RGBA")
-    for i in range(6, 0, -1):
-        alpha = int(28 * (i / 6))
-        r = radius * (1 + i * 0.4)
-        gdraw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(*SUN_GLOW, alpha))
-    image.alpha_composite(glow_layer)
+    
+    gdraw.ellipse(
+        [glow_box_r - radius * 1.8, glow_box_r - radius * 1.8, glow_box_r + radius * 1.8, glow_box_r + radius * 1.8],
+        fill=(255, 205, 110, 120)
+    )
+    gdraw.ellipse(
+        [glow_box_r - radius * 1.1, glow_box_r - radius * 1.1, glow_box_r + radius * 1.1, glow_box_r + radius * 1.1],
+        fill=(255, 230, 140, 180)
+    )
+    blurred_glow = glow_layer.filter(ImageFilter.GaussianBlur(radius * 0.75))
+    image.alpha_composite(blurred_glow, (int(cx - glow_box_r), int(cy - glow_box_r)))
+
     draw = ImageDraw.Draw(image, "RGBA")
     draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=(255, 236, 180))
     draw.ellipse([cx - radius * 0.7, cy - radius * 0.7, cx + radius * 0.7, cy + radius * 0.7], fill=(255, 250, 220))
@@ -275,8 +288,10 @@ def render_solar_map(
     date_str: Optional[str] = None,
     mode: str = "log",
     zoom: float = 1.0,
+    pan_x: float = 0.0,
+    pan_y: float = 0.0,
     focus: Optional[str] = None,
-) -> tuple[bytes, str, str]:
+) -> tuple[bytes, str, str, Optional[str]]:
     canonical_system, system_data = resolve_system(system_name)
 
     if date_str:
@@ -294,18 +309,20 @@ def render_solar_map(
 
     if focus:
         canonical_focus = resolve_body(focus, system_data)
-        image_bytes = _render_focus(canonical_system, system_data, canonical_focus, when, zoom)
+        image_bytes, closest_body = _render_focus(canonical_system, system_data, canonical_focus, when, zoom, pan_x, pan_y)
         title = f"{canonical_focus} System"
     else:
-        image_bytes = _render_overview(canonical_system, system_data, when, mode, zoom)
+        image_bytes, closest_body = _render_overview(canonical_system, system_data, when, mode, zoom, pan_x, pan_y)
         title = f"{canonical_system} System"
 
-    return image_bytes, title, game_date_label
+    return image_bytes, title, game_date_label, closest_body
 
 
-def _render_overview(system_name: str, system_data: dict, when: datetime, mode: str, zoom: float) -> bytes:
+def _render_overview(system_name: str, system_data: dict, when: datetime, mode: str, zoom: float, pan_x: float = 0.0, pan_y: float = 0.0) -> tuple[bytes, Optional[str]]:
     size = BASE_SIZE * SUPERSAMPLE
     center = size / 2
+    cx = center + pan_x * SUPERSAMPLE
+    cy = center + pan_y * SUPERSAMPLE
     max_radius_px = center - MARGIN * SUPERSAMPLE
 
     bodies = [name for name, data in system_data.items() if _is_top_level(name, data)]
@@ -315,8 +332,18 @@ def _render_overview(system_name: str, system_data: dict, when: datetime, mode: 
         positions[name] = pos
 
     dists = {name: math.hypot(positions[name].x, positions[name].y) for name in bodies}
-    max_dist = max(dists.values()) if dists else 1.0
-    min_dist = min((d for d in dists.values() if d > 1e-6), default=0.1)
+
+    perihelions = []
+    aphelions = []
+    for name in bodies:
+        data = system_data[name]
+        a = data.get("a", data.get("dist", 1.0))
+        e = data.get("e", 0.0)
+        perihelions.append(a * (1.0 - e))
+        aphelions.append(a * (1.0 + e))
+
+    min_dist = (min(perihelions) * 0.75) if perihelions else 0.2
+    max_dist = (max(aphelions) * 1.05) if aphelions else 45.0
 
     if mode == "log":
         min_radius_px = 90 * SUPERSAMPLE
@@ -324,9 +351,10 @@ def _render_overview(system_name: str, system_data: dict, when: datetime, mode: 
         def radius_px(d):
             d = max(d, min_dist)
             t = (math.log(d) - math.log(min_dist)) / (math.log(max_dist) - math.log(min_dist)) if max_dist > min_dist else 0.0
-            return min_radius_px + (max_radius_px - min_radius_px) * t
+            return (min_radius_px + (max_radius_px - min_radius_px) * t) * zoom
     else:
-        px_per_au = (max_radius_px / max_dist) * zoom if max_dist > 0 else 1.0
+        current_max = max(dists.values()) if dists else 1.0
+        px_per_au = (max_radius_px / current_max) * zoom if current_max > 0 else 1.0
 
         def radius_px(d):
             return d * px_per_au
@@ -337,17 +365,17 @@ def _render_overview(system_name: str, system_data: dict, when: datetime, mode: 
     draw = ImageDraw.Draw(bg, "RGBA")
 
     for name in bodies:
-        _draw_orbit_path(draw, center, center, _orbit_points(name, system_data, when, radius_px, center))
+        _draw_orbit_path(draw, cx, cy, _orbit_points(name, system_data, when, radius_px, cx, cy))
 
-    sun_radius = 24 * SUPERSAMPLE
-    _draw_sun(bg, center, center, sun_radius)
+    sun_radius = max(8 * SUPERSAMPLE, 24 * SUPERSAMPLE * min(zoom, 1.5))
+    _draw_sun(bg, cx, cy, sun_radius)
     draw = ImageDraw.Draw(bg, "RGBA")
 
     font = _load_font(15 * SUPERSAMPLE)
     font_small = _load_font(12 * SUPERSAMPLE)
-    _text_with_shadow(draw, (center, center + sun_radius + 6 * SUPERSAMPLE), "Sun" if system_name == "Sol" else system_name, font, anchor="ma")
+    _text_with_shadow(draw, (cx, cy + sun_radius + 6 * SUPERSAMPLE), "Sun" if system_name == "Sol" else system_name, font, anchor="ma")
 
-    sun_box = (center - sun_radius, center - sun_radius, center + sun_radius, center + sun_radius * 2.2)
+    sun_box = (cx - sun_radius, cy - sun_radius, cx + sun_radius, cy + sun_radius * 2.2)
     placed_boxes: list = [sun_box]
     icon_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
 
@@ -357,8 +385,8 @@ def _render_overview(system_name: str, system_data: dict, when: datetime, mode: 
         pos = positions[name]
         angle = math.atan2(pos.y, pos.x)
         r_px = radius_px(dists[name])
-        x = center + r_px * math.cos(angle)
-        y = center + r_px * math.sin(angle)
+        x = cx + r_px * math.cos(angle)
+        y = cy + r_px * math.sin(angle)
         body_plots[name] = (x, y)
 
         is_belt = "Asteroid Belt" in name
@@ -416,15 +444,28 @@ def _render_overview(system_name: str, system_data: dict, when: datetime, mode: 
 
     _text_with_shadow(draw, (24 * SUPERSAMPLE, size - 40 * SUPERSAMPLE), current_game_date_str(when), font_small, fill=SUBTLE_TEXT, anchor="lm")
 
+    closest_body = None
+    min_center_dist = float("inf")
+    for name in bodies:
+        if "Asteroid Belt" in name:
+            continue
+        bx, by = body_plots[name]
+        d_center = math.hypot(bx - center, by - center)
+        if d_center < min_center_dist:
+            min_center_dist = d_center
+            closest_body = name
+
     final = bg.resize((BASE_SIZE, BASE_SIZE), Image.LANCZOS)
     output = io.BytesIO()
     final.convert("RGB").save(output, format="PNG")
-    return output.getvalue()
+    return output.getvalue(), closest_body
 
 
-def _render_focus(system_name: str, system_data: dict, focus_name: str, when: datetime, zoom: float) -> bytes:
+def _render_focus(system_name: str, system_data: dict, focus_name: str, when: datetime, zoom: float, pan_x: float = 0.0, pan_y: float = 0.0) -> tuple[bytes, Optional[str]]:
     size = FOCUS_SIZE * SUPERSAMPLE
     center = size / 2
+    cx = center + pan_x * SUPERSAMPLE
+    cy = center + pan_y * SUPERSAMPLE
     max_radius_px = center - MARGIN * SUPERSAMPLE
 
     moons = [name for name, data in system_data.items() if data.get("parent") == focus_name]
@@ -433,25 +474,27 @@ def _render_focus(system_name: str, system_data: dict, focus_name: str, when: da
 
     focus_pos = get_absolute_position_3d(focus_name, when, system_data)
     moon_positions = {}
-    max_dist = 0.0
-    min_dist = float("inf")
     for name in moons:
         pos = get_absolute_position_3d(name, when, system_data)
         rel_x, rel_y = pos.x - focus_pos.x, pos.y - focus_pos.y
         dist = math.hypot(rel_x, rel_y)
         moon_positions[name] = (rel_x, rel_y, dist)
-        max_dist = max(max_dist, dist)
-        if dist > 1e-9:
-            min_dist = min(min_dist, dist)
 
-    if max_dist <= 0:
-        max_dist = 1.0
-    if min_dist == float("inf"):
-        min_dist = max_dist * 0.1
+    moon_perihelions = []
+    moon_aphelions = []
+    for name in moons:
+        data = system_data[name]
+        a = data.get("a", data.get("dist", 0.005))
+        e = data.get("e", 0.0)
+        moon_perihelions.append(a * (1.0 - e))
+        moon_aphelions.append(a * (1.0 + e))
+
+    min_dist = (min(moon_perihelions) * 0.75) if moon_perihelions else 0.0005
+    max_dist = (max(moon_aphelions) * 1.05) if moon_aphelions else 0.03
 
     size_scale = _radius_scale_for_bodies(list(system_data.keys()), system_data)
     planet_t = size_scale.get(focus_name, 0.6)
-    planet_icon_size = int(_icon_size_for(planet_t) * 1.6) * SUPERSAMPLE
+    planet_icon_size = int(_icon_size_for(planet_t) * 1.6 * SUPERSAMPLE * min(zoom, 1.5))
     inner_radius_px = max(90 * SUPERSAMPLE, planet_icon_size * 1.05)
 
     def moon_radius_px(dist):
@@ -466,18 +509,18 @@ def _render_focus(system_name: str, system_data: dict, focus_name: str, when: da
     draw = ImageDraw.Draw(bg, "RGBA")
 
     for name in moons:
-        _draw_orbit_path(draw, center, center, _orbit_points(name, system_data, when, lambda d: min(moon_radius_px(d), max_radius_px), center, relative_to=focus_name))
+        _draw_orbit_path(draw, cx, cy, _orbit_points(name, system_data, when, lambda d: min(moon_radius_px(d), max_radius_px), cx, cy, relative_to=focus_name))
 
     icon_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     planet_icon = _load_icon(focus_name, planet_icon_size)
-    icon_layer.paste(planet_icon, (int(center - planet_icon_size / 2), int(center - planet_icon_size / 2)), planet_icon)
+    icon_layer.paste(planet_icon, (int(cx - planet_icon_size / 2), int(cy - planet_icon_size / 2)), planet_icon)
 
     font = _load_font(15 * SUPERSAMPLE)
     font_small = _load_font(12 * SUPERSAMPLE)
     placed_boxes: list = [
-        (center - planet_icon_size / 2, center - planet_icon_size / 2, center + planet_icon_size / 2, center + planet_icon_size / 2 + 40 * SUPERSAMPLE)
+        (cx - planet_icon_size / 2, cy - planet_icon_size / 2, cx + planet_icon_size / 2, cy + planet_icon_size / 2 + 40 * SUPERSAMPLE)
     ]
-    _text_with_shadow(draw, (center, center + planet_icon_size / 2 + 6 * SUPERSAMPLE), focus_name, font, anchor="ma")
+    _text_with_shadow(draw, (cx, cy + planet_icon_size / 2 + 6 * SUPERSAMPLE), focus_name, font, anchor="ma")
 
     render_order = sorted(moons, key=lambda n: -moon_positions[n][2])
     moon_plots = {}
@@ -485,8 +528,8 @@ def _render_focus(system_name: str, system_data: dict, focus_name: str, when: da
         rel_x, rel_y, dist = moon_positions[name]
         angle = math.atan2(rel_y, rel_x)
         r_px = min(moon_radius_px(dist), max_radius_px)
-        x = center + r_px * math.cos(angle)
-        y = center + r_px * math.sin(angle)
+        x = cx + r_px * math.cos(angle)
+        y = cy + r_px * math.sin(angle)
         moon_plots[name] = (x, y)
 
         icon_size = _icon_size_for(0.5, is_moon=True) * SUPERSAMPLE
@@ -520,7 +563,16 @@ def _render_focus(system_name: str, system_data: dict, focus_name: str, when: da
     draw = ImageDraw.Draw(bg, "RGBA")
     _text_with_shadow(draw, (24 * SUPERSAMPLE, size - 40 * SUPERSAMPLE), current_game_date_str(when), font_small, fill=SUBTLE_TEXT, anchor="lm")
 
+    closest_body = focus_name
+    min_center_dist = math.hypot(cx - center, cy - center)
+    for name in moons:
+        mx, my = moon_plots[name]
+        d_center = math.hypot(mx - center, my - center)
+        if d_center < min_center_dist:
+            min_center_dist = d_center
+            closest_body = name
+
     final = bg.resize((FOCUS_SIZE, FOCUS_SIZE), Image.LANCZOS)
     output = io.BytesIO()
     final.convert("RGB").save(output, format="PNG")
-    return output.getvalue()
+    return output.getvalue(), closest_body

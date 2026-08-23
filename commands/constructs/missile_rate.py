@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Literal, Optional
@@ -64,7 +69,7 @@ async def missile_rate(
     embed = success_embed(title=f"Missile: {name}" if name else "Missile", description=f"**{_TYPE_NAMES.get(missile_type, missile_type)}**")
     if faction_data:
         from utils.faction_utils import hex_to_int
-        embed.color = hex_to_int(faction_data['color'])
+        embed.color = hex_to_int(faction_data.color)
     embed.add_field(name="ER Cost", value=handle_return(costs['ER']), inline=True)
     embed.add_field(name="CM Cost", value=handle_return(costs['CM']), inline=True)
     embed.add_field(name="EL Cost", value=handle_return(costs['EL']), inline=True)
@@ -76,7 +81,7 @@ async def missile_rate(
 
     if faction_data and name:
         view = RegisterVehicleView(
-            interaction.user.id, faction_data['id'], faction_data['display_name'],
+            interaction.user.id, faction_data.id, faction_data.display_name,
             name, designation, "Missile", register_costs, data
         )
         await interaction.followup.send(embed=embed, view=view)

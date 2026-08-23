@@ -1,6 +1,11 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import success_embed, error_embed
 from utils.faction_utils import hex_to_int
 from services.vehicle_service import rename_vehicle as rename_vehicle_service
@@ -15,6 +20,7 @@ from services.validation_service import require_faction, require_vehicle
     designation="New designation for the vehicle (optional, max 25 chars)"
 )
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def rename_vehicle(
     interaction: discord.Interaction,
     faction: str,
@@ -22,7 +28,7 @@ async def rename_vehicle(
     new_name: str = None,
     designation: str = None
 ):
-    await interaction.response.defer()
+    await defer_response(interaction)
 
     if not new_name and not designation:
         await interaction.followup.send(embed=error_embed("Error", "You must provide a new name or a new designation."))
@@ -40,9 +46,9 @@ async def rename_vehicle(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
-    r_vehicle_data = await require_vehicle(vehicle_id, faction_data['id'])
+    r_vehicle_data = await require_vehicle(vehicle_id, faction_data.id)
     if not r_vehicle_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_vehicle_data.error))
     vehicle_data = r_vehicle_data.data
 
@@ -64,7 +70,7 @@ async def rename_vehicle(
     try:
         await rename_vehicle_service(
             global_id,
-            faction_data['id'],
+            faction_data.id,
             new_name if new_name and new_name != old_name else None,
             designation if designation is not None and designation != old_designation else None,
         )

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import queue
 import random
@@ -8,6 +13,7 @@ import time
 import httpx
 
 import auth
+import services.credential_store as credential_store
 
 _command_queue: "queue.Queue[str]" = queue.Queue()
 _started_at = time.monotonic()
@@ -130,6 +136,8 @@ async def _drain_loop(bot) -> None:
 
 async def _dispatch(bot, line: str) -> None:
     parts = line.split()
+    if not parts:
+        return
     name = parts[0].lower()
     args = parts[1:]
     handler = _COMMANDS.get(name)
@@ -168,6 +176,9 @@ async def _cmd_help(bot, args: list[str]) -> None:
     print("  exit              shut down the bot gracefully")
     print("  help              show this list")
     print("  status            show uptime, guild count, latency")
+    print("  login save        save current license key and Discord ID for auto-login")
+    print("  login clear       remove saved auto-login credentials")
+    print("  login status      show saved auto-login credential status")
     print("  blackjack <bet>   play a hand of blackjack vs the dealer")
     print("  hit / stand       act on your current blackjack hand")
     print("  42                the answer")
@@ -176,6 +187,38 @@ async def _cmd_help(bot, args: list[str]) -> None:
     print("  pet               show your pet")
     print("  pet feed          feed your pet")
     print("  pet pet           pet your pet")
+
+
+async def _cmd_login(bot, args: list[str]) -> None:
+    sub = args[0].lower() if args else ""
+
+    if sub == "save":
+        if not auth.operator_license_key or not auth.operator_discord_id:
+            print("Cannot save credentials: not currently authenticated with a license key.")
+            return
+        if credential_store.save_credentials(auth.operator_license_key, auth.operator_discord_id):
+            print("Credentials saved. Auto-login enabled for 30 days.")
+        else:
+            print("Failed to save credentials.")
+        return
+
+    if sub == "clear":
+        if credential_store.clear_credentials():
+            print("Saved credentials cleared.")
+        else:
+            print("No saved credentials to clear.")
+        return
+
+    if sub == "status":
+        status = credential_store.credentials_status()
+        if not status["exists"]:
+            print("No saved credentials.")
+            return
+        print(f"Saved credentials for Discord ID: {status['discord_id']}")
+        print(f"Days remaining: {status['days_remaining']}")
+        return
+
+    print("Usage: login save | login clear | login status")
 
 
 async def _cmd_status(bot, args: list[str]) -> None:
@@ -374,6 +417,7 @@ _COMMANDS = {
     "exit": _cmd_exit,
     "help": _cmd_help,
     "status": _cmd_status,
+    "login": _cmd_login,
     "blackjack": _cmd_blackjack,
     "hit": _cmd_hit,
     "stand": _cmd_stand,

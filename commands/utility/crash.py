@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from datetime import datetime, timezone
@@ -27,7 +32,7 @@ async def crash_command(interaction: discord.Interaction):
 
     operator = await get_operator_for_player(user_id)
     user = await get_user_access_row(user_id)
-    access_level = user['access_level'] if user else 0
+    access_level = user.access_level if user else 0
 
     if access_level < 9 and not operator:
         await interaction.followup.send("You do not have permission to use this command.")

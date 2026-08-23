@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -48,7 +53,7 @@ async def add_badge(interaction: discord.Interaction, user: discord.Member, badg
         return
 
     user_data = await get_user_access_row(user.id)
-    current_badges = user_data['badge_ids'] if user_data and user_data['badge_ids'] else []
+    current_badges = list(user_data.badge_ids) if user_data else []
     if r_badge.data['id'] in current_badges:
         await interaction.followup.send(embed=error_embed("Error", f"{user.mention} already has the **[{r_badge.data['name']}]** badge."))
         return
@@ -69,7 +74,7 @@ async def remove_badge(interaction: discord.Interaction, user: discord.Member, b
         return
 
     user_data = await get_user_access_row(user.id)
-    if not user_data or not user_data['badge_ids'] or r_badge.data['id'] not in user_data['badge_ids']:
+    if not user_data or not user_data.badge_ids or r_badge.data['id'] not in user_data.badge_ids:
         await interaction.followup.send(embed=error_embed("Error", f"{user.mention} does not have the **[{r_badge.data['name']}]** badge."))
         return
 

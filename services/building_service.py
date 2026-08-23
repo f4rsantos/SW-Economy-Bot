@@ -1,6 +1,11 @@
-import json
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from typing import Optional
-from database.db_manager import db
+from dtos.building import Building
+from repositories import building_repo
 from services.building_efficiency_service import (
     get_faction_building_count_unweighted,
     get_faction_building_count_actual,
@@ -81,79 +86,75 @@ def _calculate_mega_factory_refund(base_costs: dict, current_count: int, amount:
     return total
 
 
-async def get_building(building_id: int) -> Optional[dict]:
-    row = await db.fetchrow("SELECT id, name FROM buildings WHERE id = $1", building_id)
-    return dict(row) if row else None
+async def get_building(building_id: int) -> Optional[Building]:
+    return await building_repo.get_building(building_id)
 
 
-async def get_building_by_name(building_name: str) -> Optional[dict]:
-    row = await db.fetchrow("SELECT id, name FROM buildings WHERE LOWER(name) = LOWER($1)", building_name)
-    return dict(row) if row else None
+async def get_building_by_name(building_name: str) -> Optional[Building]:
+    return await building_repo.get_building_by_name(building_name)
+
+
+async def search_building_names(current: str, limit: int = 25) -> list[Building]:
+    return await building_repo.search_building_names(current, limit)
+
+
+async def resolve_building(identifier: str) -> Optional[Building]:
+    if identifier is None:
+        return None
+
+    text = identifier.strip()
+    if not text:
+        return None
+
+    if text.lower().startswith("building:"):
+        text = text[len("building:"):].strip()
+
+    if text.isdigit():
+        found = await get_building(int(text))
+        if found:
+            return found
+
+    found = await get_building_by_name(text)
+    if found:
+        return found
+
+    matches = await building_repo.find_buildings_matching(text)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        candidates = ", ".join(f"{m.name} (ID: {m.id})" for m in matches[:8])
+        more = f" and {len(matches) - 8} more" if len(matches) > 8 else ""
+        raise ValueError(f"'{identifier}' matches several buildings: {candidates}{more}. Be more specific or use the building ID.")
+
+    return None
 
 
 async def get_buildings_catalog() -> list:
-    rows = await db.fetch("""
-        SELECT b.id, b.name, b.description, b.is_generator,
-               bg.production, bg.is_refinery, bg.percentage_affects,
-               r.name as resource_name, bs.storage
-        FROM buildings b
-        LEFT JOIN buildings_generators bg ON b.id = bg.building_id
-        LEFT JOIN buildings_storages bs ON b.id = bs.building_id
-        LEFT JOIN resources r ON bg.resource_id = r.id OR bs.resource_id = r.id
-        ORDER BY b.id
-    """)
-    return [dict(r) for r in rows]
+    return await building_repo.get_buildings_catalog()
 
 
 async def get_all_building_cost_rows() -> list:
-    rows = await db.fetch("""
-        SELECT bc.building_id, r.name, bc.amount FROM building_costs bc
-        JOIN resources r ON bc.resource_id = r.id ORDER BY bc.building_id, r.name
-    """)
-    return [dict(r) for r in rows]
+    return await building_repo.get_all_building_cost_rows()
 
 
 async def get_faction_building_ids_at_level(faction_id: int, level: int) -> set:
-    rows = await db.fetch(
-        "SELECT DISTINCT building_id FROM faction_world_buildings WHERE faction_id = $1 AND level = $2",
-        faction_id, level
-    )
-    return {r['building_id'] for r in rows}
+    return await building_repo.get_faction_building_ids_at_level(faction_id, level)
 
 
 async def get_building_ids_supporting_level(level: int) -> set:
-    rows = await db.fetch("""
-        SELECT building_id FROM buildings_generators WHERE max_levels >= $1
-        UNION
-        SELECT building_id FROM buildings_storages WHERE max_levels >= $1
-    """, level)
-    return {r['building_id'] for r in rows}
+    return await building_repo.get_building_ids_supporting_level(level)
 
 
 async def get_faction_mega_factory_count(faction_id: int) -> int:
-    row = await db.fetchrow(
-        "SELECT COALESCE(SUM(amount), 0) as total FROM faction_world_buildings WHERE faction_id = $1 AND building_id = $2",
-        faction_id, MEGA_FACTORY_BUILDING_ID
-    )
-    return int(row['total'])
+    return await building_repo.get_faction_mega_factory_count(faction_id)
 
 
 async def get_building_base_costs(building_id: int) -> dict:
-    rows = await db.fetch("""
-        SELECT r.name, bc.amount FROM building_costs bc
-        JOIN resources r ON bc.resource_id = r.id
-        WHERE bc.building_id = $1
-    """, building_id)
-    return {r['name']: r['amount'] for r in rows}
+    return await building_repo.get_building_base_costs(building_id)
 
 
 async def get_company_er(faction_id: int) -> int:
-    row = await db.fetchrow("""
-        SELECT COALESCE(SUM(ft.amount), 0) as total FROM faction_treasury ft
-        JOIN resources r ON ft.resource_id = r.id
-        WHERE ft.faction_id = $1 AND r.name = 'ER'
-    """, faction_id)
-    return row['total'] or 0
+    return await building_repo.get_company_er(faction_id)
 
 
 def _company_building_cap(er: int) -> int:
@@ -172,15 +173,12 @@ async def buy_building(faction_id: int, world_id: int, building_id: int, amount:
     building = await get_building(building_id)
     if not building:
         raise ValueError("Building not found.")
-    if is_company and building['name'].lower() == 'city':
+    if is_company and building.name.lower() == 'city':
         raise ValueError("Companies cannot build cities.")
     if is_company:
-        await db.execute(
-            "INSERT INTO world_factions (world_id, faction_id, territory) VALUES ($1, $2, 0) ON CONFLICT DO NOTHING",
-            world_id, faction_id
-        )
+        await building_repo.ensure_world_presence(world_id, faction_id)
     else:
-        if not await db.fetchrow("SELECT 1 FROM world_factions WHERE world_id = $1 AND faction_id = $2", world_id, faction_id):
+        if not await building_repo.faction_has_presence(world_id, faction_id):
             raise ValueError("Faction has no presence on this world.")
     base_costs = await get_building_base_costs(building_id)
     current_weighted = await get_faction_building_count_unweighted(faction_id)
@@ -198,13 +196,10 @@ async def buy_building(faction_id: int, world_id: int, building_id: int, amount:
         scaling_count = max(0, current_actual - 27)
         total_costs = _calculate_building_cost(base_costs, scaling_count, amount, level, building_id)
     try:
-        await db.execute(
-            "SELECT sp_buy_building($1, $2, $3, $4, $5, $6::jsonb)",
-            faction_id, world_id, building_id, amount, level, json.dumps(total_costs)
-        )
+        await building_repo.buy_building(faction_id, world_id, building_id, amount, level, total_costs)
     except Exception as e:
         raise ValueError(str(e)) from e
-    return {'building_name': building['name'], 'costs': total_costs}
+    return {'building_name': building.name, 'costs': total_costs}
 
 
 async def destroy_building(faction_id: int, world_id: int, building_id: int, amount: int, level: int) -> dict:
@@ -212,20 +207,17 @@ async def destroy_building(faction_id: int, world_id: int, building_id: int, amo
     if not building:
         raise ValueError("Building not found.")
     try:
-        await db.execute(
-            "SELECT sp_destroy_building($1, $2, $3, $4, $5)",
-            faction_id, world_id, building_id, amount, level
-        )
+        await building_repo.destroy_building(faction_id, world_id, building_id, amount, level)
     except Exception as e:
         raise ValueError(str(e)) from e
-    return {'building_name': building['name']}
+    return {'building_name': building.name}
 
 
 async def transfer_building(from_faction_id: int, to_faction_id: int, world_id: int, building_id: int, amount: int, level: int) -> dict:
     building = await get_building(building_id)
     if not building:
         raise ValueError("Building not found.")
-    if not await db.fetchrow("SELECT 1 FROM world_factions WHERE world_id = $1 AND faction_id = $2", world_id, to_faction_id):
+    if not await building_repo.faction_has_presence(world_id, to_faction_id):
         raise ValueError("Destination faction has no presence on this world.")
     current = await get_faction_building_count_unweighted(to_faction_id)
     building_cap = await calculate_building_cap(to_faction_id)
@@ -233,13 +225,10 @@ async def transfer_building(from_faction_id: int, to_faction_id: int, world_id: 
     if new_total > building_cap:
         raise ValueError(f"Building cap exceeded. Cap: {building_cap:,}, Current: {current:,}, Adding: {amount * level:,}")
     try:
-        await db.execute(
-            "SELECT sp_transfer_building($1, $2, $3, $4, $5, $6)",
-            from_faction_id, to_faction_id, world_id, building_id, amount, level
-        )
+        await building_repo.transfer_building(from_faction_id, to_faction_id, world_id, building_id, amount, level)
     except Exception as e:
         raise ValueError(str(e)) from e
-    return {'building_name': building['name']}
+    return {'building_name': building.name}
 
 
 async def refund_building(faction_id: int, world_id: int, building_id: int, amount: int, level: int, week: bool) -> dict:
@@ -255,13 +244,10 @@ async def refund_building(faction_id: int, world_id: int, building_id: int, amou
         scaling_count = max(0, current_actual - 27)
         refunds = _calculate_refund(base_costs, scaling_count, amount, level, week, building_id)
     try:
-        await db.execute(
-            "SELECT sp_refund_building($1, $2, $3, $4, $5, $6::jsonb)",
-            faction_id, world_id, building_id, amount, level, json.dumps(refunds)
-        )
+        await building_repo.refund_building(faction_id, world_id, building_id, amount, level, refunds)
     except Exception as e:
         raise ValueError(str(e)) from e
-    return {'building_name': building['name'], 'refunds': refunds}
+    return {'building_name': building.name, 'refunds': refunds}
 
 
 async def get_building_cap_info(faction_id: int, is_company: bool) -> dict:
@@ -280,22 +266,4 @@ async def list_faction_buildings(
     world_id: Optional[int] = None,
     building_id: Optional[int] = None,
 ) -> list[dict]:
-    query = """
-        SELECT b.id, b.name, fwb.amount, fwb.level, w.name as world_name
-        FROM faction_world_buildings fwb
-        JOIN buildings b ON fwb.building_id = b.id
-        JOIN worlds w ON fwb.world_id = w.id
-        WHERE fwb.faction_id = $1
-    """
-    params = [faction_id]
-
-    if world_id:
-        query += f" AND fwb.world_id = ${len(params) + 1}"
-        params.append(world_id)
-    if building_id:
-        query += f" AND fwb.building_id = ${len(params) + 1}"
-        params.append(building_id)
-
-    query += " ORDER BY w.name, b.name"
-    rows = await db.fetch(query, *params)
-    return [dict(r) for r in rows]
+    return await building_repo.list_faction_buildings(faction_id, world_id, building_id)

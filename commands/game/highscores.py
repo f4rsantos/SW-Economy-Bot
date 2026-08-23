@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -19,9 +24,9 @@ async def high_scores(interaction: discord.Interaction):
     for game_type, display_name in _GAMES:
         row = await get_high_score(game_type)
         if row:
-            user = interaction.client.get_user(row['user_id'])
-            name = user.name if user else f"User {row['user_id']}"
-            embed.add_field(name=display_name, value=f"{name}: {row['score']:,}", inline=True)
+            user = interaction.client.get_user(row.user_id)
+            name = user.name if user else f"User {row.user_id}"
+            embed.add_field(name=display_name, value=f"{name}: {row.score:,}", inline=True)
         else:
             embed.add_field(name=display_name, value="No record yet", inline=True)
     await interaction.followup.send(embed=embed)

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import re
 from typing import List, Tuple, Dict, Any
 
@@ -97,6 +102,22 @@ def convert_to_object(resources: List[str], cost_list: List[Tuple[float, str]]) 
         if name in result:
             result[name] += amount
     return result
+
+
+def parse_single_amount(input_str: str, fallback_resource: str = None) -> Tuple[int, str]:
+    parsed = [(amt, res) for amt, res in split_currency(input_str, default="") if amt == amt]
+    if not parsed:
+        raise ValueError("Could not read the amount. Try `10k CM`, `2.5mil` or `500`.")
+    if len(parsed) > 1:
+        raise ValueError("Only one resource is allowed here.")
+
+    amount, resource = parsed[0]
+    resource = resource or (fallback_resource or "")
+    if not resource:
+        raise ValueError("No resource given. Include it in the amount (`10k CM`) or use the `resource` option.")
+    if amount in (float('inf'), float('-inf')):
+        raise ValueError("Amount must be a finite number.")
+    return int(amount), resource.upper()
 
 
 def parse_currency(input_str: str) -> List[Dict[str, Any]]:

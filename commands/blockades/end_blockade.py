@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -25,7 +30,7 @@ async def end_blockade_cmd(interaction: discord.Interaction, blockade_id: int, f
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
     blockade_data = await get_blockade(blockade_id)
     if not blockade_data:
@@ -35,7 +40,7 @@ async def end_blockade_cmd(interaction: discord.Interaction, blockade_id: int, f
     target_names = await get_blockade_targets(blockade_id)
 
     if remove_fleet:
-        fleet_data = await get_fleet_in_blockade(blockade_id, faction_data['id'], remove_fleet)
+        fleet_data = await get_fleet_in_blockade(blockade_id, faction_data.id, remove_fleet)
         if not fleet_data:
             await interaction.followup.send(embed=error_embed("Error", "Fleet not found in this blockade or you don't own this fleet."))
             return
@@ -53,7 +58,7 @@ async def end_blockade_cmd(interaction: discord.Interaction, blockade_id: int, f
             embed = success_embed(
                 "Blockade Ended & Deleted",
                 f"**{fleet_name}** was the last fleet in blockade #{blockade_id}.\n"
-                f"The blockade of **{blockade_data['world_name']}** has been removed.\n"
+                f"The blockade of **{blockade_data.world_name}** has been removed.\n"
                 f"**Previously blockading:** {', '.join(target_names)}"
             )
         else:
@@ -64,7 +69,7 @@ async def end_blockade_cmd(interaction: discord.Interaction, blockade_id: int, f
             )
         embed.color = faction_color
     else:
-        my_fleet = await get_my_fleet_in_blockade(blockade_id, faction_data['id'])
+        my_fleet = await get_my_fleet_in_blockade(blockade_id, faction_data.id)
         if not my_fleet:
             admin_level = await get_user_access_level(interaction.user.id)
             if not admin_level or admin_level < 4:
@@ -81,7 +86,7 @@ async def end_blockade_cmd(interaction: discord.Interaction, blockade_id: int, f
 
         embed = success_embed(
             "Blockade Ended",
-            f"Blockade #{blockade_id} of **{blockade_data['world_name']}** has been ended.\n"
+            f"Blockade #{blockade_id} of **{blockade_data.world_name}** has been ended.\n"
             f"**{fleet_count}** fleet(s) released.\n"
             f"**Previously blockading:** {', '.join(target_names)}"
         )

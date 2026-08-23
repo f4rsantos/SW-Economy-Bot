@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -6,7 +11,7 @@ from utils.embeds import success_embed, error_embed
 from utils.currency import handle_return, parse_currency
 from utils.faction_utils import hex_to_int
 from services.transfer_service import add_resources
-from services.econ_query_service import get_resource_ids_by_names
+from repositories.econ_repo import get_resource_ids_by_names
 from services.validation_service import require_faction, require_world
 
 LOCAL_RESOURCES = {'CM', 'EL', 'CS', 'U-CM', 'U-EL', 'U-CS', 'Population'}
@@ -34,8 +39,8 @@ async def refund(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     try:
         costs = parse_currency(amount)
@@ -80,7 +85,7 @@ async def refund(
     loc_str = f" on **{world_name}**" if world_id and local_resources else ""
     embed = success_embed(
         title="Refund Complete",
-        description=f"**{faction_data['display_name']}** has been refunded {items} for {cost_str}{loc_str}"
+        description=f"**{faction_data.display_name}** has been refunded {items} for {cost_str}{loc_str}"
     )
     embed.color = faction_color
     await interaction.followup.send(embed=embed)

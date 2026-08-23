@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
@@ -64,26 +69,26 @@ async def merge_aux(interaction: discord.Interaction, from_faction: str, to_fact
         return
     to_faction_data = r_to_faction_data.data
 
-    if from_faction_data['id'] == to_faction_data['id']:
+    if from_faction_data.id == to_faction_data.id:
         await interaction.response.send_message(embed=error_embed("Error", "Cannot merge a faction into itself."))
         return
 
-    territory_info = await get_faction_territory_summary(from_faction_data['id'])
+    territory_info = await get_faction_territory_summary(from_faction_data.id)
 
     embed = discord.Embed(
         title="⚠️ Confirm Faction Merge",
-        description=f"You are about to merge **{from_faction_data['display_name']}** into **{to_faction_data['display_name']}**",
+        description=f"You are about to merge **{from_faction_data.display_name}** into **{to_faction_data.display_name}**",
         color=0xe74c3c
     )
-    embed.add_field(name="Source Faction", value=from_faction_data['display_name'], inline=True)
-    embed.add_field(name="Target Faction", value=to_faction_data['display_name'], inline=True)
+    embed.add_field(name="Source Faction", value=from_faction_data.display_name, inline=True)
+    embed.add_field(name="Target Faction", value=to_faction_data.display_name, inline=True)
     embed.add_field(name="Worlds with Territory", value=str(territory_info['world_count']), inline=True)
     embed.add_field(name="Total Territory", value=str(territory_info['total_territory']), inline=True)
     embed.add_field(
         name="Warning",
         value=(
-            f"• **{from_faction_data['display_name']}** will be PERMANENTLY DELETED\n"
-            f"• All territories transferred to **{to_faction_data['display_name']}**\n"
+            f"• **{from_faction_data.display_name}** will be PERMANENTLY DELETED\n"
+            f"• All territories transferred to **{to_faction_data.display_name}**\n"
             f"• This action CANNOT be undone"
         ),
         inline=False
@@ -91,8 +96,8 @@ async def merge_aux(interaction: discord.Interaction, from_faction: str, to_fact
 
     view = ConfirmMergeView(
         interaction.user.id,
-        from_faction_data['id'], from_faction_data['display_name'],
-        to_faction_data['id'], to_faction_data['display_name']
+        from_faction_data.id, from_faction_data.display_name,
+        to_faction_data.id, to_faction_data.display_name
     )
     await interaction.response.send_message(embed=embed, view=view)
 

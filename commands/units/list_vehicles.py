@@ -1,9 +1,14 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import json
 import discord
 from discord import app_commands
 from discord.ui import View, Select, Button
 from utils.checks import require_access_level, ephemeral_capable, resolve_ephemeral
-from utils.embeds import error_embed, log_embed, manifest_block
+from utils.embeds import error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
 from utils.views import OwnerOnlyView
@@ -169,29 +174,29 @@ class VehiclePaginationView(OwnerOnlyView):
         vehicle_id = int(self.vehicle_select.values[0])
         full_vehicle, costs, units_with_vehicle = await get_vehicle_details(vehicle_id)
 
-        display_name = full_vehicle['name']
-        if full_vehicle['designation']:
-            display_name += f" {full_vehicle['designation']}"
+        display_name = full_vehicle.name
+        if full_vehicle.designation:
+            display_name += f" {full_vehicle.designation}"
 
-        faction_color = hex_to_int(self.faction_data['color'])
+        faction_color = hex_to_int(self.faction_data.color)
         embed_data = {
             'title': display_name,
-            'description': f"**Faction Vehicle Number:** #{full_vehicle['faction_vehicle_number']}",
+            'description': f"**Faction Vehicle Number:** #{full_vehicle.faction_vehicle_number}",
             'color': faction_color,
             'fields': [
-                {'name': 'Type',    'value': full_vehicle['type_name'] or "Unclassified", 'inline': True},
-                {'name': 'Faction', 'value': self.faction_data['display_name'],           'inline': True},
+                {'name': 'Type',    'value': full_vehicle.type_name or "Unclassified", 'inline': True},
+                {'name': 'Faction', 'value': self.faction_data.display_name,           'inline': True},
             ]
         }
 
         if costs:
             embed_data['fields'].append({
                 'name': 'Cost (per unit)',
-                'value': "\n".join(f"**{c['name']}:** {handle_return(c['amount'])}" for c in costs),
+                'value': "\n".join(f"**{c.name}:** {handle_return(c.amount)}" for c in costs),
                 'inline': False
             })
 
-        spec_lines = _parse_specs(full_vehicle['vehicle_data'])
+        spec_lines = _parse_specs(full_vehicle.vehicle_data)
         if spec_lines:
             embed_data['fields'].append({'name': 'Specifications', 'value': " | ".join(spec_lines), 'inline': False})
 
@@ -209,38 +214,29 @@ class VehiclePaginationView(OwnerOnlyView):
     def get_embed(self) -> discord.Embed:
         start = self.page * VEHICLES_PER_PAGE
         page_vehicles = self.vehicles[start:start + VEHICLES_PER_PAGE]
-        faction_color = hex_to_int(self.faction_data['color'])
-        subtitle = f"{len(self.vehicles)} designs"
+        embed = discord.Embed(
+            title=f"Vehicles: {self.faction_data.display_name}",
+            description=f"Page {self.page + 1}/{self.total_pages} • {len(self.vehicles)} total vehicles",
+            color=faction_color
+        )
 
         if self.hidden:
-            return log_embed(
-                title=f"Vehicle Register -- {self.faction_data['display_name']}",
-                subtitle=subtitle,
-                color=faction_color,
-                description="Hidden",
-            )
+            embed.add_field(name="Content Hidden", value="[HIDDEN]", inline=False)
+            return embed
 
-        rows = []
         for vehicle in page_vehicles:
             costs_raw = vehicle['costs']
             costs_list = json.loads(costs_raw) if isinstance(costs_raw, str) else (costs_raw or [])
-            cost_str = ", ".join(f"{handle_return(c['amount'])} {c['resource']}" for c in costs_list) if costs_list else "-"
+            cost_str = ", ".join(f"{handle_return(c['amount'])} {c['resource']}" for c in costs_list) if costs_list else "No cost defined"
             designation = f" [{vehicle['designation']}]" if vehicle['designation'] else ""
-            type_name = vehicle['type_name'] or "Unknown"
-            rows.append([
-                f"#{vehicle['faction_vehicle_number']}",
-                f"{vehicle['name']}{designation}",
-                type_name,
-                cost_str,
-            ])
-
-        return log_embed(
-            title=f"Vehicle Register -- {self.faction_data['display_name']}",
-            subtitle=subtitle,
-            color=faction_color,
-            description=manifest_block(rows, headers=["ID", "DESIGN", "TYPE", "UNIT COST"], align=['>', '<', '<', '<']),
-            footer=f"Page {self.page + 1} of {self.total_pages} | Select a vehicle from the dropdown for details",
-        )
+            type_name = vehicle['type_name'] or "Unknown Type"
+            embed.add_field(
+                name=f"#{vehicle['faction_vehicle_number']}: {vehicle['name']}{designation}",
+                value=f"**Type:** {type_name}\n**Cost:** {cost_str}",
+                inline=False
+            )
+        embed.set_footer(text="Select a vehicle from the dropdown to view details")
+        return embed
 
     @discord.ui.button(label="◀ Previous", style=discord.ButtonStyle.secondary, row=1)
     async def prev_button(self, interaction: discord.Interaction, _: discord.ui.Button):
@@ -277,13 +273,13 @@ async def list_vehicles(interaction: discord.Interaction, faction: str):
         return
     faction_data = r_faction_data.data
 
-    vehicles = await list_vehicles_service(faction_data['id'])
+    vehicles = await list_vehicles_service(faction_data.id)
 
     if not vehicles:
-        await interaction.response.send_message(embed=error_embed("Error", f"No vehicles found for {faction_data['display_name']}."))
+        await interaction.response.send_message(embed=error_embed("Error", f"No vehicles found for {faction_data.display_name}."))
         return
 
-    view = VehiclePaginationView(interaction.user.id, list(vehicles), dict(faction_data))
+    view = VehiclePaginationView(interaction.user.id, list(vehicles), faction_data)
     await interaction.response.send_message(
         embed=view.get_embed(), view=view, ephemeral=await resolve_ephemeral(interaction)
     )

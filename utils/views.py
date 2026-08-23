@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from datetime import timezone
 from typing import Optional
@@ -36,13 +41,13 @@ class RecruitmentPaginatorView(discord.ui.View):
         page_items = self.recruitments[start: start + PAGE_SIZE]
 
         for recruit in page_items:
-            completion_time = recruit['completion_time']
+            completion_time = recruit.completion_time
             if completion_time.tzinfo is None:
                 completion_time = completion_time.replace(tzinfo=timezone.utc)
             secs = int((completion_time - discord.utils.utcnow()).total_seconds())
             status = "**Ready** (pending sync)" if secs <= 0 else "In Training"
             embed.add_field(
-                name=f"[#{recruit['id']}] {recruit['amount']:,} {recruit['role_name']}",
+                name=f"[#{recruit.id}] {recruit.amount:,} {recruit.role_name}",
                 value=f"**Status:** {status}\n**Ready:** <t:{int(completion_time.timestamp())}:R>",
                 inline=False,
             )
@@ -99,7 +104,7 @@ class RegisterVehicleView(OwnerOnlyView):
         try:
             existing = await check_vehicle_exists(self.faction_id, self.vehicle_name)
             if existing:
-                await update_vehicle(existing['id'], self.designation, self.costs, self.vehicle_data)
+                await update_vehicle(existing.id, self.designation, self.costs, self.vehicle_data)
                 title, label = f"{self.vehicle_type.title()} Replaced", "Replaced"
             else:
                 await register_vehicle(self.faction_id, self.vehicle_name, self.designation, self.vehicle_type, self.costs, self.vehicle_data)

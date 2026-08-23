@@ -1,7 +1,12 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Literal, Optional
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import success_embed, error_embed
 from utils.faction_utils import get_faction, hex_to_int
 from utils.fleet_utils import get_vehicle_in_fleet
@@ -37,9 +42,9 @@ async def buy_vehicle_free(
     if not r_user_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_user_faction.error))
     user_faction = r_user_faction.data
 
-    faction_color = hex_to_int(user_faction['color'])
+    faction_color = hex_to_int(user_faction.color)
 
-    r_unit_data = await require_unit(unit_id, user_faction['id'])
+    r_unit_data = await require_unit(unit_id, user_faction.id)
     if not r_unit_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_unit_data.error))
     unit_data = r_unit_data.data
 
@@ -47,9 +52,9 @@ async def buy_vehicle_free(
         r_veh_faction = await require_faction(vehicle_faction)
         if not r_veh_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_veh_faction.error))
         veh_faction = r_veh_faction.data
-        target_faction_id = veh_faction['id']
+        target_faction_id = veh_faction.id
     else:
-        target_faction_id = user_faction['id']
+        target_faction_id = user_faction.id
 
     r_vehicle_data = await require_vehicle(vehicle_id, target_faction_id)
     if not r_vehicle_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_vehicle_data.error))
@@ -79,6 +84,7 @@ async def buy_vehicle_free(
     percentage="Refund percentage"
 )
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def refund_vehicle_cmd(
     interaction: discord.Interaction,
     faction: str,
@@ -87,7 +93,7 @@ async def refund_vehicle_cmd(
     amount: int,
     percentage: Literal["100%", "75%", "50%", "0%"]
 ):
-    await interaction.response.defer()
+    await defer_response(interaction)
 
     if amount < 1:
         await interaction.followup.send(embed=error_embed("Error", "Amount must be at least 1."))
@@ -99,9 +105,9 @@ async def refund_vehicle_cmd(
     if not r_user_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_user_faction.error))
     user_faction = r_user_faction.data
 
-    faction_color = hex_to_int(user_faction['color'])
+    faction_color = hex_to_int(user_faction.color)
 
-    r_unit_data = await require_unit(unit_id, user_faction['id'])
+    r_unit_data = await require_unit(unit_id, user_faction.id)
     if not r_unit_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_unit_data.error))
     unit_data = r_unit_data.data
 
@@ -111,7 +117,7 @@ async def refund_vehicle_cmd(
         return
 
     try:
-        await svc_refund_vehicle(unit_data['id'], target_vehicle['id'], amount, user_faction['id'], pct_val)
+        await svc_refund_vehicle(unit_data['id'], target_vehicle['id'], amount, user_faction.id, pct_val)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return

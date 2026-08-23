@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -55,9 +60,9 @@ async def add_task_cmd(
         if not org_data:
             await interaction.followup.send(embed=error_embed("Error", f"Organization `{org}` not found."))
             return
-        org_id = org_data['id']
+        org_id = org_data.id
 
-    task_id = await create_task(title, description, board_data['id'], org_id, priority, interaction.user.id)
+    task_id = await create_task(title, description, board_data.id, org_id, priority, interaction.user.id)
 
     assigned_mentions = []
     if assignees:
@@ -66,7 +71,7 @@ async def add_task_cmd(
             await upsert_task_assignee(task_id, uid)
             assigned_mentions.append(f"<@{uid}>")
 
-    lines = [f"**Board:** {board_data['name']}  •  **Priority:** {PRIORITY_LABELS[priority]}"]
+    lines = [f"**Board:** {board_data.name}  •  **Priority:** {PRIORITY_LABELS[priority]}"]
     if org:
         lines.append(f"**Org:** {org}")
     if assigned_mentions:

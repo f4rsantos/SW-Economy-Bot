@@ -1,7 +1,13 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import math
 from typing import Dict, Tuple
 
 POPULATION_PER_CS = 50000
+INFLUENCE_CAP = 10000
 STORABLE_RESOURCES = {'CM', 'EL', 'CS', 'U-CM', 'U-EL', 'U-CS'}
 
 
@@ -118,10 +124,10 @@ def calculate_er_income(treasury: int, working_population: int, is_company: bool
 def calculate_influence_income(total_hexes: int, influence_cost: int, current_influence: int, total_cs_upkeep: int = 0) -> int:
     generation_rate = max(2500 - 0.25 * total_hexes, 50)
     net_generation = generation_rate - influence_cost
-    max_gain = max(0, 10000 - current_influence)
-    base = min(net_generation, max_gain)
     upkeep_bonus = min(1.0, total_cs_upkeep / 1_000_000)
-    return round(base * (1 + upkeep_bonus))
+    gain = net_generation * (1 + upkeep_bonus) if net_generation > 0 else net_generation
+    max_gain = max(0, INFLUENCE_CAP - current_influence)
+    return round(min(gain, max_gain))
 
 
 def calculate_population_growth(

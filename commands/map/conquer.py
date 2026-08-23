@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
@@ -33,7 +38,7 @@ async def conquer(interaction: discord.Interaction, my_faction: str, target_fact
     target_faction_data = r_target_faction.data
     world_data = r_world.data
 
-    if my_faction_data['id'] == target_faction_data['id']:
+    if my_faction_data.id == target_faction_data.id:
         await interaction.followup.send(embed=error_embed("Error", "Cannot conquer your own faction."))
         return
 
@@ -42,19 +47,19 @@ async def conquer(interaction: discord.Interaction, my_faction: str, target_fact
         return
 
     if not no_resources:
-        at_war = await are_factions_at_war(my_faction_data['id'], target_faction_data['id'])
+        at_war = await are_factions_at_war(my_faction_data.id, target_faction_data.id)
         if not at_war:
             await interaction.followup.send(embed=error_embed("Error", "Factions must be facing each other in an active war to conquer with rewards. Use no-resources mode otherwise."))
             return
 
     try:
-        result = await conquer_hexes(my_faction_data['id'], target_faction_data['id'], world_data['id'], hexes, not no_resources)
+        result = await conquer_hexes(my_faction_data.id, target_faction_data.id, world_data['id'], hexes, not no_resources)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
-    faction_color = hex_to_int(my_faction_data['color'])
-    lines = [f"**{my_faction_data['display_name']}** conquered **{hexes}** hex(es) from **{target_faction_data['display_name']}** on **{world_data['name']}**."]
+    faction_color = hex_to_int(my_faction_data.color)
+    lines = [f"**{my_faction_data.display_name}** conquered **{hexes}** hex(es) from **{target_faction_data.display_name}** on **{world_data['name']}**."]
     if result['population_moved'] > 0:
         lines.append(f"**Population Moved:** {handle_return(result['population_moved'])}")
     if result['cm_granted'] > 0:
@@ -67,7 +72,7 @@ async def conquer(interaction: discord.Interaction, my_faction: str, target_fact
         lines.append(f"**ER Granted:** {handle_return(result['er_granted'])}")
     lines.append(f"**Influence Spent:** {handle_return(result['influence_cost'])}")
     if result['resilience_bonus'] > 0:
-        lines.append(f"**{target_faction_data['display_name']}** gains **Resilience** (+{result['resilience_bonus'] * 100:.1f}% Efficiency) through the next income cycle.")
+        lines.append(f"**{target_faction_data.display_name}** gains **Resilience** (+{result['resilience_bonus'] * 100:.1f}% Efficiency) through the next income cycle.")
 
     embed = success_embed(title="Conquest", description="\n".join(lines))
     embed.color = faction_color

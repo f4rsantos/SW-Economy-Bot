@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -41,14 +46,14 @@ class FactionPaginationView(OwnerOnlyView):
         embed = discord.Embed(title=title, description=f"Page {self.page + 1}/{self.total_pages}", color=0x3498db)
 
         for faction in page_factions:
-            type_label = {0: "[Nation]", 1: "[Company]", 2: "[Pirate]"}.get(faction.get('faction_type', 0), "[Nation]")
+            type_label = {0: "[Nation]", 1: "[Company]", 2: "[Pirate]"}.get(faction.faction_type, "[Nation]")
             if self.long_sort:
-                display_name = faction['display_name']
+                display_name = faction.display_name
                 field_name = f"{type_label} {display_name} ({len(display_name)} chars)"
             else:
-                formal = f" ({faction['formal_name']})" if faction['formal_name'] != faction['name'] else ""
-                field_name = f"{type_label} {faction['name']}{formal}"
-            embed.add_field(name=field_name, value=f"ID: `{faction['id']}` | Leader: {faction['leader']}", inline=False)
+                formal = f" ({faction.formal_name})" if faction.formal_name != faction.name else ""
+                field_name = f"{type_label} {faction.name}{formal}"
+            embed.add_field(name=field_name, value=f"ID: `{faction.id}` | Leader: {faction.leader}", inline=False)
 
         return embed
 

@@ -1,7 +1,12 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import random
 import pytest
 
-from services.casino_games import (
+from utils.casino_games import (
     roll_die,
     dice_payout_multiplier,
     dice_max_multiplier,
@@ -20,6 +25,7 @@ from services.casino_games import (
     CARD_RANK_VALUES,
 )
 from services import casino_service
+from repositories import casino_repo
 
 
 def test_dice_high_low_rtp_matches_configured_edge():
@@ -256,7 +262,7 @@ class FakeTx:
 
 def _install(monkeypatch, conn):
     conn.transaction = lambda: FakeTx()
-    monkeypatch.setattr(casino_service, 'db', FakeDB(conn))
+    monkeypatch.setattr(casino_repo, 'db', FakeDB(conn))
 
 
 @pytest.mark.asyncio

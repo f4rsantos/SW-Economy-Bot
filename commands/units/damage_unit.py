@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -33,19 +38,19 @@ async def damage_unit_cmd(interaction: discord.Interaction, unit: str, damage: i
         if not battle_data:
             await interaction.followup.send(embed=error_embed("Error", "Battle not found."))
             return
-        unit_side = await get_fleet_side_in_battle(battle_id, unit_data['id'])
+        unit_side = await get_fleet_side_in_battle(battle_id, unit_data.id)
         if not unit_side:
             await interaction.followup.send(embed=error_embed("Error", "Unit is not participating in this battle."))
             return
 
     try:
-        await damage_fleet(unit_data['id'], damage)
+        await damage_fleet(unit_data.id, damage)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
-    new_health = max(0, unit_data['health'] - damage)
-    unit_name = unit_data['name'] or f"Unit #{unit_data['id']}"
+    new_health = max(0, unit_data.health - damage)
+    unit_name = unit_data.name or f"Unit #{unit_data.id}"
     status_msg = ""
     if new_health == 0:
         status_msg = "\n**Unit destroyed! Status changed to Debris.**"
@@ -55,10 +60,10 @@ async def damage_unit_cmd(interaction: discord.Interaction, unit: str, damage: i
     battle_info = f"\n**Battle:** #{battle_id}" if battle_id else ""
     embed = discord.Embed(
         title="Unit Damaged",
-        description=f"**{unit_name}** ({unit_data['faction_name']})\n"
+        description=f"**{unit_name}** ({unit_data.faction_name})\n"
                     f"**Damage:** {damage}% HP{battle_info}\n"
-                    f"**Health:** {unit_data['health']}% → {new_health}%{status_msg}",
-        color=hex_to_int(unit_data['faction_color'])
+                    f"**Health:** {unit_data.health}% → {new_health}%{status_msg}",
+        color=hex_to_int(unit_data.faction_color)
     )
     await interaction.followup.send(embed=embed)
 

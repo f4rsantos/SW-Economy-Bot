@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -17,9 +22,9 @@ async def pact_types(interaction: discord.Interaction):
 
     embed = discord.Embed(title="Pact Types", description="Available diplomatic agreements and their influence costs per member", color=0x3498db)
     for pact in pact_types_data:
-        cost = pact['influence_cost'] or 0
-        description = pact['description'] or "No description available"
-        embed.add_field(name=f"{pact['name']} (ID: {pact['id']})", value=f"**Cost:** {cost} Influence per member\n{description}", inline=False)
+        cost = pact.influence_cost or 0
+        description = pact.description or "No description available"
+        embed.add_field(name=f"{pact.name} (ID: {pact.id})", value=f"**Cost:** {cost} Influence per member\n{description}", inline=False)
     embed.set_footer(text="All members pay the listed influence cost")
     await interaction.followup.send(embed=embed)
 

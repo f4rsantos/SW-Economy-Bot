@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -44,11 +49,11 @@ async def edit_task_cmd(
         await interaction.followup.send(embed=error_embed("Error", "Description must be 1000 characters or fewer."))
         return
 
-    new_title       = title       if title       is not None else task['title']
-    new_description = description if description is not None else task['description']
-    new_priority    = priority    if priority    is not None else task['priority']
+    new_title       = title       if title       is not None else task.title
+    new_description = description if description is not None else task.description
+    new_priority    = priority    if priority    is not None else task.priority
 
-    new_org_id = task['org_id']
+    new_org_id = task.org_id
     if org is not None:
         if org.lower() == 'none':
             new_org_id = None
@@ -57,7 +62,7 @@ async def edit_task_cmd(
             if not org_data:
                 await interaction.followup.send(embed=error_embed("Error", f"Organization `{org}` not found."))
                 return
-            new_org_id = org_data['id']
+            new_org_id = org_data.id
 
     await update_task(task_id, new_title, new_description, new_priority, new_org_id)
 

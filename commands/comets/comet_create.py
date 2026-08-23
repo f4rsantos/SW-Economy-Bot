@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -30,8 +35,8 @@ async def comet_create(
         return
 
     embed = success_embed(
-        f"**{comet['name']}** has been recorded in the star charts.\n\n"
-        f"*{comet['message']}*",
+        f"**{comet.name}** has been recorded in the star charts.\n\n"
+        f"*{comet.message}*",
         "Comet Discovered",
     )
     embed.add_field(name="Discoverer", value=interaction.user.display_name, inline=True)

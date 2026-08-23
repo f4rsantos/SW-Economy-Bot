@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from discord.ui import View, Select
@@ -18,11 +23,11 @@ class CometDetailView(View):
 
     def create_detail_embed(self) -> discord.Embed:
         embed = discord.Embed(
-            title=self.comet['name'],
-            description=self.comet['message'],
+            title=self.comet.name,
+            description=self.comet.message,
             color=0x2B2D31
         )
-        embed.add_field(name="Discoverer", value=f"<@{self.comet['discoverer']}>", inline=True)
+        embed.add_field(name="Discoverer", value=f"<@{self.comet.discoverer}>", inline=True)
         return embed
 
     @discord.ui.button(label="Back to List", style=discord.ButtonStyle.secondary, row=0)

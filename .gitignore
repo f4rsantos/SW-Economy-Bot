@@ -7,13 +7,16 @@ ADMIN/
 .claude/
 api/
 graphify-out/
-map-backgrounds/
+assets/map-backgrounds/
+assets/worlds/
 
 .venv/
 venv/
 env/
 
 *.md
+!LICENSE.md
+!README.md
 
 out/
 dist/

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -72,8 +77,8 @@ async def clean_cmd(
                 embed=error_embed("Error", f"Organization `{org}` not found."),
             )
             return
-        org_id   = org_data['id']
-        org_name = org_data['name']
+        org_id   = org_data.id
+        org_name = org_data.name
 
     board_ids = await list_board_ids(scope)
     if not board_ids:

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -14,12 +19,12 @@ class ConfirmDeleteView(discord.ui.View):
 
     @discord.ui.button(label="Confirm Delete", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        success = await delete_script(self.script["id"], self.faction["id"])
+        success = await delete_script(self.script.id, self.faction.id)
         if success:
             await interaction.response.edit_message(
                 embed=success_embed(
                     title="Script Deleted",
-                    description=f"Script **{self.script['name']}** has been permanently deleted.",
+                    description=f"Script **{self.script.name}** has been permanently deleted.",
                 ),
                 view=None,
             )
@@ -48,7 +53,7 @@ async def script_delete(interaction: discord.Interaction, faction: str, name: st
         await interaction.followup.send(embed=error_embed(err))
         return
 
-    script = await get_script_by_name(faction_data["id"], name)
+    script = await get_script_by_name(faction_data.id, name)
     if not script:
         await interaction.followup.send(
             embed=error_embed(f"No active script named '{name}'.")
@@ -57,7 +62,7 @@ async def script_delete(interaction: discord.Interaction, faction: str, name: st
 
     embed = discord.Embed(
         title="Confirm Script Deletion",
-        description=f"Delete script **{script['name']}** for **{faction_data['display_name']}**?\nThis cannot be undone.",
+        description=f"Delete script **{script.name}** for **{faction_data.display_name}**?\nThis cannot be undone.",
         color=0xFF6600,
     )
     view = ConfirmDeleteView(faction=faction_data, script=script)

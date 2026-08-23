@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from datetime import datetime, timezone
 from typing import Optional
@@ -17,8 +22,8 @@ def create_embed(
 ) -> discord.Embed:
     if faction_id and not color:
         faction = cache.get_faction(faction_id)
-        if faction and 'color' in faction:
-            color = faction['color']
+        if faction:
+            color = faction.color
     
     if not color:
         color = 0x2B2D31
@@ -63,8 +68,8 @@ async def create_embed_async(
 ) -> discord.Embed:
     if faction_id and not color:
         faction = cache.get_faction(faction_id)
-        if faction and 'color' in faction:
-            color = faction['color']
+        if faction:
+            color = faction.color
     
     if not color:
         color = 0x2B2D31
