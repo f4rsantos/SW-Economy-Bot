@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import random
 import discord
 from discord import app_commands
@@ -51,7 +56,7 @@ async def _assign_roles(guild: discord.Guild, leader: discord.Member, faction, c
         results.append("Leader role not found")
 
     try:
-        role_name = faction['formal_name'] if len(faction['formal_name']) < 20 else faction['name']
+        role_name = faction.formal_name if len(faction.formal_name) < 20 else faction.name
         existing_role = discord.utils.get(guild.roles, name=role_name)
         if not existing_role:
             faction_role = await guild.create_role(
@@ -73,9 +78,9 @@ async def _assign_roles(guild: discord.Guild, leader: discord.Member, faction, c
 
 
 def _build_success_embed(faction, leader_name: str, leader: discord.Member, color: str, faction_type: int, flag: str, starting_world_id) -> discord.Embed:
-    embed = success_embed(title="Faction Created", description=f"**{faction['formal_name']}** has been established!")
+    embed = success_embed(title="Faction Created", description=f"**{faction.formal_name}** has been established!")
     embed.color = int(color.replace('#', ''), 16)
-    embed.add_field(name="Name", value=faction['name'], inline=True)
+    embed.add_field(name="Name", value=faction.name, inline=True)
     embed.add_field(name="Leader", value=f"{leader_name} ({leader.mention})", inline=True)
     embed.add_field(name="Color", value=color, inline=True)
     embed.add_field(name="Flag", value=flag if flag else "None", inline=True)
@@ -135,7 +140,7 @@ class FactionSetupModal(discord.ui.Modal, title="Faction Setup - Basic Info"):
                         return
                     faction = await create_faction_in_db(conn, name, name, color, leader_name, flag, self.leader_user.id, faction_type, starting_world_id)
 
-            cache_manager.cache.setdefault('factions', {})[faction['id']] = dict(faction)
+            cache_manager.cache.setdefault('factions', {})[faction.id] = faction
             embed = _build_success_embed(faction, leader_name, self.leader_user, color, faction_type, flag, starting_world_id)
             if interaction.guild:
                 roles = await _assign_roles(interaction.guild, self.leader_user, faction, color)
@@ -256,7 +261,7 @@ async def create_faction(
                     return
                 faction = await create_faction_in_db(conn, name, formal_name, color, leader_name, flag, leader.id, ftype, starting_world_id)
 
-        cache_manager.cache.setdefault('factions', {})[faction['id']] = dict(faction)
+        cache_manager.cache.setdefault('factions', {})[faction.id] = faction
         embed = _build_success_embed(faction, leader_name, leader, color, ftype, flag, starting_world_id)
         if interaction.guild:
             roles = await _assign_roles(interaction.guild, leader, faction, color)

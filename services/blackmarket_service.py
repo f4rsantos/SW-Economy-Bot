@@ -1,5 +1,10 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import random
-from database.db_manager import db
+from repositories import blackmarket_repo
 from services.local_deduction import deduct_local_proportional
 
 ALLOY_HOLD_CAP = 10
@@ -31,16 +36,13 @@ async def buy_alloys(faction_id: int, quantity: int) -> dict:
     if quantity < 1:
         raise ValueError("Quantity must be at least 1.")
 
-    async with db.get_connection() as conn:
+    async with blackmarket_repo.get_connection() as conn:
         async with conn.transaction():
-            alloys_id = await conn.fetchval("SELECT id FROM resources WHERE name = 'Alloys'")
+            alloys_id = await blackmarket_repo.get_resource_id(conn, 'Alloys')
             if not alloys_id:
                 raise ValueError("RESOURCE_NOT_FOUND: Alloys resource is not configured.")
 
-            held = await conn.fetchval(
-                "SELECT COALESCE(amount, 0) FROM faction_treasury WHERE faction_id = $1 AND resource_id = $2",
-                faction_id, alloys_id
-            ) or 0
+            held = await blackmarket_repo.get_faction_treasury_amount(conn, faction_id, alloys_id) or 0
 
             if held >= ALLOY_HOLD_CAP:
                 raise ValueError(f"CAP_REACHED: Your faction already holds {held} Alloys, the black market's limit.")
@@ -53,23 +55,15 @@ async def buy_alloys(faction_id: int, quantity: int) -> dict:
             costs = total_buy_price(held, quantity)
 
             for res_name, cost in costs.items():
-                res_id = await conn.fetchval("SELECT id FROM resources WHERE name = $1", res_name)
+                res_id = await blackmarket_repo.get_resource_id(conn, res_name)
                 if not res_id:
                     raise ValueError(f"RESOURCE_NOT_FOUND: Unknown resource {res_name}")
-                available = await conn.fetchval(
-                    "SELECT COALESCE(SUM(amount), 0) FROM local_treasury WHERE faction_id = $1 AND resource_id = $2",
-                    faction_id, res_id
-                )
+                available = await blackmarket_repo.get_local_treasury_total(conn, faction_id, res_id)
                 if available < cost:
                     raise ValueError(f"RESOURCE_INSUFFICIENT: Insufficient {res_name}. Need {cost:,}, have {available:,}")
                 await deduct_local_proportional(conn, faction_id, res_id, available, cost)
 
-            await conn.execute("""
-                INSERT INTO faction_treasury (faction_id, resource_id, amount)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (faction_id, resource_id)
-                DO UPDATE SET amount = faction_treasury.amount + $3
-            """, faction_id, alloys_id, quantity)
+            await blackmarket_repo.credit_faction_treasury(conn, faction_id, alloys_id, quantity)
 
             return {'costs': costs, 'held_before': held, 'held_after': held + quantity}
 
@@ -78,16 +72,13 @@ async def sell_alloys(faction_id: int, quantity: int) -> dict:
     if quantity < 1:
         raise ValueError("Quantity must be at least 1.")
 
-    async with db.get_connection() as conn:
+    async with blackmarket_repo.get_connection() as conn:
         async with conn.transaction():
-            alloys_id = await conn.fetchval("SELECT id FROM resources WHERE name = 'Alloys'")
+            alloys_id = await blackmarket_repo.get_resource_id(conn, 'Alloys')
             if not alloys_id:
                 raise ValueError("RESOURCE_NOT_FOUND: Alloys resource is not configured.")
 
-            held = await conn.fetchval(
-                "SELECT COALESCE(amount, 0) FROM faction_treasury WHERE faction_id = $1 AND resource_id = $2",
-                faction_id, alloys_id
-            ) or 0
+            held = await blackmarket_repo.get_faction_treasury_amount(conn, faction_id, alloys_id) or 0
 
             if held < quantity:
                 raise ValueError(f"RESOURCE_INSUFFICIENT: You only hold {held} Alloys, cannot sell {quantity}.")
@@ -98,47 +89,25 @@ async def sell_alloys(faction_id: int, quantity: int) -> dict:
                 for res, amt in payout.items():
                     totals[res] += amt
 
-            await conn.execute(
-                "UPDATE faction_treasury SET amount = amount - $3 WHERE faction_id = $1 AND resource_id = $2",
-                faction_id, alloys_id, quantity
-            )
+            await blackmarket_repo.debit_faction_treasury(conn, faction_id, alloys_id, quantity)
 
             for res_name, amount in totals.items():
-                res_id = await conn.fetchval("SELECT id FROM resources WHERE name = $1", res_name)
+                res_id = await blackmarket_repo.get_resource_id(conn, res_name)
                 if not res_id:
                     raise ValueError(f"RESOURCE_NOT_FOUND: Unknown resource {res_name}")
                 if res_name in LOCAL_RESOURCES:
-                    target_world = await conn.fetchval("""
-                        SELECT world_id FROM world_factions
-                        WHERE faction_id = $1
-                        ORDER BY territory DESC
-                        LIMIT 1
-                    """, faction_id)
+                    target_world = await blackmarket_repo.get_top_territory_world(conn, faction_id)
                     if target_world is None:
                         raise ValueError("NO_WORLD: Your faction has no world to receive resources.")
-                    await conn.execute("""
-                        INSERT INTO local_treasury (world_id, faction_id, resource_id, amount)
-                        VALUES ($1, $2, $3, $4)
-                        ON CONFLICT (world_id, faction_id, resource_id)
-                        DO UPDATE SET amount = local_treasury.amount + $4
-                    """, target_world, faction_id, res_id, amount)
+                    await blackmarket_repo.credit_local_treasury(conn, target_world, faction_id, res_id, amount)
                 else:
-                    await conn.execute("""
-                        INSERT INTO faction_treasury (faction_id, resource_id, amount)
-                        VALUES ($1, $2, $3)
-                        ON CONFLICT (faction_id, resource_id)
-                        DO UPDATE SET amount = faction_treasury.amount + $3
-                    """, faction_id, res_id, amount)
+                    await blackmarket_repo.credit_faction_treasury(conn, faction_id, res_id, amount)
 
             return {'payout': totals, 'held_before': held, 'held_after': held - quantity}
 
 
 async def get_alloys_held(faction_id: int) -> int:
-    alloys_id = await db.fetchval("SELECT id FROM resources WHERE name = 'Alloys'")
+    alloys_id = await blackmarket_repo.get_alloys_id()
     if not alloys_id:
         return 0
-    row = await db.fetchrow(
-        "SELECT COALESCE(amount, 0) AS amount FROM faction_treasury WHERE faction_id = $1 AND resource_id = $2",
-        faction_id, alloys_id
-    )
-    return row['amount'] if row else 0
+    return await blackmarket_repo.get_faction_alloys_amount(faction_id, alloys_id)

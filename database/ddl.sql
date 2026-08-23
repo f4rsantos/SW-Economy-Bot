@@ -1,3 +1,8 @@
+-- Copyright (c) 2026 f4rsantos. All rights reserved.
+-- Unauthorized copying, modification, or distribution of this file,
+-- via any medium, is strictly prohibited without explicit written
+-- permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 
 
 
@@ -187,6 +192,38 @@ CREATE TABLE public.fleet_status (
   CONSTRAINT fleet_status_pkey PRIMARY KEY (id)
 );
 
+CREATE TABLE public.fleet_types (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  name text NOT NULL,
+  CONSTRAINT fleet_types_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.casino_pool (
+  resource_id integer NOT NULL,
+  amount bigint NOT NULL DEFAULT 0 CHECK (amount >= 0),
+  floor_amount bigint NOT NULL DEFAULT 0 CHECK (floor_amount >= 0),
+  CONSTRAINT casino_pool_pkey PRIMARY KEY (resource_id),
+  CONSTRAINT casino_pool_resource_id_fkey FOREIGN KEY (resource_id) REFERENCES public.resources(id)
+);
+
+CREATE TABLE public.faction_scripts (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  faction_id integer NOT NULL,
+  name text NOT NULL,
+  script_text text NOT NULL,
+  trigger_day text,
+  trigger_type text,
+  created_by bigint,
+  created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+  updated_at timestamp with time zone NOT NULL DEFAULT NOW(),
+  last_run_at timestamp with time zone,
+  run_count integer NOT NULL DEFAULT 0,
+  is_active boolean NOT NULL DEFAULT TRUE,
+  CONSTRAINT faction_scripts_pkey PRIMARY KEY (id),
+  CONSTRAINT faction_scripts_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id),
+  CONSTRAINT faction_scripts_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
+);
+
 CREATE TABLE public.fleet_vehicles (
   fleet_id integer NOT NULL,
   vehicle_id integer NOT NULL,
@@ -209,7 +246,10 @@ CREATE TABLE public.fleets (
   name text,
   faction_fleet_number integer NOT NULL,
   infantry_count bigint NOT NULL DEFAULT 0,
+  fleet_type_id integer,
   CONSTRAINT fleets_pkey PRIMARY KEY (id),
+  CONSTRAINT fleets_fleet_type_id_fkey FOREIGN KEY (fleet_type_id) REFERENCES public.fleet_types(id),
+  CONSTRAINT fleets_faction_number_unique UNIQUE (faction_id, faction_fleet_number),
   CONSTRAINT fleets_status_id_fkey FOREIGN KEY (status_id) REFERENCES public.fleet_status(id),
   CONSTRAINT fleets_position_fkey FOREIGN KEY (position) REFERENCES public.worlds(id),
   CONSTRAINT fleets_moving_to_fkey FOREIGN KEY (moving_to) REFERENCES public.worlds(id),
@@ -616,6 +656,7 @@ CREATE TABLE public.users (
   id bigint NOT NULL,
   access_level integer NOT NULL,
   badge_ids integer[] DEFAULT '{}'::integer[],
+  ephemeral_commands boolean NOT NULL DEFAULT false,
   CONSTRAINT users_pkey PRIMARY KEY (id)
 );
 
@@ -658,6 +699,7 @@ CREATE TABLE public.vehicles (
   vehicle_data jsonb[],
   faction_vehicle_number integer NOT NULL,
   CONSTRAINT vehicles_pkey PRIMARY KEY (id),
+  CONSTRAINT vehicles_faction_number_unique UNIQUE (faction_id, faction_vehicle_number),
   CONSTRAINT vehicles_type_fkey FOREIGN KEY (type) REFERENCES public.vehicle_types(id),
   CONSTRAINT vehicles_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id)
 );
@@ -748,6 +790,16 @@ BEGIN
     END IF;
 END
 $migrate_faction_type$;
+
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS ephemeral_commands boolean NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS public.fleet_types (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  name text NOT NULL,
+  CONSTRAINT fleet_types_pkey PRIMARY KEY (id)
+);
+
+ALTER TABLE public.fleets ADD COLUMN IF NOT EXISTS fleet_type_id integer REFERENCES public.fleet_types(id);
 
 
 

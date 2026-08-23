@@ -1,12 +1,16 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from typing import Optional
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
 from utils.embeds import success_embed, error_embed
 from utils.currency import handle_return
-from utils.faction_utils import hex_to_int
-from services.user_service import get_user_access_level
-from services.badge_service import get_badge_catalog, purchase_badge
+from utils.faction_utils import hex_to_int, is_faction_leader
+from services.badge_service import get_badge_catalog, purchase_badge, get_user_badge_ids
 from services.validation_service import require_faction, require_world
 
 
@@ -14,32 +18,34 @@ def _format_costs(costs: dict) -> str:
     return ", ".join(f"{handle_return(v)} {k}" for k, v in costs.items())
 
 
-async def _is_faction_leader(user_id: int, faction: dict) -> bool:
-    if faction.get('leader_id') == user_id:
-        return True
-    return await get_user_access_level(user_id) >= 4
-
-
 class BadgeShopView(discord.ui.View):
     def __init__(self, owner_id: int, faction: dict, world_id: Optional[int],
-                 catalog: dict[int, dict], faction_color: int):
+                 catalog: dict[int, dict], faction_color: int, owned_ids: set[int]):
         super().__init__(timeout=300)
         self.owner_id = owner_id
         self.faction = faction
         self.world_id = world_id
         self.catalog = catalog
         self.faction_color = faction_color
+        self.owned_ids = owned_ids
         self.selected_badge_id: Optional[int] = None
 
         options = []
         for badge_id, entry in catalog.items():
+            if badge_id in owned_ids:
+                continue
             cost_str = _format_costs(entry['costs'])
             options.append(discord.SelectOption(
                 label=f"[{entry['name']}] (ID: {badge_id})",
                 value=str(badge_id),
                 description=cost_str[:100],
             ))
-        self.badge_select.options = options
+        if options:
+            self.badge_select.options = options
+        else:
+            self.badge_select.disabled = True
+            self.badge_select.placeholder = "You already own every purchasable badge"
+            self.badge_select.options = [discord.SelectOption(label="None available", value="0")]
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.owner_id:
@@ -62,7 +68,13 @@ class BadgeShopView(discord.ui.View):
             )
             return
 
-        if not await _is_faction_leader(interaction.user.id, self.faction):
+        if self.selected_badge_id in self.owned_ids:
+            await interaction.response.send_message(
+                embed=error_embed("Already Owned", f"You already own **[{self.catalog[self.selected_badge_id]['name']}]**."),
+            )
+            return
+
+        if not await is_faction_leader(interaction.user.id, self.faction):
             await interaction.response.send_message(
                 embed=error_embed("Access Denied", "Only faction leaders can buy badges."),
             )
@@ -78,7 +90,7 @@ class BadgeShopView(discord.ui.View):
         await interaction.response.defer()
 
         try:
-            await purchase_badge(self.faction['id'], self.world_id, self.selected_badge_id, interaction.user.id)
+            await purchase_badge(self.faction.id, self.world_id, self.selected_badge_id, interaction.user.id)
         except ValueError as e:
             msg = str(e)
             if 'INSUFFICIENT' in msg:
@@ -97,22 +109,22 @@ class BadgeShopView(discord.ui.View):
 
         embed = success_embed(
             title="Badge Purchased",
-            description=f"**{interaction.user.mention}** bought **[{badge_name}]** (ID: {self.selected_badge_id}) for **{self.faction['display_name']}**\n\n**Cost:** {cost_str}"
+            description=f"**{interaction.user.mention}** bought **[{badge_name}]** (ID: {self.selected_badge_id}) for **{self.faction.display_name}**\n\n**Cost:** {cost_str}"
         )
         embed.color = self.faction_color
         await interaction.message.edit(embed=embed, view=self)
 
 
-def _build_shop_embed(faction: dict, catalog: dict[int, dict], faction_color: int) -> discord.Embed:
+def _build_shop_embed(faction: dict, catalog: dict[int, dict], faction_color: int, owned_ids: set[int]) -> discord.Embed:
     embed = discord.Embed(
         title="Badge Shop",
-        description=f"**{faction['display_name']}**\n\nSelect a badge and click **Buy**. Only faction leaders can purchase.",
+        description=f"**{faction.display_name}**\n\nSelect a badge and click **Buy**. Only faction leaders can purchase.",
         color=faction_color,
     )
     for badge_id, entry in catalog.items():
         cost_str = _format_costs(entry['costs'])
-        world_note = " *(requires world)*" if entry['needs_world'] else ""
-        embed.add_field(name=f"[{entry['name']}] (ID: {badge_id})", value=f"{cost_str}{world_note}", inline=False)
+        status = " *(Already Owned)*" if badge_id in owned_ids else (" *(requires world)*" if entry['needs_world'] else "")
+        embed.add_field(name=f"[{entry['name']}] (ID: {badge_id})", value=f"{cost_str}{status}", inline=False)
     return embed
 
 
@@ -133,7 +145,7 @@ async def badge_shop(
     if not r_faction.ok:
         return await interaction.followup.send(embed=error_embed("Error", r_faction.error))
     faction_data = r_faction.data
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
     world_id = None
     if world:
@@ -146,8 +158,10 @@ async def badge_shop(
     if not catalog:
         return await interaction.followup.send(embed=error_embed("No Badges", "No purchasable badges available."))
 
-    embed = _build_shop_embed(faction_data, catalog, faction_color)
-    view = BadgeShopView(interaction.user.id, faction_data, world_id, catalog, faction_color)
+    owned_ids = await get_user_badge_ids(interaction.user.id)
+
+    embed = _build_shop_embed(faction_data, catalog, faction_color, owned_ids)
+    view = BadgeShopView(interaction.user.id, faction_data, world_id, catalog, faction_color, owned_ids)
     await interaction.followup.send(embed=embed, view=view)
 
 

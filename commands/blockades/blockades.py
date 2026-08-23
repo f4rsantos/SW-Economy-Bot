@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
@@ -24,27 +29,27 @@ async def blockades(interaction: discord.Interaction, faction: Optional[str] = N
         if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         if not r_world_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_world_data.error))
         faction_data = r_faction_data.data
-        faction_color = hex_to_int(faction_data['color'])
+        faction_color = hex_to_int(faction_data.color)
         world_data = r_world_data.data
     elif faction:
         r_faction_data = await require_faction(faction)
         if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         faction_data = r_faction_data.data
-        faction_color = hex_to_int(faction_data['color'])
+        faction_color = hex_to_int(faction_data.color)
     elif world:
         r_world_data = await require_world(world)
         if not r_world_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_world_data.error))
         world_data = r_world_data.data
 
-    faction_id = faction_data['id'] if faction_data else None
+    faction_id = faction_data.id if faction_data else None
     world_id = world_data['id'] if world_data else None
 
     blockades_data = await get_blockades(faction_id=faction_id, world_id=world_id)
 
     if faction_data and world_data:
-        title = f"Blockades at {world_data['name']} involving {faction_data['display_name']}"
+        title = f"Blockades at {world_data['name']} involving {faction_data.display_name}"
     elif faction_data:
-        title = f"Blockades involving {faction_data['display_name']}"
+        title = f"Blockades involving {faction_data.display_name}"
     elif world_data:
         title = f"Blockades at {world_data['name']}"
     else:
@@ -56,11 +61,11 @@ async def blockades(interaction: discord.Interaction, faction: Optional[str] = N
 
     embed = discord.Embed(title=title, description=f"{len(blockades_data)} active blockade(s)", color=faction_color)
     for blockade in blockades_data:
-        targets = ', '.join(blockade['targets']) if blockade['targets'] else 'None'
-        blockaders = ', '.join(set(blockade['blockading_factions'])) if blockade['blockading_factions'] else 'None'
+        targets = ', '.join(blockade.targets) if blockade.targets else 'None'
+        blockaders = ', '.join(set(blockade.blockading_factions)) if blockade.blockading_factions else 'None'
         embed.add_field(
-            name=f"Blockade #{blockade['id']} - {blockade['world_name']}",
-            value=f"**Blockading:** {blockaders}\n**Targets:** {targets}\n**Fleets:** {blockade['fleet_count']}\n**Started:** <t:{int(blockade['date_start'].timestamp())}:R>",
+            name=f"Blockade #{blockade.id} - {blockade.world_name}",
+            value=f"**Blockading:** {blockaders}\n**Targets:** {targets}\n**Fleets:** {blockade.fleet_count}\n**Started:** <t:{int(blockade.date_start.timestamp())}:R>",
             inline=False
         )
 

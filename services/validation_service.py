@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from utils.result import Result
 from utils.faction_utils import get_faction_by_id
 from utils.fleet_utils import get_fleet_by_id_or_name, get_vehicle_by_id_or_name

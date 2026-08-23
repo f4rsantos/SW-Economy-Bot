@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -51,7 +56,7 @@ async def remove_task_cmd(
 
     subtask_count = await count_subtasks(task_id)
 
-    lines = [f"**#{task_id} — {task['title']}**", f"Board: {task['board_name']}"]
+    lines = [f"**#{task_id} — {task.title}**", f"Board: {task.board_name}"]
     if subtask_count:
         lines.append(f"This will also delete **{subtask_count}** subtask(s).")
 
@@ -60,5 +65,5 @@ async def remove_task_cmd(
         description="\n".join(lines),
         color=0xe74c3c
     )
-    view = ConfirmDeleteView(interaction.user.id, task_id, task['title'])
+    view = ConfirmDeleteView(interaction.user.id, task_id, task.title)
     await interaction.followup.send(embed=embed, view=view)

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -12,7 +17,7 @@ async def _can_manage_faction(user_id: int, faction_id: int) -> bool:
     if await get_user_access_level(user_id) >= 4:
         return True
     faction = await get_faction_by_id(faction_id)
-    return faction is not None and faction['leader_id'] == user_id
+    return faction is not None and faction.leader_id == user_id
 
 
 @app_commands.command(name="rename", description="Rename a faction")
@@ -43,9 +48,9 @@ async def rename_faction(interaction: discord.Interaction, faction_id: int, new_
         await interaction.followup.send(embed=error_embed("Name Taken", str(e)))
         return
 
-    embed = success_embed(title="Faction Renamed", description=f"**{old_faction['display_name']}** has been renamed to **{new_name}**")
-    embed.color = hex_to_int(old_faction['color'])
-    embed.add_field(name="Old Name", value=old_faction['name'], inline=True)
+    embed = success_embed(title="Faction Renamed", description=f"**{old_faction.display_name}** has been renamed to **{new_name}**")
+    embed.color = hex_to_int(old_faction.color)
+    embed.add_field(name="Old Name", value=old_faction.name, inline=True)
     embed.add_field(name="New Name", value=new_name, inline=True)
     embed.add_field(name="Renamed By", value=interaction.user.mention, inline=True)
     await interaction.followup.send(embed=embed)

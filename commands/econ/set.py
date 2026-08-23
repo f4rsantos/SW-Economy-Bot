@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -45,20 +50,20 @@ async def set_resource(
         r_world = await require_world(world)
         if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
         world_data = r_world.data
-        if not await has_faction_presence(world_data['id'], faction_data['id']):
+        if not await has_faction_presence(world_data['id'], faction_data.id):
             await interaction.followup.send(embed=error_embed("Error", "Faction has no presence on this world."))
             return
-        await set_resource_service(faction_data['id'], resource['id'], amount, world_data['id'])
+        await set_resource_service(faction_data.id, resource['id'], amount, world_data['id'])
         location = f" on **{world_data['name']}**"
     else:
-        await set_resource_service(faction_data['id'], resource['id'], amount)
+        await set_resource_service(faction_data.id, resource['id'], amount)
         location = " (global)"
 
     embed = success_embed(
         title="Resource Set",
-        description=f"**{faction_data['display_name']}**{location} now has {handle_return(amount)} {resource['name']}"
+        description=f"**{faction_data.display_name}**{location} now has {handle_return(amount)} {resource['name']}"
     )
-    embed.color = hex_to_int(faction_data['color'])
+    embed.color = hex_to_int(faction_data.color)
     await interaction.followup.send(embed=embed)
 
 

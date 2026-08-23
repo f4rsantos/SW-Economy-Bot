@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
@@ -20,12 +25,12 @@ async def claim_hex(interaction: discord.Interaction, faction: str, world: str, 
     faction_data = r_faction_data.data
     world_data = r_world.data
 
-    if faction_data['is_company']:
+    if faction_data.is_company:
         await interaction.followup.send(embed=error_embed("Error", "Companies cannot claim territory."))
         return
 
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     world_id = world_data['id']
     max_hexes = world_data['hex_count']
@@ -40,7 +45,7 @@ async def claim_hex(interaction: discord.Interaction, faction: str, world: str, 
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
-    embed = success_embed(title="Hexes Claimed", description=f"**{faction_data['display_name']}** claimed **{hexes}** hex(es) on **{world_data['name']}**.")
+    embed = success_embed(title="Hexes Claimed", description=f"**{faction_data.display_name}** claimed **{hexes}** hex(es) on **{world_data['name']}**.")
     embed.color = faction_color
     cost_label = f"{result['influence_cost']:,} Influence"
     if result.get('off_capital_system'):

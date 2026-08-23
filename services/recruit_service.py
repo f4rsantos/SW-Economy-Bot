@@ -1,7 +1,12 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import logging
 import re
 from datetime import datetime, timezone, timedelta
-from database.db_manager import db
+from repositories import recruit_repo
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +33,7 @@ def parse_irp_time(time_str: str) -> timedelta:
 async def create_recruitment(faction_id: int, amount: int, irp_time_str: str, role_name: str = "soldiers", fleet_id: int = None) -> dict:
     start_time = datetime.now(timezone.utc)
     completion_time = start_time + parse_irp_time(irp_time_str)
-    result = await db.fetchrow("""
-        INSERT INTO military_recruitment (faction_id, amount, role_name, start_time, completion_time, status)
-        VALUES ($1, $2, $3, $4, $5, 'training')
-        RETURNING id, faction_id, amount, role_name, start_time, completion_time, status
-    """, faction_id, amount, role_name, start_time, completion_time)
+    result = await recruit_repo.insert_recruitment(faction_id, amount, role_name, start_time, completion_time)
     row = dict(result) if result else None
     if row:
         from services.event_queue import event_queue
@@ -43,63 +44,34 @@ async def create_recruitment(faction_id: int, amount: int, irp_time_str: str, ro
 
 
 async def get_pending_recruitments(faction_id: int) -> list:
-    rows = await db.fetch("""
-        SELECT mr.id, mr.faction_id, mr.amount, mr.role_name,
-               mr.start_time, mr.completion_time, mr.status, mr.fleet_id,
-               f.name as unit_name, f.faction_fleet_number as unit_number
-        FROM military_recruitment mr
-        LEFT JOIN fleets f ON mr.fleet_id = f.id
-        WHERE mr.faction_id = $1 AND mr.status = 'training'
-        ORDER BY mr.completion_time ASC
-    """, faction_id)
-    return [dict(row) for row in rows]
+    return await recruit_repo.get_pending_recruitments(faction_id)
 
 
 async def get_all_pending_recruitments() -> list:
-    rows = await db.fetch("""
-        SELECT mr.id, mr.faction_id, mr.amount, mr.role_name,
-               mr.start_time, mr.completion_time, mr.status, mr.fleet_id,
-               fac.name as faction_name, f.name as unit_name, f.faction_fleet_number as unit_number
-        FROM military_recruitment mr
-        JOIN factions fac ON mr.faction_id = fac.id
-        LEFT JOIN fleets f ON mr.fleet_id = f.id
-        WHERE mr.status = 'training'
-        ORDER BY mr.completion_time ASC
-    """)
-    return [dict(row) for row in rows]
+    return await recruit_repo.get_all_pending_recruitments()
 
 
 async def process_completed_recruitments() -> list:
     current_time = datetime.now(timezone.utc)
-    completed = await db.fetch(
-        "SELECT id, faction_id, amount, role_name, fleet_id FROM military_recruitment WHERE status = 'training' AND completion_time <= $1",
-        current_time
-    )
+    completed = await recruit_repo.get_completed_recruitments(current_time)
     if not completed:
         return []
 
     processed = []
     for r in completed:
         try:
-            if r['fleet_id']:
-                await db.execute(
-                    "UPDATE fleets SET infantry_count = infantry_count + $1 WHERE id = $2",
-                    r['amount'], r['fleet_id']
-                )
-            await db.execute("DELETE FROM military_recruitment WHERE id = $1", r['id'])
-            processed.append({'faction_id': r['faction_id'], 'amount': r['amount'], 'role_name': r['role_name'], 'fleet_id': r['fleet_id']})
-            logger.info(f"Recruitment complete: {r['amount']:,} {r['role_name']} for faction {r['faction_id']} → unit {r['fleet_id']}")
+            if r.fleet_id:
+                await recruit_repo.add_fleet_infantry(r.fleet_id, r.amount)
+            await recruit_repo.delete_recruitment(r.id)
+            processed.append({'faction_id': r.faction_id, 'amount': r.amount, 'role_name': r.role_name, 'fleet_id': r.fleet_id})
+            logger.info(f"Recruitment complete: {r.amount:,} {r.role_name} for faction {r.faction_id} → unit {r.fleet_id}")
         except Exception as e:
-            logger.error(f"Error processing recruitment {r['id']}: {e}")
+            logger.error(f"Error processing recruitment {r.id}: {e}")
     return processed
 
 
 async def cancel_recruitment(recruitment_id: int, faction_id: int) -> dict | None:
-    row = await db.fetchrow("""
-        DELETE FROM military_recruitment
-        WHERE id = $1 AND faction_id = $2 AND status = 'training'
-        RETURNING id, amount, role_name
-    """, recruitment_id, faction_id)
+    row = await recruit_repo.cancel_recruitment(recruitment_id, faction_id)
     return dict(row) if row else None
 
 

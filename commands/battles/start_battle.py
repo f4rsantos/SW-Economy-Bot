@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -37,9 +42,9 @@ async def start_battle_cmd(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
-    fleet_data = await get_fleet_for_battle(fleet, faction_data['id'])
+    fleet_data = await get_fleet_for_battle(fleet, faction_data.id)
     if not fleet_data:
         await interaction.followup.send(embed=error_embed("Error", "Fleet not found or you don't own this fleet."))
         return
@@ -66,14 +71,14 @@ async def start_battle_cmd(
         if not war_data:
             await interaction.followup.send(embed=error_embed("Error", "War not found."))
             return
-        participant = await get_participant(war_id, faction_data['id'])
+        participant = await get_participant(war_id, faction_data.id)
         if not participant:
             await interaction.followup.send(embed=error_embed("Error", "Your faction is not a participant in this war."))
             return
         if participant['side'] != side:
             await interaction.followup.send(embed=error_embed("Warning", f"Your faction is on side **{participant['side']}** in this war, but you're joining battle on side **{side}**. Proceeding anyway..."))
     else:
-        war_id = await create_standalone_war(battle_world_name, faction_data['id'], side)
+        war_id = await create_standalone_war(battle_world_name, faction_data.id, side)
 
     if fleet_data['total_cs'] == 0:
         await interaction.followup.send(embed=error_embed("Warning", "Fleet has 0 CS and cannot contribute to battle. Proceeding anyway..."))

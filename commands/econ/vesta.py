@@ -1,17 +1,21 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
-import random
 import discord
 from discord import app_commands
 from typing import Optional
 from utils.checks import require_access_level
-from utils.embeds import create_embed, error_embed, terminal_panel, meta_line, route_bar
-from utils.currency import split_currency, handle_return
+from utils.embeds import error_embed
+from utils.currency import split_currency, handle_return, handle_return_multiple, resource_array_to_object
 from utils.faction_utils import hex_to_int
-from services.econ_query_service import execute_vesta_trade
+from repositories.econ_repo import execute_vesta_trade
 from services.blockade_service import check_belt_station_blockade
 from services.validation_service import require_faction, require_world
 
-STATION_NAME = "Vesta Refinery Terminal"
+STATION_NAME = "Vesta Station"
 WELCOME = (
     "Greetings, what brings you to Vesta?\n\n"
     "We'll refine anything you got!\n"
@@ -21,20 +25,14 @@ WELCOME = (
 
 
 def _info_embed() -> discord.Embed:
-    return create_embed(
+    embed = discord.Embed(
         title=STATION_NAME,
-        description=terminal_panel(
-            "VESTA REFINERY TERMINAL",
-            [meta_line("SMELTERY")],
-            ["4 raw in, 1 pure out"],
-        ),
-        fields=[
-            {'name': "Welcome", 'value': WELCOME, 'inline': False},
-            {'name': "Rate", 'value': "4 : 1", 'inline': True},
-            {'name': "Accepts", 'value': "U-CM, U-CS, U-EL", 'inline': True},
-            {'name': "Usage", 'value': "`/vesta faction: world: choice: payment:`", 'inline': False},
-        ],
+        description=WELCOME,
     )
+    embed.add_field(name="Rate", value="4 : 1", inline=True)
+    embed.add_field(name="Accepts", value="U-CM, U-CS, U-EL", inline=True)
+    embed.add_field(name="Usage", value="`/vesta faction: world: choice: payment:`", inline=False)
+    return embed
 
 
 @app_commands.command(name="vesta", description="Access the Vesta refining market")
@@ -82,7 +80,7 @@ async def vesta(
     faction_data = r_faction_data.data
     world_data = r_world.data
 
-    if await check_belt_station_blockade(faction_data['id']):
+    if await check_belt_station_blockade(faction_data.id):
         await interaction.followup.send(embed=error_embed("Blockaded", "Your faction is blockaded at Ceres or Vesta and cannot use belt station markets."))
         return
 
@@ -95,27 +93,23 @@ async def vesta(
     gain_amount = total_in // 4
 
     try:
-        await execute_vesta_trade(faction_data['id'], world_data['id'], expected, total_in, gain_amount, gain)
+        await execute_vesta_trade(faction_data.id, world_data['id'], expected, total_in, gain_amount, gain)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
-    bay = random.randint(1, 24)
-
-    embed = create_embed(
+    embed = discord.Embed(
         title=STATION_NAME,
-        description=terminal_panel(
-            "VESTA REFINERY TERMINAL",
-            [meta_line(f"DOCK: BAY-{bay:02d}", f"BUYER: {faction_data['name'][:10].upper()}")],
-            ["", "   " + route_bar(expected, gain, 31), ""],
-        ),
-        color=hex_to_int(faction_data['color']),
-        fields=[
-            {'name': "Refined", 'value': f"{handle_return(gain_amount)} {gain}", 'inline': True},
-            {'name': "Paid", 'value': f"{handle_return(total_in)} {expected}", 'inline': True},
-            {'name': "Delivered to", 'value': world_data['name'], 'inline': True},
-        ],
+        description=f"Greetings **{faction_data.display_name}**, what brings you to Vesta?\n\n"
+                    f"We'll refine anything you got!\n"
+                    f"We can only give you 1/4th of what you give us, we got to make a living somehow y'know?\n\n"
+                    f"You've bought **{handle_return(gain_amount)} {gain}**\n"
+                    f"for {handle_return_multiple(resource_array_to_object(costs))}.\n\n"
+                    f"**Source:** {world_data['name']}",
+        color=hex_to_int(faction_data.color)
     )
+    embed.set_footer(text="Refining complete")
+    embed.timestamp = discord.utils.utcnow()
     await interaction.followup.send(embed=embed)
 
 

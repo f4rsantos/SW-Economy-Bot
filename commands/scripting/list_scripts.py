@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -17,11 +22,11 @@ async def script_list(interaction: discord.Interaction, faction: str):
         await interaction.followup.send(embed=error_embed(err))
         return
 
-    scripts = await get_active_scripts(faction_data["id"])
+    scripts = await get_active_scripts(faction_data.id)
     if not scripts:
         await interaction.followup.send(
             embed=create_embed(
-                title=f"Scripts: {faction_data['display_name']}",
+                title=f"Scripts: {faction_data.display_name}",
                 description="No active scripts.",
             ),
         )
@@ -29,12 +34,12 @@ async def script_list(interaction: discord.Interaction, faction: str):
 
     lines = []
     for s in scripts:
-        runs_on = "Manual Trigger" if s["trigger_type"] == "manual" else (s["trigger_day"] or "Income Day")
-        last = f"<t:{int(s['last_run_at'].timestamp())}:R>" if s["last_run_at"] else "never"
-        lines.append(f"**{s['name']}** (ID {s['id']}) — runs on {runs_on} — last run {last} — {s['run_count']} run(s)")
+        runs_on = "Manual Trigger" if s.trigger_type == "manual" else (s.trigger_day or "Income Day")
+        last = f"<t:{int(s.last_run_at.timestamp())}:R>" if s.last_run_at else "never"
+        lines.append(f"**{s.name}** (ID {s.id}) — runs on {runs_on} — last run {last} — {s.run_count} run(s)")
 
     embed = create_embed(
-        title=f"Scripts: {faction_data['display_name']}",
+        title=f"Scripts: {faction_data.display_name}",
         description="\n".join(lines),
     )
     await interaction.followup.send(embed=embed)

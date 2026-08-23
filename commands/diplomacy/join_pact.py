@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -17,8 +22,8 @@ async def join_pact(interaction: discord.Interaction, faction: str, pact_id: int
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     pact_data = await get_pact(pact_id)
     if not pact_data:
@@ -35,8 +40,8 @@ async def join_pact(interaction: discord.Interaction, faction: str, pact_id: int
 
     embed = success_embed(
         title="Joined Pact",
-        description=f"**{faction_data['display_name']}** has joined **{pact_data['name']}** ({pact_data['pact_type']}).\n\n"
-                    f"**Leader:** {pact_data['leader_name']}\n"
+        description=f"**{faction_data.display_name}** has joined **{pact_data.name}** ({pact_data.pact_type}).\n\n"
+                    f"**Leader:** {pact_data.leader_name}\n"
                     f"**Total Members:** {result['member_count']}"
     )
     embed.color = faction_color

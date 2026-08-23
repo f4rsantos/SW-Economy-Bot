@@ -1,13 +1,15 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from database.db_manager import db
 from database.cache_manager import cache_manager
+from dtos.faction import Faction
 
 
 _FACTION_QUERY = """
-    SELECT id, name, COALESCE(formal_name, name) as display_name,
-           color, faction_type, capital_world_id,
-           (faction_type = 1) as is_company, (faction_type = 2) as is_pirate,
-           leader_id, leader
-    FROM factions
+    SELECT * FROM factions
 """
 
 FACTION_TYPE_NATION = 0
@@ -37,16 +39,19 @@ def hex_to_int(hex_color: str) -> int:
 async def get_faction_by_name(name: str):
     name_lower = name.lower()
     for f in cache_manager.get_all_factions().values():
-        if f.get('name', '').lower() == name_lower:
+        if (f.name or '').lower() == name_lower:
             return f
     row = await db.fetchrow(_FACTION_QUERY + "WHERE LOWER(name) = LOWER($1)", name)
-    if row:
-        cache_manager.set_faction(row['id'], dict(row))
-    return row
+    if not row:
+        return None
+    faction = Faction.from_row(row)
+    cache_manager.set_faction(faction.id, faction)
+    return faction
 
 
 async def get_faction_by_leader(leader_id: int):
-    return await db.fetchrow(_FACTION_QUERY + "WHERE leader_id = $1", leader_id)
+    row = await db.fetchrow(_FACTION_QUERY + "WHERE leader_id = $1", leader_id)
+    return Faction.from_row(row) if row else None
 
 
 async def get_faction_by_id(faction_id: int):
@@ -54,9 +59,11 @@ async def get_faction_by_id(faction_id: int):
     if cached:
         return cached
     row = await db.fetchrow(_FACTION_QUERY + "WHERE id = $1", faction_id)
-    if row:
-        cache_manager.set_faction(row['id'], dict(row))
-    return row
+    if not row:
+        return None
+    faction = Faction.from_row(row)
+    cache_manager.set_faction(faction.id, faction)
+    return faction
 
 
 async def get_faction(identifier):
@@ -64,3 +71,41 @@ async def get_faction(identifier):
         return await get_faction_by_id(int(identifier))
     except (ValueError, TypeError):
         return await get_faction_by_name(str(identifier))
+
+
+async def is_faction_leader(user_id: int, faction, allow_staff: bool = True) -> bool:
+    if faction is None:
+        return False
+    if faction.leader_id == user_id:
+        return True
+    if not allow_staff:
+        return False
+    from services.user_service import get_user_access_level
+    return await get_user_access_level(user_id) >= 4
+
+
+async def leads_faction_named(user_id: int, faction_name: str) -> bool:
+    if not faction_name:
+        return False
+
+    target = str(faction_name).strip().lower()
+    factions = cache_manager.get_all_factions()
+    if factions:
+        for f in factions.values():
+            if f.leader_id != user_id:
+                continue
+            name = (f.name or '').lower()
+            formal = (f.formal_name or f.name or '').lower()
+            if target in (name, formal):
+                return True
+        return False
+
+    row = await db.fetchrow(
+        """
+        SELECT 1 FROM factions
+        WHERE leader_id = $1
+          AND (LOWER(name) = LOWER($2) OR LOWER(COALESCE(formal_name, name)) = LOWER($2))
+        """,
+        user_id, str(faction_name).strip()
+    )
+    return row is not None

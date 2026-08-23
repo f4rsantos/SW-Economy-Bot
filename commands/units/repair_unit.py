@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -33,27 +38,27 @@ async def repair_unit_cmd(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
     if repair_amount < 1 or repair_amount > 100:
         await interaction.followup.send(embed=error_embed("Error", "Repair amount must be between 1 and 100."))
         return
 
-    unit_data = await get_fleet_by_identifier(unit, faction_data['id'])
+    unit_data = await get_fleet_by_identifier(unit, faction_data.id)
     if not unit_data:
         await interaction.followup.send(embed=error_embed("Error", "Unit not found or you don't own this unit."))
         return
 
-    if unit_data['health'] >= 100:
+    if unit_data.health >= 100:
         await interaction.followup.send(embed=error_embed("Error", "Unit is already at full health."))
         return
 
-    max_repairable = 100 - unit_data['health']
+    max_repairable = 100 - unit_data.health
     if repair_amount > max_repairable:
         await interaction.followup.send(embed=error_embed("Error", f"Unit only needs {max_repairable}% repair to reach full health."))
         return
 
-    if unit_data['status_name'].lower() == 'in combat':
+    if unit_data.status_name.lower() == 'in combat':
         await interaction.followup.send(embed=error_embed("Error", "Cannot repair a unit while it's in combat."))
         return
 
@@ -71,7 +76,7 @@ async def repair_unit_cmd(
         costs_dict = {item['resource']: item['amount'] for item in parsed}
         cost_text = f"\n**Cost Paid:** {', '.join(f'{handle_return(v)} {k}' for k, v in costs_dict.items())}"
     else:
-        unit_costs = await get_fleet_costs(unit_data['id'])
+        unit_costs = await get_fleet_costs(unit_data.id)
         if not unit_costs:
             await interaction.followup.send(embed=error_embed("Error", "Unit has no vehicles or costs defined. Use ref=True or specify costs manually."))
             return
@@ -88,17 +93,17 @@ async def repair_unit_cmd(
         cost_text = f"\n**Cost Paid:** {', '.join(cost_parts)} ({actual_repair}% of unit value)"
 
     try:
-        await repair_fleet(unit_data['id'], faction_data['id'], actual_repair, costs_dict)
+        await repair_fleet(unit_data.id, faction_data.id, actual_repair, costs_dict)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
-    unit_name = unit_data['name'] or f"Unit #{unit_data['id']}"
+    unit_name = unit_data.name or f"Unit #{unit_data.id}"
     embed = success_embed(
         "Unit Repaired",
-        f"**{unit_name}** at **{unit_data['position_name']}**\n"
+        f"**{unit_name}** at **{unit_data.position_name}**\n"
         f"**Repaired:** {actual_repair}% HP{cost_text}\n"
-        f"**Health:** {unit_data['health']}% → {unit_data['health'] + actual_repair}%"
+        f"**Health:** {unit_data.health}% → {unit_data.health + actual_repair}%"
     )
     embed.color = faction_color
     await interaction.followup.send(embed=embed)

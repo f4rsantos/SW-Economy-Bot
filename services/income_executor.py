@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import json
 import math
 import asyncio
@@ -6,13 +11,12 @@ from typing import Dict, List
 
 import logging
 
-from database.db_manager import db
-from services.building_efficiency_service import calculate_efficiency, detect_specialization
+from services.building_efficiency_service import calculate_efficiency, detect_specialization, get_infantry_allocation_by_world
 from services.national_spirit_service import get_active_efficiency_bonus
 
 logger = logging.getLogger(__name__)
 from services.travel_time_service import calculate_travel_time
-from services.income_queries import (
+from repositories.income_repo import (
     fetch_pact_types_for_faction,
     fetch_fleet_cs_by_status,
     fetch_status_ids,
@@ -20,7 +24,7 @@ from services.income_queries import (
     fetch_blockaded_world_ids,
     fetch_all_trade_deals,
     fetch_all_world_names,
-    fetch_best_destination_world,
+    fetch_best_destination_worlds,
     fetch_unrefined_production_data,
     fetch_refined_capacity_data,
     fetch_local_stock,
@@ -38,6 +42,11 @@ from services.income_queries import (
     fetch_world_data_for_income,
     fetch_resource_map,
     fetch_all_population_by_world,
+    fetch_population_rows_by_world,
+    fetch_debris_status_id,
+    apply_fleet_damage,
+    mark_fleets_as_debris,
+    apply_income_cycle,
 )
 from services.income_calculator import (
     POPULATION_PER_CS,
@@ -79,20 +88,18 @@ async def calculate_fleet_cs_usage(faction_id: int, cached_status_ids: dict = No
 async def process_fleet_cs_damage(faction_id: int, cs_deficit: int):
     if cs_deficit <= 0:
         return
-    debris_row = await db.fetchrow("SELECT id FROM fleet_status WHERE LOWER(name) = 'debris'")
-    if not debris_row:
+    debris_id = await fetch_debris_status_id()
+    if debris_id is None:
         logger.warning("debris status not found in database")
         return
-    debris_id = debris_row['id']
     fleets = await fetch_non_debris_fleets(faction_id, debris_id)
     if not fleets:
         return
     updates_damage, updates_debris = plan_fleet_cs_damage(fleets, cs_deficit)
     if updates_damage:
-        await db.executemany("UPDATE fleets SET health = $1 WHERE id = $2", updates_damage)
+        await apply_fleet_damage(updates_damage)
     if updates_debris:
-        await db.executemany("UPDATE fleets SET health = 0, status_id = $1 WHERE id = $2",
-                             [(debris_id, fleet_id) for _, fleet_id in updates_debris])
+        await mark_fleets_as_debris(debris_id, [fleet_id for _, fleet_id in updates_debris])
 
 
 async def _process_trade_deals(
@@ -104,7 +111,10 @@ async def _process_trade_deals(
     trades = await fetch_all_trade_deals(faction_id)
     world_names = await fetch_all_world_names()
     current_time = datetime.now(timezone.utc)
-    destination_cache = {}
+    receivers_needing_lookup = list({
+        trade['receiver_faction_id'] for trade in trades if not trade['receiver_world_id']
+    })
+    destination_cache = await fetch_best_destination_worlds(receivers_needing_lookup)
     pending_transfers = []
 
     for trade in trades:
@@ -119,9 +129,7 @@ async def _process_trade_deals(
         if receiver_world_fixed:
             dest_world_id = receiver_world_fixed
         else:
-            if receiver_id not in destination_cache:
-                destination_cache[receiver_id] = await fetch_best_destination_world(receiver_id)
-            dest_world_id = destination_cache[receiver_id]
+            dest_world_id = destination_cache.get(receiver_id)
 
         if not dest_world_id:
             logger.warning(f"  [Trade #{trade['id']}] No destination world for receiver {receiver_id} — skipped")
@@ -222,19 +230,15 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
     pact_rows = await fetch_pact_types_for_faction(faction_id)
     preview['usages']['influence_pacts'] = calculate_influence_cost_from_pacts(pact_rows)
 
-    pop_rows = await db.fetch("""
-        SELECT lt.world_id, COALESCE(lt.amount, 0) as population
-        FROM local_treasury lt JOIN resources r ON lt.resource_id = r.id
-        WHERE lt.faction_id = $1 AND r.name = 'Population'
-    """, faction_id)
+    pop_rows = await fetch_population_rows_by_world(faction_id)
     preview['usages']['population_cs'] = population_cs_map(pop_rows)
 
-    from services.income_queries import fetch_outgoing_trades, fetch_external_incoming_trades
+    from repositories.income_repo import fetch_outgoing_trades, fetch_external_incoming_trades
     preview['usages']['trade_deals'] = await fetch_outgoing_trades(faction_id)
     preview['usages']['external_incoming_trades'] = await fetch_external_incoming_trades(faction_id)
 
-    faction_data = await fetch_faction_flags(faction_id)
-    is_company = faction_data['is_company'] if faction_data else False
+    faction_flags = await fetch_faction_flags(faction_id)
+    is_company = faction_flags['is_company'] if faction_flags else False
 
     world_data = await fetch_world_data_for_income(faction_id, is_company)
     worlds = [{'world_id': wid, 'population': d['population'], 'army': d['army'], 'pop_cap': d['pop_cap']}
@@ -349,6 +353,7 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
     else:
         resource_map = await fetch_resource_map()
     world_populations = await fetch_all_population_by_world(faction_id)
+    infantry_allocation = await get_infantry_allocation_by_world(faction_id)
 
     world_cs_info = {}
     total_cs_available = 0
@@ -403,8 +408,9 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
             is_blockaded=info['is_blockaded'],
         )
         pop_cap = info['pop_cap']
+        allocated_infantry = infantry_allocation.get(wid, 0)
         if pop_cap > 0:
-            pop_growth = min(pop_growth, max(0, pop_cap - info['population'])) if pop_growth > 0 else max(pop_growth, -info['population'])
+            pop_growth = min(pop_growth, max(0, pop_cap - info['population'] - allocated_infantry)) if pop_growth > 0 else max(pop_growth, -info['population'])
         preview['worlds'].setdefault(wid, {})
         preview['worlds'][wid]['population_growth'] = int(pop_growth)
 
@@ -426,13 +432,14 @@ SCOPE_LEVELS = {
 }
 
 
-async def execute_income(faction_id: int, shared_cache: dict = None, scope: str = 'full'):
+async def execute_income(faction_id: int, shared_cache: dict = None, scope: str = 'full', preview: Dict = None):
     if shared_cache is None:
         shared_cache = {}
 
     scope_level = SCOPE_LEVELS.get(scope, 5)
 
-    preview = await preview_income(faction_id, shared_cache)
+    if preview is None:
+        preview = await preview_income(faction_id, shared_cache)
 
     if 'resource_map' in shared_cache:
         resource_map = shared_cache['resource_map']
@@ -499,8 +506,7 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
                 'escort_fleet_id': transfer.get('escort_fleet_id'),
             })
 
-    await db.execute(
-        "SELECT sp_apply_income_cycle($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb)",
+    await apply_income_cycle(
         faction_id,
         er_delta,
         influence_delta,

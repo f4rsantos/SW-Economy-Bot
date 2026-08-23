@@ -1,5 +1,11 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import json
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -11,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _load_template() -> str:
-    return (get_bundle_dir() / "services" / "dashboard_template.html").read_text(encoding="utf-8")
+    return (get_bundle_dir() / "assets" / "templates" / "dashboard_template.html").read_text(encoding="utf-8")
 
 
 _HTML = _load_template()
@@ -122,6 +128,11 @@ def _get_snapshot():
         snap = dict(_metrics)
         snap['recent_errors'] = list(snap['recent_errors'])
         snap['recent_commands'] = list(snap['recent_commands'])
+    try:
+        from services.service_mode import service_status
+        snap['service'] = service_status()
+    except Exception:
+        snap['service'] = {}
     return snap
 
 
@@ -279,6 +290,43 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def do_POST(self):
+        if self.path == '/service-mode':
+            from services.service_mode import set_background_mode, relaunch_detached, relaunch_with_console, is_background_mode
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                data = json.loads(self.rfile.read(length))
+                background = bool(data['background'])
+            except Exception:
+                self.send_response(400)
+                self.end_headers()
+                return
+            if background == is_background_mode():
+                self._json({'ok': True, 'changed': False, 'background_mode': background})
+                return
+            set_background_mode(background)
+            relaunched = relaunch_detached() if background else relaunch_with_console()
+            if not relaunched:
+                set_background_mode(not background)
+                self._json({'ok': False, 'error': 'Failed to relaunch the bot process.'})
+                return
+            self._json({'ok': True, 'changed': True, 'background_mode': background, 'restarting': True})
+            _request_restart_shutdown()
+            return
+
+        if self.path == '/autostart':
+            from services.service_mode import enable_autostart, disable_autostart
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                data = json.loads(self.rfile.read(length))
+                enabled = bool(data['enabled'])
+            except Exception:
+                self.send_response(400)
+                self.end_headers()
+                return
+            ok, message = enable_autostart() if enabled else disable_autostart()
+            self._json({'ok': ok, 'message': message})
+            return
+
         if self.path == '/set-uptime':
             try:
                 length = int(self.headers.get('Content-Length', 0))
@@ -301,9 +349,30 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def _json(self, payload: dict, status: int = 200):
+        body = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def log_message(self, *args):
         pass
 
+
+
+def _request_restart_shutdown():
+    def _shutdown():
+        time.sleep(1.0)
+        try:
+            import bot as bot_module
+            bot_module.request_terminal_shutdown()
+        except Exception:
+            pass
+        os._exit(0)
+
+    threading.Thread(target=_shutdown, daemon=True).start()
 
 
 _server_instance: HTTPServer = None

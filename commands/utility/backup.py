@@ -1,5 +1,12 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
+import asyncio
 import discord
 from discord import app_commands
+import io
 import os
 from datetime import datetime, timezone
 from utils.embeds import success_embed, error_embed
@@ -11,13 +18,52 @@ from services.utility_service import (
 )
 
 
+def _build_backup_file(backup_path, dumped_tables):
+    sql_content = [
+        "-- Database Backup",
+        f"-- Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
+        "-- Excludes: auths, operators\n"
+    ]
+
+    for table_name, rows in dumped_tables:
+        sql_content.append(f"\n-- Table: {table_name}")
+
+        if rows:
+            col_names = list(rows[0].keys())
+            for row in rows:
+                values = []
+                for col in col_names:
+                    val = row[col]
+                    if val is None:
+                        values.append('NULL')
+                    elif isinstance(val, str):
+                        values.append(f"'{val.replace(chr(39), chr(39)*2)}'")
+                    elif isinstance(val, bool):
+                        values.append('true' if val else 'false')
+                    elif isinstance(val, (int, float)):
+                        values.append(str(val))
+                    else:
+                        values.append(f"'{str(val).replace(chr(39), chr(39)*2)}'")
+                sql_content.append(f"INSERT INTO {table_name} ({', '.join(col_names)}) VALUES ({', '.join(values)});")
+
+    with open(backup_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(sql_content))
+
+    file_size = os.path.getsize(backup_path)
+    if not file_size:
+        return 0, b''
+
+    with open(backup_path, 'rb') as f:
+        return file_size, f.read()
+
+
 @app_commands.command(name="backup", description="Create database backup (Level 10)")
 async def backup(interaction: discord.Interaction):
     user_id = interaction.user.id
 
     operator = await get_operator_for_player(user_id)
     user = await get_user_access_row(user_id)
-    access_level = user['access_level'] if user else 0
+    access_level = user.access_level if user else 0
 
     if access_level < 10 and not operator:
         await interaction.response.send_message("You do not have permission to use this command.")
@@ -36,54 +82,29 @@ async def backup(interaction: discord.Interaction):
             await interaction.followup.send(embed=error_embed("Error", "No tables found to backup."))
             return
 
-        sql_content = [
-            "-- Database Backup",
-            f"-- Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
-            "-- Excludes: auths, operators\n"
-        ]
+        dumped_tables = []
         total_rows = 0
 
         for table_row in tables:
             table_name = table_row['tablename']
             rows = await get_all_rows_for_table(table_name)
             total_rows += len(rows)
-            sql_content.append(f"\n-- Table: {table_name}")
+            dumped_tables.append((table_name, rows))
 
-            if rows:
-                col_names = list(rows[0].keys())
-                for row in rows:
-                    values = []
-                    for col in col_names:
-                        val = row[col]
-                        if val is None:
-                            values.append('NULL')
-                        elif isinstance(val, str):
-                            values.append(f"'{val.replace(chr(39), chr(39)*2)}'")
-                        elif isinstance(val, bool):
-                            values.append('true' if val else 'false')
-                        elif isinstance(val, (int, float)):
-                            values.append(str(val))
-                        else:
-                            values.append(f"'{str(val).replace(chr(39), chr(39)*2)}'")
-                    sql_content.append(f"INSERT INTO {table_name} ({', '.join(col_names)}) VALUES ({', '.join(values)});")
+        file_size, data = await asyncio.to_thread(_build_backup_file, backup_path, dumped_tables)
 
-        with open(backup_path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(sql_content))
-
-        file_size = os.path.getsize(backup_path)
         if not file_size:
             await interaction.followup.send(embed=error_embed("Error", "Backup file was not created or is empty."))
             return
 
         if file_size > 25 * 1024 * 1024:
-            os.remove(backup_path)
+            await asyncio.to_thread(os.remove, backup_path)
             await interaction.followup.send(embed=error_embed("Error", f"Backup file too large ({file_size / (1024*1024):.2f} MB). Maximum 25 MB."))
             return
 
         embed = success_embed("Database Backup", f"**File:** {backup_file}\n**Size:** {file_size / (1024*1024):.2f} MB\n**Rows:** {total_rows:,}\n**Tables:** {len(tables)}\n**Time:** {timestamp}")
-        with open(backup_path, 'rb') as f:
-            await interaction.followup.send(embed=embed, file=discord.File(f, filename=backup_file))
-        os.remove(backup_path)
+        await interaction.followup.send(embed=embed, file=discord.File(io.BytesIO(data), filename=backup_file))
+        await asyncio.to_thread(os.remove, backup_path)
 
     except Exception as e:
         await interaction.followup.send(embed=error_embed("Error", f"Backup failed: {str(e)}"))

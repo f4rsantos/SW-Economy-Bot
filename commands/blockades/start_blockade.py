@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
@@ -25,7 +30,7 @@ async def start_blockade_cmd(interaction: discord.Interaction, fleet: str, world
     faction_data = r_faction_data.data
     world_data = r_world_data.data
 
-    fleet_data = await get_fleet_for_blockade(fleet, faction_data['id'])
+    fleet_data = await get_fleet_for_blockade(fleet, faction_data.id)
     if not fleet_data:
         await interaction.followup.send(embed=error_embed("Error", "Fleet not found or you don't own this fleet."))
         return
@@ -40,7 +45,7 @@ async def start_blockade_cmd(interaction: discord.Interaction, fleet: str, world
         r_target_data = await require_faction(target)
         if not r_target_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_target_data.error))
         target_data = r_target_data.data
-        if target_data['id'] == faction_data['id']:
+        if target_data['id'] == faction_data.id:
             await interaction.followup.send(embed=error_embed("Error", "You cannot blockade your own faction."))
             return
         target_faction_ids.append(target_data['id'])
@@ -60,7 +65,7 @@ async def start_blockade_cmd(interaction: discord.Interaction, fleet: str, world
         f"**Blockading:** {', '.join(target_faction_names)}\n\n"
         f"Blockaded factions cannot transfer resources to or from this world."
     )
-    embed.color = hex_to_int(faction_data['color'])
+    embed.color = hex_to_int(faction_data.color)
     await interaction.followup.send(embed=embed)
 
 

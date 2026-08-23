@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import logging
 import discord
 from discord import app_commands
@@ -157,10 +162,10 @@ class SnakeView(discord.ui.View):
         game_type = f'snake_{self.difficulty}'
         try:
             row = await get_high_score(game_type)
-            if not row or self.score > row['score']:
+            if not row or self.score > row.score:
                 await set_high_score(game_type, self.player_id, self.score)
                 if self.message:
-                    prev = row['score'] if row else 0
+                    prev = row.score if row else 0
                     try:
                         await self.message.edit(embed=discord.Embed(
                             title="NEW HIGH SCORE!",

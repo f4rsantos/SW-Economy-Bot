@@ -1,10 +1,15 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
 from typing import Optional
 from datetime import timezone
 from utils.checks import require_access_level
-from utils.embeds import success_embed, error_embed, create_embed, panel, banner, meta_line, stamp, PANEL_W
+from utils.embeds import success_embed, error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
 from utils.autocomplete import faction_autocomplete, world_autocomplete
@@ -32,68 +37,59 @@ class TransfersView(discord.ui.View):
         page_transfers = self.transfers[start:start + TRANSFERS_PER_PAGE]
         now = discord.utils.utcnow()
 
-        fields = []
+        embed = discord.Embed(
+            title=self.title,
+            description=f"Page {self.page + 1}/{self.total_pages} • {len(self.transfers)} total",
+            color=self.color,
+            timestamp=now
+        )
+
         for t in page_transfers:
-            arrival = t['arrival_time']
+            arrival = t.arrival_time
             if arrival.tzinfo is None:
                 arrival = arrival.replace(tzinfo=timezone.utc)
 
-            resources = self.resources_map.get(t['id'], [])
-            resource_str = ", ".join(f"{handle_return(r['amount'])} {r['name']}" for r in resources) or "-"
+            resources = self.resources_map.get(t.id, [])
+            resource_str = ", ".join(f"{handle_return(r.amount)} {r.name}" for r in resources) or "—"
 
-            from_name, to_name = t['from_faction_name'], t['to_faction_name']
-            stopped = t['status'] == 'intercepted'
-            arrow = "===X" if stopped else "==>"
-
-            if from_name == to_name:
-                direction = "internal"
-                party = None
-            elif self.viewing_faction_name and from_name == self.viewing_faction_name:
-                direction = "out"
-                party = f"to {to_name}"
-            elif self.viewing_faction_name and to_name == self.viewing_faction_name:
-                direction = "in"
-                party = f"from {from_name}"
+            from_name, to_name = t.from_faction_name, t.to_faction_name
+            if self.viewing_faction_name:
+                arrow = "→" if from_name == self.viewing_faction_name else "←"
+                other = to_name if from_name == self.viewing_faction_name else from_name
+                header = f"Transfer #{t.id} {arrow} {other}"
             else:
-                direction = "transfer"
-                party = f"{from_name} to {to_name}"
+                header = f"Transfer #{t.id}: {from_name} → {to_name}"
 
-            lines = [f"{t['from_world_name']} {arrow} {t['to_world_name']}"]
-            if party:
-                lines.append(party)
-            lines.append(resource_str)
-
-            if stopped:
-                blocker = t.get('intercepting_faction_name')
-                unit = t.get('intercepting_unit_name')
-                held = f"held at {t['interception_world_name']}"
+            if t.status == 'intercepted':
+                blocker = t.intercepting_faction_name
+                unit = t.intercepting_unit_name
+                status_str = f"**INTERCEPTED**"
                 if blocker:
-                    held += f" by {blocker}"
+                    status_str += f" by {blocker}"
                     if unit:
-                        held += f" ({unit})"
-                lines.append(held)
+                        status_str += f" ({unit})"
+                status_str += f" at {t.interception_world_name}"
             else:
-                if t.get('escort_name'):
-                    lines.append(f"escort {t['escort_name']}")
                 secs = int((arrival - now).total_seconds())
-                lines.append("arriving now" if secs <= 0 else f"arrives {stamp(arrival, 'R')}")
+                if secs <= 0:
+                    status_str = "**Arrived** (pending sync)"
+                else:
+                    d, rem = divmod(secs, 86400)
+                    h, rem = divmod(rem, 3600)
+                    m = rem // 60
+                    status_str = f"In Transit ({f'{d}d ' if d else ''}{f'{h}h ' if h else ''}{m}min remaining)"
 
-            fields.append({
-                'name': f"ID {t['id']} - {direction}",
-                'value': "\n".join(lines),
-                'inline': False,
-            })
-
-        return create_embed(
-            title=self.title,
-            description=panel([
-                banner("Transfer Register"),
-                f"{len(self.transfers)} pending",
-            ]),
-            color=self.color,
-            fields=fields,
-            footer=f"Page {self.page + 1} of {self.total_pages}",
-        )
+            escort_line = f"**Escort:** {t.escort_name}\n" if t.escort_name else ""
+            embed.add_field(
+                name=header,
+                value=f"**Route:** {t.from_world_name} → {t.to_world_name}\n"
+                      f"**Resources:** {resource_str}\n"
+                      f"{escort_line}"
+                      f"**Status:** {status_str}\n"
+                      f"**Arrival:** <t:{int(arrival.timestamp())}:R>",
+                inline=False
+            )
+        return embed
 
     async def _update(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
@@ -142,10 +138,10 @@ async def transfers_cmd(
         if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
         faction_data = r_faction_data.data
-        faction_color = hex_to_int(faction_data['color'])
-        viewing_faction_name = faction_data['display_name']
+        faction_color = hex_to_int(faction_data.color)
+        viewing_faction_name = faction_data.display_name
         title_parts.append(f"for {viewing_faction_name}")
-        params.append(faction_data['id'])
+        params.append(faction_data.id)
         world_data = r_world.data
         params.append(world_data['id'])
         title_parts.append(f"involving {world_data['name']}")
@@ -153,10 +149,10 @@ async def transfers_cmd(
         r_faction_data = await require_faction(faction)
         if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         faction_data = r_faction_data.data
-        faction_color = hex_to_int(faction_data['color'])
-        viewing_faction_name = faction_data['display_name']
+        faction_color = hex_to_int(faction_data.color)
+        viewing_faction_name = faction_data.display_name
         title_parts.append(f"for {viewing_faction_name}")
-        params.append(faction_data['id'])
+        params.append(faction_data.id)
     elif world:
         r_world = await require_world(world)
         if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
@@ -177,7 +173,7 @@ async def transfers_cmd(
     if rows:
         now = discord.utils.utcnow()
         has_arrived = any(
-            r['status'] == 'in_transit' and r['arrival_time'].replace(tzinfo=timezone.utc) <= now
+            r.status == 'in_transit' and r.arrival_time.replace(tzinfo=timezone.utc) <= now
             for r in rows
         )
         if has_arrived:
@@ -193,11 +189,11 @@ async def transfers_cmd(
         await interaction.followup.send(embed=success_embed("No Transfers", f"No pending transfers {' '.join(title_parts)}."))
         return
 
-    transfer_ids = [r['id'] for r in rows]
+    transfer_ids = [r.id for r in rows]
     res_rows = await get_transfer_resource_rows(transfer_ids)
     resources_map: dict = {}
     for rr in res_rows:
-        resources_map.setdefault(rr['transfer_id'], []).append(rr)
+        resources_map.setdefault(rr.transfer_id, []).append(rr)
 
     view = TransfersView(
         transfers=list(rows),

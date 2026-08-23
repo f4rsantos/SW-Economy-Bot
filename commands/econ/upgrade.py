@@ -1,7 +1,12 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import success_embed, error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
@@ -20,6 +25,7 @@ from services.validation_service import require_faction, require_world
     target_level="Level to upgrade to (2-10)"
 )
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def upgrade(
     interaction: discord.Interaction,
     faction: str,
@@ -29,7 +35,7 @@ async def upgrade(
     source_level: int,
     target_level: int
 ):
-    await interaction.response.defer()
+    await defer_response(interaction)
 
     if amount < 1:
         await interaction.followup.send(embed=error_embed("Error", "Amount must be at least 1."))
@@ -48,12 +54,12 @@ async def upgrade(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
     building, r_world, cap_info = await asyncio.gather(
         get_building(building_id),
         require_world(world),
-        get_building_cap_info(faction_data['id'], faction_data['is_company'])
+        get_building_cap_info(faction_data.id, faction_data.is_company)
     )
     if not building:
         await interaction.followup.send(embed=error_embed("Error", "Building not found."))
@@ -74,7 +80,7 @@ async def upgrade(
 
     try:
         await upgrade_buildings(
-            faction_data['id'], world_data['id'], building_id,
+            faction_data.id, world_data['id'], building_id,
             amount, source_level, target_level, costs
         )
     except ValueError as e:
@@ -84,7 +90,7 @@ async def upgrade(
     cost_str = ", ".join([f"{handle_return(v)} {k}" for k, v in costs.items()])
     embed = success_embed(
         title="Buildings Upgraded",
-        description=f"**{faction_data['display_name']}** upgraded {amount}× **{building['name']}** on **{world_data['name']}** "
+        description=f"**{faction_data.display_name}** upgraded {amount}× **{building.name}** on **{world_data['name']}** "
                     f"from level {source_level} → {target_level} for {cost_str}"
     )
     embed.color = faction_color

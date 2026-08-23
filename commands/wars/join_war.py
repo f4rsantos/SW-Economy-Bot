@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -22,20 +27,20 @@ async def join_war(interaction: discord.Interaction, war_id: int, side: str, fac
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
     try:
-        result = await join_war_service(war_id, faction_data['id'], side)
+        result = await join_war_service(war_id, faction_data.id, side)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
     war_data = result['war']
     stats = result['stats']
-    stats_text = "\n".join(f"**Side {s['side']}:** {', '.join(s['faction_names'])}" for s in stats) if stats else "No other participants."
+    stats_text = "\n".join(f"**Side {s.side}:** {', '.join(s.faction_names)}" for s in stats) if stats else "No other participants."
     embed = success_embed(
         title="Joined War",
-        description=f"**{faction_data['display_name']}** has joined **{war_data['name']}**!\n"
+        description=f"**{faction_data.display_name}** has joined **{war_data.name}**!\n"
                     f"**War ID:** {war_id}\n**Side:** {side}\n**Active Battles:** {result['battle_count']}\n\n"
                     f"**Current Participants:**\n{stats_text}"
     )

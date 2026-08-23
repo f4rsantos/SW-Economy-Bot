@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
@@ -29,12 +34,12 @@ async def debris_list(interaction: discord.Interaction, faction: Optional[str] =
         r_faction_data, r_world = await asyncio.gather(require_faction(faction), require_world(world))
         if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
-        faction_id = r_faction_data.data['id']
+        faction_id = r_faction_data.data.id
         world_id = r_world.data['id']
     elif faction:
         r_faction_data = await require_faction(faction)
         if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
-        faction_id = r_faction_data.data['id']
+        faction_id = r_faction_data.data.id
     elif world:
         r_world = await require_world(world)
         if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))

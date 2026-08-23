@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -17,20 +22,20 @@ async def national_spirits(interaction: discord.Interaction, faction: str):
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
-    spirits = await get_national_spirits(faction_data['id'])
+    spirits = await get_national_spirits(faction_data.id)
 
     if not spirits:
         description = "No active national spirits."
         has_persistent = False
     else:
-        lines = [f"**{s['display_name']}:** +{s['modifier_value'] * 100:.0f}% {s['effect_type'].title()}" for s in spirits]
+        lines = [f"**{s.display_name}:** +{s.modifier_value * 100:.0f}% {s.effect_type.title()}" for s in spirits]
         description = "\n".join(lines)
-        has_persistent = any(s['expires_at'] is None for s in spirits)
+        has_persistent = any(s.expires_at is None for s in spirits)
 
     embed = discord.Embed(
-        title=f"National Spirits: {faction_data['display_name']}",
+        title=f"National Spirits: {faction_data.display_name}",
         description=description,
         color=faction_color,
     )

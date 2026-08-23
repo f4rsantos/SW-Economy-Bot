@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -49,7 +54,7 @@ async def remove_org_cmd(
         await interaction.followup.send(embed=error_embed("Error", f"Organization `{name}` not found."))
         return
 
-    await delete_org_and_unlink_tasks(org['id'])
+    await delete_org_and_unlink_tasks(org.id)
 
     embed = success_embed(title="Organization Removed", description=f"**{name}** has been removed. Tasks were unlinked.")
     await interaction.followup.send(embed=embed)
@@ -67,7 +72,7 @@ async def list_orgs_cmd(interaction: discord.Interaction):
         await interaction.followup.send(embed=embed)
         return
 
-    lines = [f"**{o['name']}** — {o['task_count']} task(s)  `ID: {o['id']}`" for o in orgs]
+    lines = [f"**{o.name}** — {o.task_count} task(s)  `ID: {o.id}`" for o in orgs]
     embed = discord.Embed(
         title=f"Organizations ({len(orgs)})",
         description="\n".join(lines),
@@ -86,8 +91,8 @@ async def list_boards_cmd(interaction: discord.Interaction):
     embed = discord.Embed(title="Kanban Boards", color=0x3498db)
     for r in rows:
         embed.add_field(
-            name=f"{r['position'] + 1}. {r['name']}",
-            value=f"{r['task_count']} task(s)",
+            name=f"{r.position + 1}. {r.name}",
+            value=f"{r.task_count} task(s)",
             inline=True
         )
     await interaction.followup.send(embed=embed)

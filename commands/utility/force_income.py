@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import logging
 import discord
@@ -41,8 +46,8 @@ async def force_income(
         if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         faction_data = r_faction_data.data
 
-        faction_id = faction_data['id']
-        faction_name = faction_data.get('display_name') or faction_data['name']
+        faction_id = faction_data.id
+        faction_name = faction_data.display_name
 
         try:
             logger.info(f"[FORCE-INCOME] Triggered by {interaction.user} for faction: {faction_name} (scope={scope_value})")

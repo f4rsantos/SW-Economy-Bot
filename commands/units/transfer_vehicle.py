@@ -1,6 +1,11 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import success_embed, error_embed
 from utils.faction_utils import get_faction, hex_to_int
 from utils.fleet_utils import get_vehicle_in_fleet
@@ -55,6 +60,7 @@ class TransferSuccessView(discord.ui.View):
     vehicle_faction_origin="Faction that owns the vehicle design (if not the source faction)"
 )
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def transfer_vehicle_cmd(
     interaction: discord.Interaction,
     faction: str,
@@ -65,7 +71,7 @@ async def transfer_vehicle_cmd(
     target_faction: str = None,
     vehicle_faction_origin: str = None
 ):
-    await interaction.response.defer()
+    await defer_response(interaction)
 
     if amount < 1:
         await interaction.followup.send(embed=error_embed("Error", "Amount must be at least 1."))
@@ -79,9 +85,9 @@ async def transfer_vehicle_cmd(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
-    r_from_unit = await require_unit(from_unit_id, faction_data['id'])
+    r_from_unit = await require_unit(from_unit_id, faction_data.id)
     if not r_from_unit.ok: return await interaction.followup.send(embed=error_embed("Error", r_from_unit.error))
     from_unit = r_from_unit.data
 
@@ -93,7 +99,7 @@ async def transfer_vehicle_cmd(
     if vehicle_faction_origin:
         r_origin_faction = await require_faction(vehicle_faction_origin)
         if not r_origin_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_origin_faction.error))
-        origin_faction_id = r_origin_faction.data['id']
+        origin_faction_id = r_origin_faction.data.id
 
     vehicle_data = await get_vehicle_in_fleet(vehicle_id, from_unit['id'], origin_faction_id)
     if not vehicle_data:
@@ -104,9 +110,9 @@ async def transfer_vehicle_cmd(
         r_target_faction_data = await require_faction(target_faction)
         if not r_target_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_target_faction_data.error))
         target_faction_data = r_target_faction_data.data
-        dest_faction_id = target_faction_data['id']
+        dest_faction_id = target_faction_data.id
     else:
-        dest_faction_id = faction_data['id']
+        dest_faction_id = faction_data.id
 
     r_to_unit = await require_unit(to_unit_id, dest_faction_id)
     if not r_to_unit.ok: return await interaction.followup.send(embed=error_embed("Error", r_to_unit.error))

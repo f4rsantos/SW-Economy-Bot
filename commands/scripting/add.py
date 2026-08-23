@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.embeds import success_embed, error_embed
@@ -55,7 +60,7 @@ class ScriptAddModal(discord.ui.Modal, title="Add Faction Script"):
 
         try:
             script = await create_script(
-                faction_id=faction_data["id"],
+                faction_id=faction_data.id,
                 name=name,
                 script_text=text,
                 trigger_day=trigger_day,
@@ -69,7 +74,7 @@ class ScriptAddModal(discord.ui.Modal, title="Add Faction Script"):
         runs_on = "Manual Trigger" if trigger_type == "manual" else (trigger_day or "Income Day")
         embed = success_embed(
             title="Script Created",
-            description=f"Script **{name}** saved for **{faction_data['display_name']}**.\nRuns on: **{runs_on}**",
+            description=f"Script **{name}** saved for **{faction_data.display_name}**.\nRuns on: **{runs_on}**",
         )
         await interaction.followup.send(embed=embed)
 

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -40,7 +45,7 @@ async def subtask_add_cmd(
 
     embed = success_embed(
         title="Subtask Added",
-        description=f"⬜ `#{subtask_id}` {title}\nadded to **Task #{task_id} — {task['title']}**"
+        description=f"⬜ `#{subtask_id}` {title}\nadded to **Task #{task_id} — {task.title}**"
     )
     await interaction.followup.send(embed=embed)
 
@@ -65,7 +70,7 @@ async def subtask_check_cmd(
         await interaction.followup.send(embed=error_embed("Error", f"Subtask #{subtask_id} not found on Task #{task_id}."))
         return
 
-    if subtask['done'] == done:
+    if subtask.done == done:
         state = "already marked as done" if done else "already unchecked"
         await interaction.followup.send(embed=error_embed("No Change", f"Subtask #{subtask_id} is {state}."))
         return
@@ -77,6 +82,6 @@ async def subtask_check_cmd(
     state = "done" if done else "unchecked"
     embed = success_embed(
         title="Subtask Updated",
-        description=f"{check} `#{subtask_id}` {subtask['title']} — marked **{state}**"
+        description=f"{check} `#{subtask_id}` {subtask.title} — marked **{state}**"
     )
     await interaction.followup.send(embed=embed)

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Literal, Optional
@@ -82,7 +87,7 @@ async def air_rate(
 
     embed = success_embed(title=f"Aircraft: {name}" if name else "Aircraft", description=f"**{type_names.get(aircraft_type, aircraft_type)}**")
     if faction_data:
-        embed.color = hex_to_int(faction_data['color'])
+        embed.color = hex_to_int(faction_data.color)
 
     embed.add_field(name="ER Cost", value=handle_return(costs['ER']), inline=True)
     embed.add_field(name="CM Cost", value=handle_return(costs['CM']), inline=True)
@@ -108,7 +113,7 @@ async def air_rate(
 
     if faction_data and name:
         vehicle_type = "Space" if flight_type in ["hybrid", "space"] else "Air"
-        view = RegisterVehicleView(interaction.user.id, faction_data['id'], faction_data['display_name'], name, designation, vehicle_type, costs, data)
+        view = RegisterVehicleView(interaction.user.id, faction_data.id, faction_data.display_name, name, designation, vehicle_type, costs, data)
         await interaction.followup.send(embed=embed, view=view)
     else:
         await interaction.followup.send(embed=embed)

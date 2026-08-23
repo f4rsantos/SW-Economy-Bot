@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -39,7 +44,7 @@ async def assign_cmd(
 
     await touch_task(task_id)
 
-    lines = [f"**Task #{task_id} — {task['title']}**"]
+    lines = [f"**Task #{task_id} — {task.title}**"]
     if added:
         lines.append("✅ Assigned: " + ", ".join(f"<@{u}>" for u in added))
     if already:
@@ -82,7 +87,7 @@ async def unassign_cmd(
 
     await touch_task(task_id)
 
-    lines = [f"**Task #{task_id} — {task['title']}**"]
+    lines = [f"**Task #{task_id} — {task.title}**"]
     if removed:
         lines.append("✅ Unassigned: " + ", ".join(f"<@{u}>" for u in removed))
     if not_assigned:

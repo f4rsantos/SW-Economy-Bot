@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -29,8 +34,8 @@ async def income(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     if resource:
         res_name = resource.upper()
@@ -58,7 +63,7 @@ async def income(
             total += amount
 
         embed = discord.Embed(
-            title=f"Income ({res_name}): {faction_data['display_name']} per World",
+            title=f"Income ({res_name}): {faction_data.display_name} per World",
             description="\n".join(lines), color=faction_color
         )
         embed.set_footer(text=f"Total: {_fmt(total)}")
@@ -111,7 +116,7 @@ async def income(
         lines.append(f"**Population:** {_fmt(total_pop_delta)}")
 
     embed = discord.Embed(
-        title=f"Income: {faction_data['display_name']}",
+        title=f"Income: {faction_data.display_name}",
         description="\n".join(lines) if lines else "No income",
         color=faction_color
     )

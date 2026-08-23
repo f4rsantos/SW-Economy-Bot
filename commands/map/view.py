@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 import io
@@ -32,7 +37,7 @@ async def view(interaction: discord.Interaction, world: str):
         )
         return
 
-    total_claimed = sum(f['territory'] for f in factions)
+    total_claimed = sum(f.territory for f in factions)
     embed = discord.Embed(
         title=f"Map View - {world_data['name']}",
         description=(
@@ -40,10 +45,10 @@ async def view(interaction: discord.Interaction, world: str):
             f"**Claimed:** {total_claimed:,}\n"
             f"**Available:** {max_hexes - total_claimed:,}"
         ),
-        color=hex_to_int(factions[0]['color']),
+        color=hex_to_int(factions[0].color),
     )
 
-    lines = [f"**{f['display_name']}:** {f['territory']:,} ({f['territory'] / max_hexes * 100:.1f}%)" for f in factions]
+    lines = [f"**{f.display_name}:** {f.territory:,} ({f.territory / max_hexes * 100:.1f}%)" for f in factions]
     for i in range(0, len(lines), 20):
         embed.add_field(name="Factions" if i == 0 else "...", value="\n".join(lines[i:i + 20]), inline=False)
 

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -19,26 +24,26 @@ def _build_board_embed(board_data, tasks, page: int, total_pages: int, org_name:
         filter_parts.append(f"Org: {org_name}")
     if priority:
         filter_parts.append(f"Priority: {PRIORITY_LABELS[priority]}")
-    title = f"{board_data['name']} Board"
+    title = f"{board_data.name} Board"
     if filter_parts:
         title += f"  ({', '.join(filter_parts)})"
 
-    embed = discord.Embed(title=title, color=board_data['color'])
+    embed = discord.Embed(title=title, color=board_data.color)
 
     if not tasks:
         embed.description = "No tasks on this board."
     else:
         for t in tasks:
-            assignee_count = t['assignee_count']
-            org_str    = f" • {t['org_name']}" if t['org_name'] else ""
+            assignee_count = t.assignee_count
+            org_str    = f" • {t.org_name}" if t.org_name else ""
             assign_str = f" • {assignee_count} assigned" if assignee_count else ""
             embed.add_field(
-                name=f"#{t['id']} {t['title']}",
-                value=f"{PRIORITY_LABELS[t['priority']]}{org_str}{assign_str}",
+                name=f"#{t.id} {t.title}",
+                value=f"{PRIORITY_LABELS[t.priority]}{org_str}{assign_str}",
                 inline=False
             )
 
-    embed.set_footer(text=f"Page {page}/{total_pages} • {board_data['name']}")
+    embed.set_footer(text=f"Page {page}/{total_pages} • {board_data.name}")
     return embed
 
 
@@ -114,9 +119,9 @@ async def board_cmd(
         if not org_data:
             await interaction.followup.send(embed=error_embed("Error", f"Organization `{org}` not found."))
             return
-        org_id   = org_data['id']
-        org_name = org_data['name']
+        org_id   = org_data.id
+        org_name = org_data.name
 
-    tasks = await list_board_tasks(board_data['id'], org_id=org_id, priority=priority)
+    tasks = await list_board_tasks(board_data.id, org_id=org_id, priority=priority)
     view  = BoardView(interaction.user.id, board_data, tasks, org_name, priority)
     await interaction.followup.send(embed=view.build_embed(), view=view)

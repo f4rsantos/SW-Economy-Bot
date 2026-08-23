@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import logging
 import os
 import sys
@@ -53,6 +58,18 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 _no_income = '--no-income' in sys.argv
 
 
+def _console_attached() -> bool:
+    try:
+        return sys.stdin is not None and sys.stdin.isatty()
+    except Exception:
+        return False
+
+
+def wait_for_exit():
+    if _console_attached():
+        input("Press Enter to exit...")
+
+
 def print_header():
     version = os.getenv("BOT_VERSION", "")
     byline = f"v{version}" if version else "v unknown"
@@ -80,7 +97,7 @@ def validate_environment():
             print(f"Missing: {', '.join(missing)}")
             print("Create a .env file in the project root with your credentials.")
         print()
-        input("Press Enter to exit...")
+        wait_for_exit()
         sys.exit(1)
 
 
@@ -144,23 +161,34 @@ def main():
     except Exception:
         print("ERROR: Failed to initialize Supabase client.")
         print()
-        input("Press Enter to exit...")
+        wait_for_exit()
         sys.exit(1)
 
     import auth
     auth.init(bundle_dir, supabase_client)
 
-    if not auth.run_oauth(logger):
-        sys.exit(1)
+    print("STEP 0: Saved Credentials")
+    print("-" * 70)
+    auto_logged_in = False
+    if auth.login_with_saved_credentials():
+        print("Auto-login successful using saved credentials.")
+        auto_logged_in = True
+    else:
+        print("No valid saved credentials. Proceeding with interactive login.")
+    print()
 
-    if not auth.login_with_license_key():
-        sys.exit(1)
+    if not auto_logged_in:
+        if not auth.run_oauth(logger):
+            sys.exit(1)
+
+        if not auth.login_with_license_key():
+            sys.exit(1)
 
     assets = asyncio.run(auth.fetch_operator_assets())
     if not assets or not assets.get("database_url"):
         print("ERROR: Required operator assets unavailable. Contact administrator.")
         print()
-        input("Press Enter to exit...")
+        wait_for_exit()
         sys.exit(1)
 
     from database.db_manager import db

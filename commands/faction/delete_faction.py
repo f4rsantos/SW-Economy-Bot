@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -46,14 +51,14 @@ async def delete_faction(interaction: discord.Interaction, faction: str):
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    view = ConfirmDeleteView(interaction.user.id, faction_data['id'], faction_data['display_name'])
+    view = ConfirmDeleteView(interaction.user.id, faction_data.id, faction_data.display_name)
     embed = discord.Embed(
         title="⚠️ Confirm Faction Deletion",
-        description=f"Are you sure you want to delete **{faction_data['display_name']}**?",
+        description=f"Are you sure you want to delete **{faction_data.display_name}**?",
         color=0xe74c3c
     )
-    embed.add_field(name="Faction Name", value=faction_data['name'], inline=True)
-    embed.add_field(name="Leader", value=faction_data['leader'], inline=True)
+    embed.add_field(name="Faction Name", value=faction_data.name, inline=True)
+    embed.add_field(name="Leader", value=faction_data.leader, inline=True)
     embed.add_field(name="Warning", value="This action is **permanent** and cannot be undone!", inline=False)
     await interaction.followup.send(embed=embed, view=view)
 

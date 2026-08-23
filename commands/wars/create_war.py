@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -22,21 +27,21 @@ async def create_war_cmd(interaction: discord.Interaction, name: str, side: str,
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
-    existing = await get_existing_war_for_faction(faction_data['id'])
+    existing = await get_existing_war_for_faction(faction_data.id)
     if existing:
         await interaction.followup.send(embed=error_embed("Warning", f"Your faction is already in **{existing['name']}** (War #{existing['id']}) on side **{existing['side']}**. You can still create a new war."))
 
     try:
-        war_id = await create_war(name, faction_data['id'], side)
+        war_id = await create_war(name, faction_data.id, side)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
     embed = success_embed(
         title="War Created",
-        description=f"**{name}** has been declared!\n**War ID:** {war_id}\n**Started by:** {faction_data['display_name']} (Side {side})\n\nOther factions can join with `/join-war`."
+        description=f"**{name}** has been declared!\n**War ID:** {war_id}\n**Started by:** {faction_data.display_name} (Side {side})\n\nOther factions can join with `/join-war`."
     )
     embed.color = faction_color
     await interaction.followup.send(embed=embed)

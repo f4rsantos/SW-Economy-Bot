@@ -1,8 +1,13 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import math
 import discord
 from discord import app_commands
 from datetime import datetime, timezone, timedelta
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import error_embed
 from utils.faction_utils import hex_to_int
 from services.fleet_service import buy_vehicle, get_factory_info
@@ -20,6 +25,7 @@ from services.validation_service import require_faction, require_unit, require_v
     source_faction="Source faction name or ID (required if buying from another faction)"
 )
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def buy_vehicle_cmd(
     interaction: discord.Interaction,
     faction: str,
@@ -29,7 +35,7 @@ async def buy_vehicle_cmd(
     amount: int,
     source_faction: str = None
 ):
-    await interaction.response.defer()
+    await defer_response(interaction)
 
     if amount < 1 or amount > 10000:
         await interaction.followup.send(embed=error_embed("Error", "Amount must be between 1 and 10,000."))
@@ -39,9 +45,9 @@ async def buy_vehicle_cmd(
     if not r_user_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_user_faction.error))
     user_faction = r_user_faction.data
 
-    faction_color = hex_to_int(user_faction['color'])
+    faction_color = hex_to_int(user_faction.color)
 
-    r_unit_data = await require_unit(unit_id, user_faction['id'])
+    r_unit_data = await require_unit(unit_id, user_faction.id)
     if not r_unit_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_unit_data.error))
     unit_data = r_unit_data.data
 
@@ -55,9 +61,9 @@ async def buy_vehicle_cmd(
     if source_faction:
         r_src_faction = await require_faction(source_faction)
         if not r_src_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_src_faction.error))
-        target_faction_id = r_src_faction.data['id']
+        target_faction_id = r_src_faction.data.id
     else:
-        target_faction_id = user_faction['id']
+        target_faction_id = user_faction.id
 
     r_vehicle_data = await require_vehicle(vehicle_id, target_faction_id)
     if not r_vehicle_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_vehicle_data.error))
@@ -83,7 +89,7 @@ async def buy_vehicle_cmd(
         shortfall_multiplier = 0
     else:
         is_large = vehicle_length > 1000
-        total_capacity, used_space = await get_factory_info(world_data['id'], user_faction['id'], is_large)
+        total_capacity, used_space = await get_factory_info(world_data['id'], user_faction.id, is_large)
         available_space = total_capacity - used_space
 
         if total_factory_space > available_space:
@@ -109,7 +115,7 @@ async def buy_vehicle_cmd(
 
     try:
         order_id = await buy_vehicle(
-            user_faction['id'], world_data['id'], unit_data['id'],
+            user_faction.id, world_data['id'], unit_data['id'],
             vehicle_data['id'], amount, int(total_factory_space), completion, costs_list
         )
     except ValueError as e:

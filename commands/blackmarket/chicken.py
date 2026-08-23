@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
@@ -14,7 +19,7 @@ from services.casino_service import (
     close_chicken_round_crash,
     close_chicken_round_refund,
 )
-from services.casino_games import (
+from utils.casino_games import (
     CHICKEN_MAX_STEPS,
     chicken_multiplier_at_step,
     chicken_resolve_step,
@@ -204,8 +209,8 @@ async def chicken_cmd(interaction: discord.Interaction, faction: str, amount: st
     r_faction_data = await require_faction(faction)
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     try:
         wagers = parse_casino_wager(amount)

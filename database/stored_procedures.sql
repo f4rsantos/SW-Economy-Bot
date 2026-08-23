@@ -1,3 +1,8 @@
+-- Copyright (c) 2026 f4rsantos. All rights reserved.
+-- Unauthorized copying, modification, or distribution of this file,
+-- via any medium, is strictly prohibited without explicit written
+-- permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 
 
 
@@ -607,10 +612,18 @@ BEGIN
         RAISE EXCEPTION 'FLEET_STATUS_NOT_FOUND: Idle status not found in fleet_status';
     END IF;
 
-    SELECT COALESCE(MAX(f.faction_fleet_number), 0) + 1
+    PERFORM pg_advisory_xact_lock(811002, p_faction_id);
+
+    SELECT COALESCE(MIN(t.n), 1)
     INTO v_next_num
-    FROM fleets f
-    WHERE f.faction_id = p_faction_id;
+    FROM generate_series(
+        1,
+        (SELECT COALESCE(MAX(f.faction_fleet_number), 0) + 1 FROM fleets f WHERE f.faction_id = p_faction_id)
+    ) AS t(n)
+    WHERE NOT EXISTS (
+        SELECT 1 FROM fleets f
+        WHERE f.faction_id = p_faction_id AND f.faction_fleet_number = t.n
+    );
 
     INSERT INTO fleets (faction_id, name, position, status_id, health, total_cs, faction_fleet_number)
     VALUES (p_faction_id, p_name, p_world_id, v_idle_id, 100, 0, v_next_num)
@@ -1569,9 +1582,12 @@ BEGIN
     
     IF p_influence_delta != 0 THEN
         INSERT INTO faction_treasury (faction_id, resource_id, amount)
-        VALUES (p_faction_id, v_inf_id, GREATEST(0, p_influence_delta))
+        VALUES (p_faction_id, v_inf_id, LEAST(10000, GREATEST(0, p_influence_delta)))
         ON CONFLICT (faction_id, resource_id)
-        DO UPDATE SET amount = GREATEST(0, faction_treasury.amount + p_influence_delta);
+        DO UPDATE SET amount = CASE
+            WHEN p_influence_delta < 0 THEN GREATEST(0, faction_treasury.amount + p_influence_delta)
+            ELSE GREATEST(faction_treasury.amount, LEAST(10000, faction_treasury.amount + p_influence_delta))
+        END;
     END IF;
 
     

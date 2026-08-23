@@ -1,6 +1,11 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import success_embed, error_embed
 from utils.faction_utils import hex_to_int
 from services.fleet_service import set_fleet_status
@@ -21,21 +26,22 @@ from utils.autocomplete import faction_autocomplete
     app_commands.Choice(name="FTL Supply", value="ftl supply"),
 ])
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def unit_status_command(
     interaction: discord.Interaction,
     faction: str,
     unit_id: str,
     status: str
 ):
-    await interaction.response.defer()
+    await defer_response(interaction)
 
     r_faction_data = await require_faction(faction)
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
-    r_unit_data = await require_unit(unit_id, faction_data['id'])
+    r_unit_data = await require_unit(unit_id, faction_data.id)
     if not r_unit_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_unit_data.error))
     unit_data = r_unit_data.data
 

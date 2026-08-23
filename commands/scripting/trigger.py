@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import time
 import discord
 from discord import app_commands
@@ -17,23 +22,23 @@ async def script_trigger(interaction: discord.Interaction, faction: str, name: s
         await interaction.followup.send(embed=error_embed(err))
         return
 
-    script = await get_manual_script_by_name(faction_data["id"], name)
+    script = await get_manual_script_by_name(faction_data.id, name)
     if not script:
         await interaction.followup.send(
-            embed=error_embed(f"No active TRIGGER script named '{name}' found for {faction_data['display_name']}.")
+            embed=error_embed(f"No active TRIGGER script named '{name}' found for {faction_data.display_name}.")
         )
         return
 
     start = time.monotonic()
     result = await execute_script_manual(
-        script_text=script["script_text"],
-        faction_id=faction_data["id"],
-        is_company=faction_data.get("is_company", False),
+        script_text=script.script_text,
+        faction_id=faction_data.id,
+        is_company=faction_data.is_company,
         dry_run=False,
     )
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
-    await record_execution(script["id"], faction_data["id"], result, elapsed_ms)
+    await record_execution(script.id, faction_data.id, result, elapsed_ms)
 
     if result.aborted:
         description = "Script aborted."
@@ -43,7 +48,7 @@ async def script_trigger(interaction: discord.Interaction, faction: str, name: s
         color = 0x00CC66
 
     embed = discord.Embed(
-        title=f"Trigger: {script['name']}",
+        title=f"Trigger: {script.name}",
         description=description,
         color=color,
     )
