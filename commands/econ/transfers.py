@@ -94,9 +94,7 @@ class TransfersView(discord.ui.View):
                       f"**Resources:** {resource_str}\n"
                       f"{escort_line}"
                       f"**Status:** {status_str}\n"
-                      f"**Arrival:** <t:{int(arrival.timestamp())}:R>"
-                      "
-​",
+                      f"**Arrival:** <t:{int(arrival.timestamp())}:R>\n​",
                 inline=False
             )
         return embed
