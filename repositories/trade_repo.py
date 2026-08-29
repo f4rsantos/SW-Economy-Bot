@@ -36,12 +36,16 @@ async def insert_trade(sender_faction_id: int, receiver_faction_id: int, resourc
 async def get_trade_row(trade_id: int) -> Optional[Trade]:
     row = await db.fetchrow("""
         SELECT td.id, td.amount, r.name as resource_name,
+               td.sender_faction_id, td.receiver_faction_id,
                COALESCE(fs.formal_name, fs.name) as sender_name, fs.color as sender_color,
-               COALESCE(fr.formal_name, fr.name) as receiver_name
+               COALESCE(fr.formal_name, fr.name) as receiver_name,
+               sw.name as sender_world, rw.name as receiver_world
         FROM trade_deals td
         JOIN resources r ON td.resource_id = r.id
         JOIN factions fs ON td.sender_faction_id = fs.id
         JOIN factions fr ON td.receiver_faction_id = fr.id
+        LEFT JOIN worlds sw ON td.sender_world_id = sw.id
+        LEFT JOIN worlds rw ON td.receiver_world_id = rw.id
         WHERE td.id = $1
     """, trade_id)
     return Trade.from_row(row) if row else None
@@ -49,6 +53,21 @@ async def get_trade_row(trade_id: int) -> Optional[Trade]:
 
 async def delete_trade(trade_id: int) -> None:
     await db.execute("DELETE FROM trade_deals WHERE id = $1", trade_id)
+
+
+async def update_trade_fields(trade_id: int, set_clause: str, values: list) -> Optional[Trade]:
+    row = await db.fetchrow(f"""
+        UPDATE trade_deals td SET {set_clause}
+        FROM resources r, factions fs, factions fr
+        WHERE td.resource_id = r.id AND td.sender_faction_id = fs.id AND td.receiver_faction_id = fr.id AND td.id = $1
+        RETURNING td.id, td.amount, r.name as resource_name,
+                  td.sender_faction_id, td.receiver_faction_id,
+                  COALESCE(fs.formal_name, fs.name) as sender_name, fs.color as sender_color,
+                  COALESCE(fr.formal_name, fr.name) as receiver_name,
+                  (SELECT name FROM worlds WHERE id = td.sender_world_id) as sender_world,
+                  (SELECT name FROM worlds WHERE id = td.receiver_world_id) as receiver_world
+    """, trade_id, *values)
+    return Trade.from_row(row) if row else None
 
 
 async def get_faction_trades_rows(faction_id: int) -> dict:

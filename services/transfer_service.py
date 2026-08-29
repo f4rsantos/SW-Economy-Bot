@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional, List
 from dtos.transfer import Transfer, TransferResource, PendingTransfer
 from repositories import transfer_repo
+from services import spend_service
 from services.travel_time_service import calculate_travel_time, format_travel_time
 from services.treasury_service import find_best_worlds_for_multiple_resources
 
@@ -25,13 +26,16 @@ async def deduct_resources(faction_id: int, world_id: Optional[int], resources: 
         await transfer_repo.call_deduct_resources(faction_id, world_id, _resources_to_array(resources), conn)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
+    await spend_service.record_spend(faction_id, resources, spend_service.SPEND)
 
 
-async def add_resources(faction_id: int, world_id: Optional[int], resources: dict):
+async def add_resources(faction_id: int, world_id: Optional[int], resources: dict, is_refund: bool = False):
     try:
         await transfer_repo.call_add_resources(faction_id, world_id, _resources_to_array(resources))
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
+    if is_refund:
+        await spend_service.record_spend(faction_id, resources, spend_service.REFUND)
 
 
 async def upgrade_buildings(
@@ -50,6 +54,7 @@ async def upgrade_buildings(
         )
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
+    await spend_service.record_spend(faction_id, costs, spend_service.SPEND)
 
 
 async def create_transfer(
@@ -92,10 +97,24 @@ async def deposit_transfer(transfer_id: int):
 
 
 async def intercept_transfer(transfer_id: int, fleet_id: int, world_id: int):
+    transfer = await transfer_repo.get_transfer_row(transfer_id)
     try:
         await transfer_repo.call_intercept_transfer(transfer_id, fleet_id, world_id)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
+
+    if transfer is None:
+        return
+    try:
+        from services import notification_service
+        await notification_service.notify_transfer_intercepted(
+            transfer.from_faction_id,
+            transfer_id,
+            transfer.from_world_name,
+            transfer.to_world_name,
+        )
+    except Exception:
+        logger.exception(f"Transfer {transfer_id} interception notification failed")
 
 
 async def seize_transfer(transfer_id: int, faction_id: int, world_id: int):
@@ -166,8 +185,18 @@ async def execute_physical_transfer(
     current_time: datetime,
     escort_fleet_id: Optional[int] = None,
     escort_fleet_name: Optional[str] = None,
+    use_lanes: bool = False,
 ) -> dict:
-    travel_time = await calculate_travel_time(from_world_name, to_world_name, current_time)
+    route_info = None
+    if use_lanes:
+        from services import port_service
+        route_info = await port_service.calculate_best_route(
+            from_world_id, from_world_name, to_world_id, to_world_name,
+            from_faction_id, port_service.TRAFFIC_TRANSFERS,
+        )
+        travel_time = route_info['duration']
+    else:
+        travel_time = await calculate_travel_time(from_world_name, to_world_name, current_time)
     arrival_time = current_time + travel_time
     travel_str = await format_travel_time(travel_time)
 
@@ -190,7 +219,8 @@ async def execute_physical_transfer(
     try:
         await notification_service.notify_transfer_departure(
             from_faction_id, from_world_name, to_world_name,
-            from_world_id, to_world_id, cargo_lines, escort_fleet_name
+            from_world_id, to_world_id, cargo_lines, escort_fleet_name,
+            transfer_id=transfer_id
         )
     except Exception:
         logger.exception(f"Transfer {transfer_id} departure notification failed")
@@ -199,6 +229,7 @@ async def execute_physical_transfer(
         'transfer_id': transfer_id,
         'arrival_time': arrival_time,
         'travel_str': travel_str,
+        'route_info': route_info,
     }
 
 

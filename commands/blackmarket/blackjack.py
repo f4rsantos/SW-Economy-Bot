@@ -12,7 +12,7 @@ from utils.embeds import success_embed, error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
 from services.validation_service import require_faction, require_world
-from services.casino_wager import parse_casino_wager, requires_world
+from utils.casino_wager import parse_casino_wager, requires_world
 from services.casino_service import open_blackjack_round, close_blackjack_round
 from utils.casino_games import (
     draw_blackjack_card,
@@ -25,7 +25,7 @@ from utils.casino_games import (
     blackjack_natural_multiplier,
     random_loss_message,
 )
-from services.casino_session import start_game, end_game
+from utils.casino_session import start_game, end_game
 
 VIEW_TIMEOUT_SECONDS = 90
 DEAL_DELAY_SECONDS = 0.7
@@ -47,7 +47,7 @@ def _value_label(hand: list) -> str:
 
 
 class BlackjackView(discord.ui.View):
-    def __init__(self, owner_id: int, faction_id: int, faction_color: int, resource: str, wager: int, res_id: int, edge: float):
+    def __init__(self, owner_id: int, faction_id: int, faction_color: int, resource: str, wager: int, res_id: int, edge: float, table_max: int = 0):
         super().__init__(timeout=VIEW_TIMEOUT_SECONDS)
         self.owner_id = owner_id
         self.faction_id = faction_id
@@ -56,6 +56,7 @@ class BlackjackView(discord.ui.View):
         self.wager = wager
         self.res_id = res_id
         self.edge = edge
+        self.table_max = table_max
         self.world_id = None
         self.player_hand: list = []
         self.dealer_hand: list = []
@@ -96,7 +97,8 @@ class BlackjackView(discord.ui.View):
             self.dealer_hand.append(draw_blackjack_card())
         resolution = blackjack_resolve(self.player_hand, self.dealer_hand, self.edge)
         result = await close_blackjack_round(
-            self.faction_id, self.world_id, self.resource, self.res_id, self.wager, resolution['multiplier']
+            self.faction_id, self.world_id, self.resource, self.res_id, self.wager, resolution['multiplier'],
+            table_max=self.table_max,
         )
         return resolution, result
 
@@ -110,6 +112,8 @@ class BlackjackView(discord.ui.View):
         outcome = resolution['outcome']
         if outcome in ('win', 'dealer_bust', 'natural'):
             lines.append(f"You won {handle_return(result['payout'])} {self.resource}. Net gain: {handle_return(result['net'])} {self.resource}.")
+            if result.get('alloys_awarded'):
+                lines.append(f"High stakes bonus: {result['alloys_awarded']} Alloys.")
             embed = success_embed(title=f"Blackjack [{self.resource}], Winner!", description="\n".join(lines))
         elif outcome == 'push':
             lines.append("Push. Your wager was returned. No gain, no loss.")
@@ -233,6 +237,7 @@ async def blackjack_cmd(interaction: discord.Interaction, faction: str, amount: 
         wager=stake,
         res_id=opened['res_id'],
         edge=opened['edge'],
+        table_max=opened['table_max'],
     )
     view.world_id = world_id
 
@@ -273,7 +278,8 @@ async def blackjack_cmd(interaction: discord.Interaction, faction: str, amount: 
         else:
             resolution = {'outcome': 'loss', 'multiplier': 0.0}
         result = await close_blackjack_round(
-            faction_id, world_id, resource, opened['res_id'], stake, resolution['multiplier']
+            faction_id, world_id, resource, opened['res_id'], stake, resolution['multiplier'],
+            table_max=opened['table_max'],
         )
         embed = view._outcome_embed(resolution, result)
         for child in view.children:

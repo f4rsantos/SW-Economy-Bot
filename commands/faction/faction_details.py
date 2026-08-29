@@ -25,7 +25,6 @@ async def _can_manage_faction(user_id: int, faction_id: int) -> bool:
 @app_commands.describe(
     faction="The name of the faction to edit",
     color="Hex color code (e.g., #ff0000)",
-    leader_treatment="Leader's title/treatment",
     formal_name="Full formal name of the faction",
     flag="Flag emoji or image URL",
     capital_world="Capital world name or ID (nations only)"
@@ -35,7 +34,6 @@ async def faction_details(
     interaction: discord.Interaction,
     faction: str,
     color: Optional[str] = None,
-    leader_treatment: Optional[str] = None,
     formal_name: Optional[str] = None,
     flag: Optional[str] = None,
     capital_world: Optional[str] = None
@@ -52,7 +50,7 @@ async def faction_details(
         await interaction.followup.send(embed=error_embed("Access Denied", "You must be the faction leader or have admin privileges to edit this faction."))
         return
 
-    if not any([color, leader_treatment, formal_name, flag, capital_world]):
+    if not any([color, formal_name, flag, capital_world]):
         await interaction.followup.send(embed=error_embed("No Changes", "You must provide at least one field to update."))
         return
 
@@ -79,15 +77,13 @@ async def faction_details(
         capital_world_id = r_capital.data['id']
         capital_world_name = r_capital.data['name']
 
-    updated = await update_faction_details(faction_id, color, leader_treatment, formal_name, flag, capital_world_id)
+    updated = await update_faction_details(faction_id, color, formal_name, flag, capital_world_id)
 
     embed = success_embed(title="Faction Updated", description=f"**{updated.display_name}** has been updated")
     embed.color = hex_to_int(updated.color)
 
     if color:
         embed.add_field(name="Color", value=f"{current.color} → {updated.color}", inline=False)
-    if leader_treatment is not None:
-        embed.add_field(name="Leader Treatment", value=f"{current.leader or 'None'} → {updated.leader or 'None'}", inline=False)
     if formal_name:
         embed.add_field(name="Formal Name", value=f"{current.formal_name} → {updated.formal_name}", inline=False)
     if flag is not None:

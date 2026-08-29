@@ -17,6 +17,7 @@ async def get_badge_catalog() -> dict[int, dict]:
             catalog[bid] = {
                 'name': row.name,
                 'needs_world': row.needs_world,
+                'icon_url': row.icon_url,
                 'costs': {},
             }
         catalog[bid]['costs'][row.resource_name] = row.amount
@@ -25,6 +26,12 @@ async def get_badge_catalog() -> dict[int, dict]:
 
 async def get_badge_names(badge_ids: list[int]) -> dict[int, str]:
     return await badge_repo.get_badge_names(badge_ids)
+
+
+async def get_badges_info(badge_ids: list[int]) -> list:
+    if not badge_ids:
+        return []
+    return await badge_repo.get_badges_info(list(badge_ids))
 
 
 async def user_has_badge(user_id: int, badge_id: int) -> bool:

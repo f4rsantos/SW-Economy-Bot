@@ -14,7 +14,7 @@ from dtos.script import Script
 async def get_active_scripts(faction_id: int) -> list[Script]:
     rows = await db.fetch(
         """SELECT id, name, script_text, trigger_day, trigger_type, created_at, updated_at,
-                  last_run_at, run_count, is_active, created_by
+                  last_run_at, run_count, is_active, created_by, is_auto_econ
            FROM faction_scripts
            WHERE faction_id = $1 AND is_active = TRUE
            ORDER BY created_at""",
@@ -26,7 +26,7 @@ async def get_active_scripts(faction_id: int) -> list[Script]:
 async def get_script_by_name(faction_id: int, name: str) -> Optional[Script]:
     row = await db.fetchrow(
         """SELECT id, name, script_text, trigger_day, trigger_type, created_at, updated_at,
-                  last_run_at, run_count, is_active, created_by
+                  last_run_at, run_count, is_active, created_by, is_auto_econ
            FROM faction_scripts
            WHERE faction_id = $1 AND LOWER(name) = LOWER($2) AND is_active = TRUE""",
         faction_id, name,
@@ -37,7 +37,7 @@ async def get_script_by_name(faction_id: int, name: str) -> Optional[Script]:
 async def get_manual_script_by_name(faction_id: int, name: str) -> Optional[Script]:
     row = await db.fetchrow(
         """SELECT id, name, script_text, trigger_day, trigger_type, created_at, updated_at,
-                  last_run_at, run_count, is_active, created_by
+                  last_run_at, run_count, is_active, created_by, is_auto_econ
            FROM faction_scripts
            WHERE faction_id = $1 AND LOWER(name) = LOWER($2) AND is_active = TRUE
              AND trigger_type = 'manual'""",
@@ -49,7 +49,7 @@ async def get_manual_script_by_name(faction_id: int, name: str) -> Optional[Scri
 async def get_script_by_id(script_id: int, faction_id: int) -> Optional[Script]:
     row = await db.fetchrow(
         """SELECT id, name, script_text, trigger_day, trigger_type, created_at, updated_at,
-                  last_run_at, run_count, is_active, created_by
+                  last_run_at, run_count, is_active, created_by, is_auto_econ
            FROM faction_scripts
            WHERE id = $1 AND faction_id = $2""",
         script_id, faction_id,
@@ -72,13 +72,15 @@ async def insert_script(
     trigger_day: Optional[str],
     trigger_type: Optional[str],
     created_by: int,
+    is_auto_econ: bool = False,
 ) -> dict:
     row = await db.fetchrow(
-        """INSERT INTO faction_scripts (faction_id, name, script_text, trigger_day, trigger_type, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6)
+        """INSERT INTO faction_scripts
+                (faction_id, name, script_text, trigger_day, trigger_type, created_by, is_auto_econ)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            RETURNING id, name, script_text, trigger_day, trigger_type, created_at, updated_at,
-                     last_run_at, run_count, is_active, created_by""",
-        faction_id, name, script_text, trigger_day, trigger_type, created_by,
+                     last_run_at, run_count, is_active, created_by, is_auto_econ""",
+        faction_id, name, script_text, trigger_day, trigger_type, created_by, is_auto_econ,
     )
     return dict(row)
 
@@ -95,8 +97,26 @@ async def update_script(
            SET script_text = $1, trigger_day = $2, trigger_type = $3, updated_at = NOW()
            WHERE id = $4 AND faction_id = $5 AND is_active = TRUE
            RETURNING id, name, script_text, trigger_day, trigger_type, created_at, updated_at,
-                     last_run_at, run_count, is_active, created_by""",
+                     last_run_at, run_count, is_active, created_by, is_auto_econ""",
         script_text, trigger_day, trigger_type, script_id, faction_id,
+    )
+    return Script.from_row(row) if row else None
+
+
+async def update_auto_econ_script(
+    script_id: int,
+    faction_id: int,
+    script_text: str,
+    trigger_day: Optional[str],
+) -> Optional[Script]:
+    row = await db.fetchrow(
+        """UPDATE faction_scripts
+           SET script_text = $1, trigger_day = $2, trigger_type = NULL,
+               is_auto_econ = TRUE, updated_at = NOW()
+           WHERE id = $3 AND faction_id = $4 AND is_active = TRUE
+           RETURNING id, name, script_text, trigger_day, trigger_type, created_at, updated_at,
+                     last_run_at, run_count, is_active, created_by, is_auto_econ""",
+        script_text, trigger_day, script_id, faction_id,
     )
     return Script.from_row(row) if row else None
 
@@ -107,6 +127,16 @@ async def delete_script(script_id: int, faction_id: int) -> bool:
         script_id, faction_id,
     )
     return result == "DELETE 1"
+
+
+async def deactivate_script(script_id: int, faction_id: int) -> bool:
+    result = await db.execute(
+        """UPDATE faction_scripts
+           SET is_active = FALSE
+           WHERE id = $1 AND faction_id = $2 AND is_active = TRUE""",
+        script_id, faction_id,
+    )
+    return result == "UPDATE 1"
 
 
 async def get_scripts_for_income_day(income_weekday_name: str) -> list[Script]:

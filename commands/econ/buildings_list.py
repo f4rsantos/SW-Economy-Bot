@@ -13,7 +13,7 @@ from services.building_efficiency_service import get_faction_building_count_actu
 from services.building_service import (
     get_buildings_catalog, get_all_building_cost_rows, get_faction_mega_factory_count,
     get_faction_building_ids_at_level, get_building_ids_supporting_level,
-    MEGA_FACTORY_BUILDING_ID, MEGA_FACTORY_SCALE_RATE,
+    is_mega_factory, MEGA_FACTORY_SCALE_RATE,
 )
 from services.validation_service import require_faction
 
@@ -73,7 +73,7 @@ async def buildings_list(interaction: discord.Interaction, faction: str = None, 
         if costs:
             cost_str = ", ".join(f"{handle_return(c.amount)} {c.name}" for c in costs)
             if faction_data:
-                if building.id == MEGA_FACTORY_BUILDING_ID:
+                if is_mega_factory(building.id):
                     scale = (1 + MEGA_FACTORY_SCALE_RATE) ** curr_mega
                     personal_costs = [
                         f"{handle_return(int(c.amount * scale))} {c.name}"

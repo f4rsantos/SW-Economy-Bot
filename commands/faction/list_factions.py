@@ -8,7 +8,8 @@ from discord import app_commands
 from utils.checks import require_access_level
 from utils.embeds import success_embed, error_embed
 from utils.views import OwnerOnlyView
-from services.faction_service import list_factions as list_factions_service
+from database.cache_manager import cache_manager
+from services.faction_service import list_factions as list_factions_service, NO_LEADER_LABEL, NO_TREATMENT_LABEL
 
 FACTIONS_PER_PAGE = 10
 
@@ -53,7 +54,12 @@ class FactionPaginationView(OwnerOnlyView):
             else:
                 formal = f" ({faction.formal_name})" if faction.formal_name != faction.name else ""
                 field_name = f"{type_label} {faction.name}{formal}"
-            embed.add_field(name=field_name, value=f"ID: `{faction.id}` | Leader: {faction.leader}", inline=False)
+            if faction.leader_id is None:
+                leader_display = NO_LEADER_LABEL
+            else:
+                leader_user = cache_manager.get_user(faction.leader_id)
+                leader_display = (leader_user.treatment if leader_user else None) or NO_TREATMENT_LABEL
+            embed.add_field(name=field_name, value=f"ID: `{faction.id}` | Leader: {leader_display}", inline=False)
 
         return embed
 

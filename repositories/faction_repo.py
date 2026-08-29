@@ -70,6 +70,14 @@ async def update_faction_leader(faction_id: int, user_id: int) -> None:
     await db.execute("UPDATE factions SET leader_id = $1 WHERE id = $2", user_id, faction_id)
 
 
+async def update_faction_population_limit(faction_id: int, population_limit: Optional[int]) -> None:
+    await db.execute(
+        "UPDATE factions SET population_limit = $1::bigint WHERE id = $2",
+        population_limit,
+        faction_id,
+    )
+
+
 async def update_faction_details(set_clause: str, values: list) -> Optional[Faction]:
     row = await db.fetchrow(f"UPDATE factions SET {set_clause} RETURNING *", *values)
     return Faction.from_row(row) if row else None
@@ -225,6 +233,11 @@ async def get_resource_id_by_name(conn, name: str) -> Optional[int]:
 
 async def get_resource_ids_by_names(conn, names: list) -> dict:
     rows = await conn.fetch("SELECT id, name FROM resources WHERE name = ANY($1)", names)
+    return {r['name']: r['id'] for r in rows}
+
+
+async def get_building_ids_by_names(conn, names: list) -> dict:
+    rows = await conn.fetch("SELECT id, name FROM buildings WHERE name = ANY($1)", names)
     return {r['name']: r['id'] for r in rows}
 
 

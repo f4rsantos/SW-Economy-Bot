@@ -23,15 +23,14 @@ MAX_TRADE_AMOUNT = 1_000_000_000_000_000
 @app_commands.describe(
     sender="Sending faction",
     receiver="Receiving faction",
-    amount="Amount per income cycle (e.g. '10k CM', '2.5mil', '500')",
-    resource="Resource to trade (optional if included in amount)",
+    amount="Amount and resource per income cycle, e.g. '10k CM', '2.5mil ER', '500 CM'",
     from_world="Optional: Specific source world",
     to_world="Optional: Specific destination world",
     escort_fleet="Optional: Escort fleet (requires from_world; must be at that world each cycle)"
 )
 @require_access_level(0)
 @ephemeral_capable('sender')
-async def begin_trade(interaction: discord.Interaction, sender: str, receiver: str, amount: str, resource: str = None, from_world: str = None, to_world: str = None, escort_fleet: str = None):
+async def begin_trade(interaction: discord.Interaction, sender: str, receiver: str, amount: str, from_world: str = None, to_world: str = None, escort_fleet: str = None):
     await defer_response(interaction)
 
     r_sender_data, r_receiver_data = await asyncio.gather(
@@ -44,7 +43,7 @@ async def begin_trade(interaction: discord.Interaction, sender: str, receiver: s
     receiver_data = r_receiver_data.data
 
     try:
-        amount, resource_name = parse_single_amount(amount, fallback_resource=resource)
+        amount, resource_name = parse_single_amount(amount)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
@@ -64,7 +63,7 @@ async def begin_trade(interaction: discord.Interaction, sender: str, receiver: s
     sender_world_id = None
     if from_world:
         try:
-            sender_world_id = await validate_world_for_trade(from_world, sender_data['id'])
+            sender_world_id = await validate_world_for_trade(from_world, sender_data.id)
         except ValueError as e:
             await interaction.followup.send(embed=error_embed("Error", str(e)))
             return
@@ -72,7 +71,7 @@ async def begin_trade(interaction: discord.Interaction, sender: str, receiver: s
     receiver_world_id = None
     if to_world:
         try:
-            receiver_world_id = await validate_world_for_trade(to_world, receiver_data['id'])
+            receiver_world_id = await validate_world_for_trade(to_world, receiver_data.id)
         except ValueError as e:
             await interaction.followup.send(embed=error_embed("Error", str(e)))
             return
@@ -83,7 +82,7 @@ async def begin_trade(interaction: discord.Interaction, sender: str, receiver: s
         if sender_world_id is None:
             await interaction.followup.send(embed=error_embed("Error", "An escort fleet requires a specific from_world."))
             return
-        fleet_data = await get_fleet_by_identifier(escort_fleet, sender_data['id'])
+        fleet_data = await get_fleet_by_identifier(escort_fleet, sender_data.id)
         if not fleet_data:
             await interaction.followup.send(embed=error_embed("Error", f"Fleet '{escort_fleet}' not found."))
             return
@@ -94,7 +93,7 @@ async def begin_trade(interaction: discord.Interaction, sender: str, receiver: s
         escort_display = fleet_data.name or f"Fleet #{fleet_data.faction_fleet_number}"
 
     trade_id = await begin_trade_service(
-        sender_data['id'], receiver_data['id'], resource_data['id'], amount, sender_world_id, receiver_world_id, escort_fleet_id
+        sender_data.id, receiver_data.id, resource_data['id'], amount, sender_world_id, receiver_world_id, escort_fleet_id
     )
 
     escort_line = f"**Escort:** {escort_display}\n" if escort_display else ""
@@ -106,7 +105,7 @@ async def begin_trade(interaction: discord.Interaction, sender: str, receiver: s
 
     embed = success_embed(
         "Trade Deal Created",
-        f"**{sender_data['display_name']}** → **{receiver_data['display_name']}**\n\n"
+        f"**{sender_data.display_name}** → **{receiver_data.display_name}**\n\n"
         f"**Resource:** {resource_data['name']}\n"
         f"**Amount:** {handle_return(amount)} per income cycle\n"
         f"{route_line}"
@@ -114,7 +113,7 @@ async def begin_trade(interaction: discord.Interaction, sender: str, receiver: s
         f"**Trade ID:** {trade_id}\n\n"
         f"This trade will execute automatically during each income cycle."
     )
-    embed.color = hex_to_int(sender_data['color'])
+    embed.color = hex_to_int(sender_data.color)
     await interaction.followup.send(embed=embed)
 
 

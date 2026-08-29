@@ -29,6 +29,18 @@ async def get_battle_stats(battle_id: int) -> List[BattleSideStat]:
     return BattleSideStat.from_rows(rows)
 
 
+async def get_battle_participant_faction_ids(battle_id: int) -> List[int]:
+    rows = await db.fetch(
+        """
+        SELECT DISTINCT f.faction_id FROM fleets f
+        JOIN battle_participants bp ON f.id = bp.fleet_id
+        WHERE bp.battle_id = $1
+        """,
+        battle_id,
+    )
+    return [row['faction_id'] for row in rows]
+
+
 async def get_battle_fleet_count(battle_id: int) -> int:
     row = await db.fetchrow(
         "SELECT COUNT(*) as count FROM battle_participants WHERE battle_id = $1", battle_id

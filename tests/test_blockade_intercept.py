@@ -51,8 +51,8 @@ async def test_arrival_noop_when_transfer_missing(fake_db):
 @pytest.mark.asyncio
 async def test_intercept_transfer_passes_world_id(fake_db):
     await intercept_transfer(transfer_id=1, fleet_id=5, world_id=9)
-    call = fake_db.executed[0]
-    assert call[0] == "execute"
+    call = next(c for c in fake_db.executed if c[0] == "execute")
+    assert "sp_intercept_transfer" in call[1]
     assert call[2] == (1, 5, 9)
 
 

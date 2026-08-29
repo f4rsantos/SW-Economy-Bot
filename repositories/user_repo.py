@@ -34,3 +34,21 @@ async def set_user_ephemeral(user_id: int, value: bool) -> Optional[User]:
         value,
     )
     return User.from_row(row) if row else None
+
+
+async def set_user_allegiance(user_id: int, value: Optional[str]) -> Optional[User]:
+    row = await db.fetchrow(
+        "UPDATE users SET allegiance = $2 WHERE id = $1 RETURNING *",
+        user_id,
+        value,
+    )
+    return User.from_row(row) if row else None
+
+
+async def set_user_treatment(user_id: int, value: Optional[str]) -> Optional[User]:
+    row = await db.fetchrow(
+        "UPDATE users SET treatment = $2 WHERE id = $1 RETURNING *",
+        user_id,
+        value,
+    )
+    return User.from_row(row) if row else None

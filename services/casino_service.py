@@ -3,10 +3,14 @@
 # via any medium, is strictly prohibited without explicit written
 # permission from the copyright holder. Contact: f4rsantos@gmail.com
 
+import logging
+import random
 from dataclasses import replace
 
 from dtos.casino import CasinoPool
 from repositories import casino_repo
+
+logger = logging.getLogger(__name__)
 
 CASINO_RESOURCES = ('ER', 'CM', 'EL', 'CS')
 
@@ -22,6 +26,36 @@ EDGE_MIN = 0.05
 
 TRIM_THRESHOLD_MULTIPLIER = 3
 TRIM_EXCESS_FRACTION = 0.25
+
+HIGH_STAKES_TABLE_MAX_PCT = 0.5
+
+ALLOYS_RESOURCE_NAME = 'Alloys'
+ALLOY_AWARD_MIN = 1
+ALLOY_AWARD_MAX = 4
+
+
+def is_high_stakes(wager: int, table_max: int) -> bool:
+    if table_max <= 0:
+        return False
+    return wager >= table_max * HIGH_STAKES_TABLE_MAX_PCT
+
+
+async def award_alloy_if_qualified(faction_id: int, wager: int, table_max: int, won: bool, eligible: bool = True) -> int:
+    if not won or not eligible or not is_high_stakes(wager, table_max):
+        return 0
+
+    amount = random.randint(ALLOY_AWARD_MIN, ALLOY_AWARD_MAX)
+    try:
+        async with casino_repo.get_connection() as conn:
+            alloys_id = await casino_repo.get_resource_id(conn, ALLOYS_RESOURCE_NAME)
+            if not alloys_id:
+                logger.warning("Alloy award skipped: Alloys resource is not configured.")
+                return 0
+            await casino_repo.credit_faction_treasury(conn, faction_id, alloys_id, amount)
+        return amount
+    except Exception as e:
+        logger.warning(f"Alloy award failed for faction {faction_id}: {e}")
+        return 0
 
 
 def _health_ratio(pool_amount: float, floor: float) -> float:
@@ -157,6 +191,7 @@ async def settle_bet(
     resource: str,
     wager: int,
     payout_multiplier: float,
+    alloy_eligible: bool = True,
 ) -> dict:
     if wager <= 0:
         raise ValueError("Wager must be greater than zero.")
@@ -185,12 +220,15 @@ async def settle_bet(
 
             net = payout - wager
 
+            alloys_awarded = await award_alloy_if_qualified(faction_id, wager, table_max, net > 0, alloy_eligible)
+
             return {
                 'resource': resource,
                 'wager': wager,
                 'payout': payout,
                 'net': net,
                 'pool_before': pool.amount,
+                'alloys_awarded': alloys_awarded,
             }
 
 
@@ -226,10 +264,20 @@ async def open_chicken_round(faction_id: int, world_id: int, resource: str, wage
                 'edge': edge,
                 'res_id': res_id,
                 'pool_before': pool.amount,
+                'table_max': table_max,
             }
 
 
-async def close_chicken_round_cashout(faction_id: int, world_id: int, resource: str, res_id: int, wager: int, payout_multiplier: float) -> dict:
+async def close_chicken_round_cashout(
+    faction_id: int,
+    world_id: int,
+    resource: str,
+    res_id: int,
+    wager: int,
+    payout_multiplier: float,
+    table_max: int = 0,
+    alloy_eligible: bool = True,
+) -> dict:
     payout = int(wager * payout_multiplier)
 
     async with casino_repo.get_connection() as conn:
@@ -244,7 +292,10 @@ async def close_chicken_round_cashout(faction_id: int, world_id: int, resource: 
                 await debit_pool(conn, res_id, payout)
                 await pay_winnings_to_faction(conn, faction_id, world_id, resource, res_id, payout)
 
-            return {'resource': resource, 'wager': wager, 'payout': payout, 'net': payout - wager}
+            net = payout - wager
+            alloys_awarded = await award_alloy_if_qualified(faction_id, wager, table_max, net > 0, alloy_eligible)
+
+            return {'resource': resource, 'wager': wager, 'payout': payout, 'net': net, 'alloys_awarded': alloys_awarded}
 
 
 async def close_chicken_round_crash(resource: str, res_id: int, wager: int) -> dict:
@@ -291,10 +342,19 @@ async def open_blackjack_round(faction_id: int, world_id: int, resource: str, wa
                 'edge': edge,
                 'res_id': res_id,
                 'pool_before': pool.amount,
+                'table_max': table_max,
             }
 
 
-async def close_blackjack_round(faction_id: int, world_id: int, resource: str, res_id: int, wager: int, payout_multiplier: float) -> dict:
+async def close_blackjack_round(
+    faction_id: int,
+    world_id: int,
+    resource: str,
+    res_id: int,
+    wager: int,
+    payout_multiplier: float,
+    table_max: int = 0,
+) -> dict:
     payout = int(wager * payout_multiplier)
 
     async with casino_repo.get_connection() as conn:
@@ -309,7 +369,10 @@ async def close_blackjack_round(faction_id: int, world_id: int, resource: str, r
                 await debit_pool(conn, res_id, payout)
                 await pay_winnings_to_faction(conn, faction_id, world_id, resource, res_id, payout)
 
-            return {'resource': resource, 'wager': wager, 'payout': payout, 'net': payout - wager}
+            net = payout - wager
+            alloys_awarded = await award_alloy_if_qualified(faction_id, wager, table_max, net > 0, True)
+
+            return {'resource': resource, 'wager': wager, 'payout': payout, 'net': net, 'alloys_awarded': alloys_awarded}
 
 
 async def apply_weekly_trim() -> list[dict]:

@@ -9,6 +9,7 @@ import math
 from typing import List, Optional
 from repositories import fleet_repo
 from dtos.fleet import Fleet, FleetDamageInfo, FleetListing
+from services import spend_service
 from services.building_efficiency_service import calculate_effective_efficiency
 from services.local_deduction import deduct_local_proportional
 
@@ -119,6 +120,8 @@ async def buy_vehicle(faction_id: int, world_id: int, fleet_id: int, vehicle_id:
         await event_queue.push(due, 'construction_complete', {
             'order_id': order_id, 'fleet_id': fleet_id, 'vehicle_id': vehicle_id, 'quantity': amount
         })
+        total_costs = {c['name']: c['amount'] * amount for c in costs}
+        await spend_service.record_spend(faction_id, total_costs, spend_service.SPEND)
         return order_id
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
@@ -143,6 +146,10 @@ async def refit_vehicle(faction_id: int, fleet_id: int, vehicle_id: int, amount:
         await event_queue.push(due, 'construction_complete', {
             'order_id': order_id, 'fleet_id': fleet_id, 'vehicle_id': vehicle_id, 'quantity': amount
         })
+        spend_costs = {c['name']: c['amount'] * amount for c in cost_deltas if c['amount'] * amount > 0}
+        refund_costs = {c['name']: -c['amount'] * amount for c in cost_deltas if c['amount'] * amount < 0}
+        await spend_service.record_spend(faction_id, spend_costs, spend_service.SPEND)
+        await spend_service.record_spend(faction_id, refund_costs, spend_service.REFUND)
         return order_id
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
@@ -186,16 +193,7 @@ async def get_factory_progress(faction_id: int, world_id: Optional[int] = None) 
 
 
 async def get_fleets(faction_id: Optional[int] = None, world_id: Optional[int] = None) -> List[FleetListing]:
-    conditions = []
-    args = []
-    if faction_id:
-        conditions.append(f"f.faction_id = ${len(args) + 1}")
-        args.append(faction_id)
-    if world_id:
-        conditions.append(f"f.position = ${len(args) + 1}")
-        args.append(world_id)
-    where = "WHERE " + " AND ".join(conditions) if conditions else ""
-    return await fleet_repo.get_fleets_rows(where, args)
+    return await fleet_repo.get_fleets(faction_id, world_id)
 
 
 async def get_fleet_for_damage(fleet_identifier: str, faction_id: Optional[int]) -> Optional[FleetDamageInfo]:
@@ -205,27 +203,7 @@ async def get_fleet_for_damage(fleet_identifier: str, faction_id: Optional[int])
 
 
 async def list_debris_fleets(faction_id: Optional[int] = None, world_id: Optional[int] = None) -> list[dict]:
-    query = """
-        SELECT f.id, f.name, f.faction_fleet_number,
-               fac.name as faction_name, w.name as world_name, f.total_cs
-        FROM fleets f
-        JOIN fleet_status fs ON f.status_id = fs.id
-        JOIN factions fac ON f.faction_id = fac.id
-        JOIN worlds w ON f.position = w.id
-        WHERE LOWER(fs.name) = 'debris'
-    """
-    args = []
-
-    if faction_id is not None:
-        args.append(faction_id)
-        query += f" AND f.faction_id = ${len(args)}"
-
-    if world_id is not None:
-        args.append(world_id)
-        query += f" AND f.position = ${len(args)}"
-
-    query += " ORDER BY f.total_cs DESC"
-    rows = await fleet_repo.get_debris_fleets_rows(query, args)
+    rows = await fleet_repo.get_debris_fleets(faction_id, world_id)
     return [dict(r) for r in rows]
 
 
@@ -307,7 +285,11 @@ async def recruit_infantry_to_unit(unit_id: int, faction_id: int, amount: int, c
                     await fleet_repo.debit_faction_treasury(conn, faction_id, res_id, total_cost)
 
             rec_id = await fleet_repo.insert_military_recruitment(conn, faction_id, amount, completion, unit_id)
-            return rec_id
+
+    total_costs = {name: per_unit * amount for name, per_unit in costs.items()}
+    total_costs['Population'] = amount
+    await spend_service.record_spend(faction_id, total_costs, spend_service.SPEND)
+    return rec_id
 
 
 async def dismiss_infantry_from_unit(unit_id: int, faction_id: int, amount: int):

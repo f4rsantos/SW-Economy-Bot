@@ -11,7 +11,13 @@ from discord import app_commands
 
 from utils.checks import require_access_level
 from utils.embeds import error_embed
-from services.solar_map_service import render_solar_map, resolve_system, SolarMapError
+from services.solar_map_service import (
+    render_solar_map,
+    resolve_system,
+    SolarMapError,
+    radial_pan_step,
+    angular_pan_step,
+)
 
 
 class SolarMapView(discord.ui.View):
@@ -86,13 +92,9 @@ class SolarMapView(discord.ui.View):
         embed = discord.Embed(title=title, color=0x2B2D31)
         embed.set_image(url="attachment://solar_map.png")
 
-        footer_parts = [f"In-game date: {game_date_label}", f"Zoom: {self.zoom:.1f}x"]
+        footer_parts = [f"In-game date: {game_date_label}"]
         if self.focus:
             footer_parts.append(f"Focus: {self.focus}")
-        elif self.closest_body:
-            footer_parts.append(f"Center: {self.closest_body}")
-        if self.pan_x != 0 or self.pan_y != 0:
-            footer_parts.append(f"Pan: ({int(self.pan_x)}, {int(self.pan_y)})")
 
         embed.set_footer(text=" • ".join(footer_parts))
         await interaction.edit_original_response(embed=embed, attachments=[file], view=self)
@@ -102,33 +104,33 @@ class SolarMapView(discord.ui.View):
         self.zoom = min(round(self.zoom * 1.35, 2), 20.0)
         await self._rerender(interaction)
 
-    @discord.ui.button(label="▲ Up", style=discord.ButtonStyle.secondary, row=0)
-    async def pan_up_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
-        step = max(60, int(300 / math.sqrt(self.zoom)))
-        self.pan_y += step
-        await self._rerender(interaction)
-
     @discord.ui.button(label="－ Out", style=discord.ButtonStyle.primary, row=0)
     async def zoom_out_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
         self.zoom = max(round(self.zoom / 1.35, 2), 0.2)
         await self._rerender(interaction)
 
-    @discord.ui.button(label="◀ Left", style=discord.ButtonStyle.secondary, row=1)
-    async def pan_left_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
+    @discord.ui.button(label="◆ In", style=discord.ButtonStyle.secondary, row=1)
+    async def radial_in_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
         step = max(60, int(300 / math.sqrt(self.zoom)))
-        self.pan_x += step
+        self.pan_x, self.pan_y = radial_pan_step(self.pan_x, self.pan_y, step, "in")
         await self._rerender(interaction)
 
-    @discord.ui.button(label="▼ Down", style=discord.ButtonStyle.secondary, row=1)
-    async def pan_down_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
+    @discord.ui.button(label="◇ Out", style=discord.ButtonStyle.secondary, row=1)
+    async def radial_out_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
         step = max(60, int(300 / math.sqrt(self.zoom)))
-        self.pan_y -= step
+        self.pan_x, self.pan_y = radial_pan_step(self.pan_x, self.pan_y, step, "out")
         await self._rerender(interaction)
 
-    @discord.ui.button(label="▶ Right", style=discord.ButtonStyle.secondary, row=1)
-    async def pan_right_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
+    @discord.ui.button(label="↺ CCW", style=discord.ButtonStyle.secondary, row=1)
+    async def rotate_ccw_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
         step = max(60, int(300 / math.sqrt(self.zoom)))
-        self.pan_x -= step
+        self.pan_x, self.pan_y = angular_pan_step(self.pan_x, self.pan_y, step, "ccw")
+        await self._rerender(interaction)
+
+    @discord.ui.button(label="↻ CW", style=discord.ButtonStyle.secondary, row=1)
+    async def rotate_cw_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
+        step = max(60, int(300 / math.sqrt(self.zoom)))
+        self.pan_x, self.pan_y = angular_pan_step(self.pan_x, self.pan_y, step, "cw")
         await self._rerender(interaction)
 
     @discord.ui.button(label="⊙ Focus", style=discord.ButtonStyle.success, row=2)
@@ -211,11 +213,9 @@ async def solar(
     embed = discord.Embed(title=title, color=0x2B2D31)
     embed.set_image(url="attachment://solar_map.png")
     
-    footer_parts = [f"In-game date: {game_date_label}", f"Zoom: {(zoom or 1.0):.1f}x"]
+    footer_parts = [f"In-game date: {game_date_label}"]
     if focus:
         footer_parts.append(f"Focus: {focus}")
-    elif closest_body:
-        footer_parts.append(f"Center: {closest_body}")
 
     embed.set_footer(text=" • ".join(footer_parts))
     await interaction.followup.send(embed=embed, file=file, view=view)

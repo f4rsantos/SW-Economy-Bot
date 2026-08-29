@@ -39,6 +39,12 @@ TEXT_COLOR = (225, 228, 240)
 TEXT_SHADOW = (0, 0, 0)
 SUBTLE_TEXT = (150, 155, 175)
 
+ROUTE_COLOR = (90, 230, 210, 235)
+ROUTE_GLOW_COLOR = (90, 230, 210, 90)
+ROUTE_ORIGIN_COLOR = (120, 240, 150, 255)
+ROUTE_DEST_COLOR = (255, 150, 90, 255)
+ROUTE_WAYPOINT_COLOR = (90, 230, 210, 255)
+
 PLANET_ICON_MIN = 26
 PLANET_ICON_MAX = 64
 MOON_ICON_MIN = 30
@@ -205,6 +211,68 @@ def _draw_orbit_path(draw: ImageDraw.Draw, cx: float, cy: float, points: list):
     draw.line(points + [points[0]], fill=ORBIT_COLOR, width=2, joint="curve")
 
 
+def _resolve_route_points(route: Optional[list], plots: dict) -> list[tuple[str, float, float]]:
+    if not route:
+        return []
+    resolved = []
+    for name in route:
+        key = get_config_key(str(name), plots)
+        if key is None:
+            continue
+        x, y = plots[key]
+        resolved.append((key, x, y))
+    if len(resolved) < 2:
+        return []
+    return resolved
+
+
+def _draw_route(image: Image.Image, draw: ImageDraw.Draw, resolved_route: list, supersample: int):
+    if len(resolved_route) < 2:
+        return
+
+    line_width = max(3, 3 * supersample)
+    marker_radius = 9 * supersample
+
+    glow_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    gdraw = ImageDraw.Draw(glow_layer, "RGBA")
+    points = [(x, y) for _, x, y in resolved_route]
+    gdraw.line(points, fill=ROUTE_GLOW_COLOR, width=line_width * 3, joint="curve")
+    blurred = glow_layer.filter(ImageFilter.GaussianBlur(2 * supersample))
+    image.alpha_composite(blurred)
+    draw = ImageDraw.Draw(image, "RGBA")
+
+    dash_len = 14 * supersample
+    gap_len = 10 * supersample
+    for (_, x1, y1), (_, x2, y2) in zip(resolved_route, resolved_route[1:]):
+        seg_len = math.hypot(x2 - x1, y2 - y1)
+        if seg_len <= 0:
+            continue
+        dx, dy = (x2 - x1) / seg_len, (y2 - y1) / seg_len
+        travelled = 0.0
+        draw_segment = True
+        while travelled < seg_len:
+            step = min(dash_len if draw_segment else gap_len, seg_len - travelled)
+            if draw_segment:
+                sx, sy = x1 + dx * travelled, y1 + dy * travelled
+                ex, ey = x1 + dx * (travelled + step), y1 + dy * (travelled + step)
+                draw.line([(sx, sy), (ex, ey)], fill=ROUTE_COLOR, width=line_width, joint="curve")
+            travelled += step
+            draw_segment = not draw_segment
+
+    last_index = len(resolved_route) - 1
+    for i, (_, x, y) in enumerate(resolved_route):
+        if i == 0:
+            color = ROUTE_ORIGIN_COLOR
+            r = marker_radius
+        elif i == last_index:
+            color = ROUTE_DEST_COLOR
+            r = marker_radius
+        else:
+            color = ROUTE_WAYPOINT_COLOR
+            r = marker_radius * 0.7
+        draw.ellipse([x - r, y - r, x + r, y + r], outline=(255, 255, 255, 255), width=max(1, supersample), fill=color)
+
+
 def _orbit_points(name: str, system_data: dict, when: datetime, radius_px, cx: float, cy: float, relative_to: str = None, samples: int = 360) -> list:
     data = system_data[name]
     period_years = data.get("period", 0) or 0
@@ -283,6 +351,43 @@ def _place_label(placed_boxes: list, x: float, y: float, w: float, h: float, pre
     return x + ox, y + oy
 
 
+def radial_pan_step(pan_x: float, pan_y: float, step: float, direction: str) -> tuple[float, float]:
+    if direction not in ("in", "out"):
+        raise ValueError("direction must be 'in' or 'out'")
+
+    magnitude = math.hypot(pan_x, pan_y)
+
+    if magnitude == 0:
+        if direction == "out":
+            return 0.0, -step
+        return 0.0, 0.0
+
+    if direction == "in":
+        new_magnitude = max(0.0, magnitude - step)
+    else:
+        new_magnitude = magnitude + step
+
+    scale = new_magnitude / magnitude
+    return pan_x * scale, pan_y * scale
+
+
+def angular_pan_step(pan_x: float, pan_y: float, step: float, direction: str) -> tuple[float, float]:
+    if direction not in ("cw", "ccw"):
+        raise ValueError("direction must be 'cw' or 'ccw'")
+
+    magnitude = math.hypot(pan_x, pan_y)
+    if magnitude == 0:
+        return pan_x, pan_y
+
+    angle_step = step / magnitude
+    if direction == "ccw":
+        angle_step = -angle_step
+
+    current_angle = math.atan2(pan_y, pan_x)
+    new_angle = current_angle + angle_step
+    return magnitude * math.cos(new_angle), magnitude * math.sin(new_angle)
+
+
 def render_solar_map(
     system_name: str,
     date_str: Optional[str] = None,
@@ -291,6 +396,7 @@ def render_solar_map(
     pan_x: float = 0.0,
     pan_y: float = 0.0,
     focus: Optional[str] = None,
+    route: Optional[list[str]] = None,
 ) -> tuple[bytes, str, str, Optional[str]]:
     canonical_system, system_data = resolve_system(system_name)
 
@@ -309,16 +415,16 @@ def render_solar_map(
 
     if focus:
         canonical_focus = resolve_body(focus, system_data)
-        image_bytes, closest_body = _render_focus(canonical_system, system_data, canonical_focus, when, zoom, pan_x, pan_y)
+        image_bytes, closest_body = _render_focus(canonical_system, system_data, canonical_focus, when, zoom, pan_x, pan_y, route)
         title = f"{canonical_focus} System"
     else:
-        image_bytes, closest_body = _render_overview(canonical_system, system_data, when, mode, zoom, pan_x, pan_y)
+        image_bytes, closest_body = _render_overview(canonical_system, system_data, when, mode, zoom, pan_x, pan_y, route)
         title = f"{canonical_system} System"
 
     return image_bytes, title, game_date_label, closest_body
 
 
-def _render_overview(system_name: str, system_data: dict, when: datetime, mode: str, zoom: float, pan_x: float = 0.0, pan_y: float = 0.0) -> tuple[bytes, Optional[str]]:
+def _render_overview(system_name: str, system_data: dict, when: datetime, mode: str, zoom: float, pan_x: float = 0.0, pan_y: float = 0.0, route: Optional[list[str]] = None) -> tuple[bytes, Optional[str]]:
     size = BASE_SIZE * SUPERSAMPLE
     center = size / 2
     cx = center + pan_x * SUPERSAMPLE
@@ -442,6 +548,10 @@ def _render_overview(system_name: str, system_data: dict, when: datetime, mode: 
     bg = Image.alpha_composite(bg, icon_layer)
     draw = ImageDraw.Draw(bg, "RGBA")
 
+    resolved_route = _resolve_route_points(route, body_plots)
+    _draw_route(bg, draw, resolved_route, SUPERSAMPLE)
+    draw = ImageDraw.Draw(bg, "RGBA")
+
     _text_with_shadow(draw, (24 * SUPERSAMPLE, size - 40 * SUPERSAMPLE), current_game_date_str(when), font_small, fill=SUBTLE_TEXT, anchor="lm")
 
     closest_body = None
@@ -461,7 +571,7 @@ def _render_overview(system_name: str, system_data: dict, when: datetime, mode: 
     return output.getvalue(), closest_body
 
 
-def _render_focus(system_name: str, system_data: dict, focus_name: str, when: datetime, zoom: float, pan_x: float = 0.0, pan_y: float = 0.0) -> tuple[bytes, Optional[str]]:
+def _render_focus(system_name: str, system_data: dict, focus_name: str, when: datetime, zoom: float, pan_x: float = 0.0, pan_y: float = 0.0, route: Optional[list[str]] = None) -> tuple[bytes, Optional[str]]:
     size = FOCUS_SIZE * SUPERSAMPLE
     center = size / 2
     cx = center + pan_x * SUPERSAMPLE
@@ -561,6 +671,13 @@ def _render_focus(system_name: str, system_data: dict, focus_name: str, when: da
 
     bg = Image.alpha_composite(bg, icon_layer)
     draw = ImageDraw.Draw(bg, "RGBA")
+
+    route_plots = dict(moon_plots)
+    route_plots[focus_name] = (cx, cy)
+    resolved_route = _resolve_route_points(route, route_plots)
+    _draw_route(bg, draw, resolved_route, SUPERSAMPLE)
+    draw = ImageDraw.Draw(bg, "RGBA")
+
     _text_with_shadow(draw, (24 * SUPERSAMPLE, size - 40 * SUPERSAMPLE), current_game_date_str(when), font_small, fill=SUBTLE_TEXT, anchor="lm")
 
     closest_body = focus_name

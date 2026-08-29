@@ -5,8 +5,12 @@
 
 import asyncpg
 import json
+import logging
 from typing import Optional
 from repositories import battle_repo
+from services import notification_service
+
+logger = logging.getLogger(__name__)
 
 
 async def start_battle(war_id: int, fleet_id: int, side: str, world_id: int) -> int:
@@ -21,11 +25,21 @@ async def end_battle(battle_id: int, faction_id: int) -> dict:
     stats = await battle_repo.get_battle_stats(battle_id)
 
     fleet_count = await battle_repo.get_battle_fleet_count(battle_id)
+    battle_data = await battle_repo.get_battle(battle_id)
+    participant_faction_ids = await battle_repo.get_battle_participant_faction_ids(battle_id)
 
     try:
         await battle_repo.end_battle(battle_id, faction_id)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
+
+    try:
+        if battle_data:
+            await notification_service.notify_battle_ended(
+                battle_id, battle_data.world_name, participant_faction_ids
+            )
+    except Exception as e:
+        logger.warning(f"Battle end notification failed for battle {battle_id}: {e}")
 
     return {'stats': stats, 'fleet_count': fleet_count}
 

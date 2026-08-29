@@ -4,7 +4,7 @@
 # permission from the copyright holder. Contact: f4rsantos@gmail.com
 
 from database.db_manager import db
-from dtos.badge import BadgeCostRow, BadgeProgressRow
+from dtos.badge import BadgeCostRow, BadgeProgressRow, BadgeInfo
 
 
 def get_connection():
@@ -14,7 +14,7 @@ def get_connection():
 async def get_badge_catalog_rows() -> list[BadgeCostRow]:
     return BadgeCostRow.from_rows(await db.fetch(
         """
-        SELECT b.id, b.name, b.needs_world, r.name AS resource_name, bc.amount
+        SELECT b.id, b.name, b.needs_world, b.icon_url, r.name AS resource_name, bc.amount
         FROM badges b
         JOIN badge_costs bc ON b.id = bc.badge_id
         JOIN resources r ON r.id = bc.resource_id
@@ -27,6 +27,13 @@ async def get_badge_catalog_rows() -> list[BadgeCostRow]:
 async def get_badge_names(badge_ids: list[int]) -> dict[int, str]:
     rows = await db.fetch("SELECT id, name FROM badges WHERE id = ANY($1)", badge_ids)
     return {r['id']: r['name'] for r in rows}
+
+
+async def get_badges_info(badge_ids: list[int]) -> list[BadgeInfo]:
+    return BadgeInfo.from_rows(await db.fetch(
+        "SELECT id, name, icon_url FROM badges WHERE id = ANY($1) ORDER BY name",
+        badge_ids
+    ))
 
 
 async def user_has_badge(user_id: int, badge_id: int) -> bool:

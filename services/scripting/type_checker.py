@@ -10,10 +10,11 @@ from .ast_nodes import (
     Program, AssignStmt, IfStmt, ForEachStmt, RepeatStmt, SwitchStmt,
     TransferAction, BuyBuildingAction, UpgradeBuildingAction,
     MoveFleetAction, FleetStatusAction, RenameFleetAction, BuyVehiclesAction, RecruitAction,
+    StopStmt,
     ResourceCond, FleetHealthCond, FleetStatusCond, FleetVehiclesCond, FleetAtWorldCond,
     WorldResourceCond, BuildingCountCond,
     AtWarCond, BlockadedCond, TodayIsCond, FactorySpaceCond, ExprComparison, BinaryCond, NotCond,
-    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr,
+    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr, ResourceExpr,
     Expr, Cond, Statement,
 )
 
@@ -70,6 +71,8 @@ class TypeChecker:
             self.visit_repeat(node)
         elif t is SwitchStmt:
             self.visit_switch(node)
+        elif t is StopStmt:
+            pass
         else:
             self.visit_action(node)
 
@@ -205,6 +208,8 @@ class TypeChecker:
             return self.scope[node.name]
         if t is FleetsAtExpr:
             return T_LIST
+        if t is ResourceExpr:
+            return T_INT
         if t is RandiExpr:
             self._expect_int(node.low, "RANDI lower bound")
             self._expect_int(node.high, "RANDI upper bound")

@@ -74,7 +74,7 @@ async def wars(interaction: discord.Interaction, faction: Optional[str] = None):
         sides_text = "\n".join(f"**Side {s}:** {f}" for s, f in sorted(sides_info.items())) if sides_info else "No participants yet"
         embed.add_field(
             name=f"War #{war.id} - {war.name}",
-            value=f"{sides_text}\n**Battles:** {war.active_battles}\n**Started:** <t:{int(war.date_start.timestamp())}:R>",
+            value=f"{sides_text}\n**Battles:** {war.active_battles}\n**Started:** <t:{int(war.date_start.timestamp())}:R>\n​",
             inline=False
         )
 

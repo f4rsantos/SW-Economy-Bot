@@ -217,7 +217,7 @@ class VehiclePaginationView(OwnerOnlyView):
         embed = discord.Embed(
             title=f"Vehicles: {self.faction_data.display_name}",
             description=f"Page {self.page + 1}/{self.total_pages} • {len(self.vehicles)} total vehicles",
-            color=faction_color
+            color=hex_to_int(self.faction_data.color)
         )
 
         if self.hidden:
@@ -232,7 +232,7 @@ class VehiclePaginationView(OwnerOnlyView):
             type_name = vehicle['type_name'] or "Unknown Type"
             embed.add_field(
                 name=f"#{vehicle['faction_vehicle_number']}: {vehicle['name']}{designation}",
-                value=f"**Type:** {type_name}\n**Cost:** {cost_str}",
+                value=f"**Type:** {type_name}\n**Cost:** {cost_str}\n​",
                 inline=False
             )
         embed.set_footer(text="Select a vehicle from the dropdown to view details")

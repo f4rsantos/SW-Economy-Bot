@@ -10,8 +10,16 @@ from utils.checks import require_access_level
 from utils.embeds import success_embed, error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int, is_faction_leader
+from services.user_service import get_user_allegiance
 from services.badge_service import get_badge_catalog, purchase_badge, get_user_badge_ids
 from services.validation_service import require_faction, require_world
+
+
+async def can_buy_for_faction(user_id: int, faction) -> bool:
+    if await is_faction_leader(user_id, faction):
+        return True
+    allegiance = await get_user_allegiance(user_id)
+    return bool(allegiance) and allegiance == faction.display_name
 
 
 def _format_costs(costs: dict) -> str:
@@ -74,9 +82,12 @@ class BadgeShopView(discord.ui.View):
             )
             return
 
-        if not await is_faction_leader(interaction.user.id, self.faction):
+        if not await can_buy_for_faction(interaction.user.id, self.faction):
             await interaction.response.send_message(
-                embed=error_embed("Access Denied", "Only faction leaders can buy badges."),
+                embed=error_embed(
+                    "Access Denied",
+                    "You must lead this faction or have an approved allegiance to it to buy badges.",
+                ),
             )
             return
 
@@ -118,7 +129,7 @@ class BadgeShopView(discord.ui.View):
 def _build_shop_embed(faction: dict, catalog: dict[int, dict], faction_color: int, owned_ids: set[int]) -> discord.Embed:
     embed = discord.Embed(
         title="Badge Shop",
-        description=f"**{faction.display_name}**\n\nSelect a badge and click **Buy**. Only faction leaders can purchase.",
+        description=f"**{faction.display_name}**\n\nSelect a badge and click **Buy**. Faction leaders and members with an approved allegiance can purchase.",
         color=faction_color,
     )
     for badge_id, entry in catalog.items():

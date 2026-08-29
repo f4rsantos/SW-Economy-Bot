@@ -14,10 +14,10 @@ from dtos.building import (
     FactionBuildingStats,
 )
 
-MEGA_FACTORY_BUILDING_ID = 18
 
 WEIGHT_EXPRESSION = """
     CASE
+        WHEN b.name = 'City' THEN fwb.amount * fwb.level * 0.1
         WHEN bg.is_refinery THEN fwb.amount * fwb.level * 1.5
         WHEN bs.building_id IS NOT NULL THEN fwb.amount * fwb.level * 5
         WHEN b.name LIKE '%Mega Factory%' THEN fwb.amount * fwb.level * 5
@@ -108,9 +108,13 @@ async def get_building_ids_supporting_level(level: int) -> set:
 
 async def get_faction_mega_factory_count(faction_id: int) -> int:
     row = await db.fetchrow(
-        "SELECT COALESCE(SUM(amount), 0) as total FROM faction_world_buildings WHERE faction_id = $1 AND building_id = $2",
+        """
+        SELECT COALESCE(SUM(fwb.amount), 0) as total
+        FROM faction_world_buildings fwb
+        JOIN buildings b ON b.id = fwb.building_id
+        WHERE fwb.faction_id = $1 AND b.name = 'Mega Factory'
+        """,
         faction_id,
-        MEGA_FACTORY_BUILDING_ID,
     )
     return int(row["total"]) if row else 0
 
@@ -131,6 +135,20 @@ async def get_company_er(faction_id: int) -> int:
         WHERE ft.faction_id = $1 AND r.name = 'ER'
     """, faction_id)
     return (row["total"] or 0) if row else 0
+
+
+async def get_faction_worlds_with_resource_percentages(faction_id: int) -> List[dict]:
+    rows = await db.fetch("""
+        SELECT w.id as world_id, w.name as world_name,
+               substring(r.name from 3) as resource_name, wr.percentage
+        FROM world_factions wf
+        JOIN worlds w ON w.id = wf.world_id
+        JOIN world_resources wr ON wr.world_id = w.id
+        JOIN resources r ON r.id = wr.resource_id
+        WHERE wf.faction_id = $1 AND r.name IN ('U-CM', 'U-EL', 'U-CS')
+        ORDER BY w.name, r.name
+    """, faction_id)
+    return [dict(r) for r in rows]
 
 
 async def faction_has_presence(world_id: int, faction_id: int) -> bool:
@@ -191,7 +209,7 @@ async def get_faction_building_count_weighted(faction_id: int) -> int:
         LEFT JOIN buildings_storages bs ON b.id = bs.building_id
         WHERE fwb.faction_id = $1
     """, faction_id)
-    return int(row["total_count"]) if row and row["total_count"] else 0
+    return round(row["total_count"]) if row and row["total_count"] else 0
 
 
 async def get_faction_total_population(faction_id: int) -> int:
@@ -259,7 +277,7 @@ async def get_faction_building_stats(faction_id: int) -> FactionBuildingStats:
 
     for row in rows:
         unweighted = int(row["unweighted"] or 0)
-        weighted = int(row["weighted"] or 0)
+        weighted = round(row["weighted"] or 0)
         actual = int(row["actual"] or 0)
 
         total_unweighted += unweighted
@@ -328,7 +346,7 @@ async def list_faction_buildings(
     building_id: Optional[int] = None,
 ) -> List[dict]:
     query = """
-        SELECT b.id, b.name, fwb.amount, fwb.level, w.name as world_name
+        SELECT b.id, b.name, fwb.amount, fwb.level, fwb.world_id, w.name as world_name
         FROM faction_world_buildings fwb
         JOIN buildings b ON fwb.building_id = b.id
         JOIN worlds w ON fwb.world_id = w.id

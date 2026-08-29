@@ -30,6 +30,47 @@ async def end_trade(trade_id: int) -> Trade:
     return trade
 
 
+async def edit_trade(trade_id: int, receiver_faction_id: Optional[int] = None,
+                     resource_id: Optional[int] = None, amount: Optional[int] = None,
+                     sender_world_id: Optional[int] = None, receiver_world_id: Optional[int] = None) -> Trade:
+    trade = await get_trade(trade_id)
+    if not trade:
+        raise ValueError("Trade not found.")
+
+    updates = []
+    values = []
+    param_count = 2
+    if receiver_faction_id is not None:
+        updates.append(f"receiver_faction_id = ${param_count}")
+        values.append(receiver_faction_id)
+        param_count += 1
+    if resource_id is not None:
+        updates.append(f"resource_id = ${param_count}")
+        values.append(resource_id)
+        param_count += 1
+    if amount is not None:
+        updates.append(f"amount = ${param_count}")
+        values.append(amount)
+        param_count += 1
+    if sender_world_id is not None:
+        updates.append(f"sender_world_id = ${param_count}")
+        values.append(sender_world_id)
+        param_count += 1
+    if receiver_world_id is not None:
+        updates.append(f"receiver_world_id = ${param_count}")
+        values.append(receiver_world_id)
+        param_count += 1
+
+    if not updates:
+        raise ValueError("No changes given.")
+
+    set_clause = ", ".join(updates)
+    updated = await trade_repo.update_trade_fields(trade_id, set_clause, values)
+    if not updated:
+        raise ValueError("Trade not found.")
+    return updated
+
+
 async def get_faction_trades(faction_id: int) -> dict:
     return await trade_repo.get_faction_trades_rows(faction_id)
 

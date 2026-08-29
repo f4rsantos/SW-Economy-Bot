@@ -21,12 +21,14 @@ from services.utility_service import (
 async def set_custom_message(interaction: discord.Interaction, user: discord.User, message: Optional[str] = None):
     await interaction.response.defer()
 
-    if message:
-        if len(message) > 500:
+    cleaned = message.strip() if message else None
+
+    if cleaned:
+        if len(cleaned) > 500:
             await interaction.followup.send(embed=error_embed("Error", "Message must be 500 characters or less."))
             return
-        await set_custom_message_for_user(user.id, message, interaction.user.id)
-        embed = success_embed("Custom Message Set", f"**User:** {user.mention}\n**Message:** {message}")
+        await set_custom_message_for_user(user.id, cleaned, interaction.user.id)
+        embed = success_embed("Custom Message Set", f"**User:** {user.mention}\n**Message:** {cleaned}")
         embed.set_footer(text=f"Set by {interaction.user.name}")
     else:
         await delete_custom_message_for_user(user.id)

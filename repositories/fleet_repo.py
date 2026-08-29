@@ -171,14 +171,23 @@ async def get_factory_progress_rows_all(faction_id: int):
     return await db.fetch(query, faction_id)
 
 
-async def get_fleets_rows(where: str, args: list) -> List[FleetListing]:
+async def get_fleets(faction_id: Optional[int] = None, world_id: Optional[int] = None) -> List[FleetListing]:
+    conditions = []
+    args = []
+    if faction_id:
+        args.append(faction_id)
+        conditions.append(f"f.faction_id = ${len(args)}")
+    if world_id:
+        args.append(world_id)
+        conditions.append(f"f.position = ${len(args)}")
+    where = "WHERE " + " AND ".join(conditions) if conditions else ""
     rows = await db.fetch(
         f"""SELECT f.id, f.name, f.faction_fleet_number, fs.name as status,
                   w.name as position, f.position as position_id,
                   w2.name as moving_to_name, f.moving_since,
                   f.health, f.total_cs, f.faction_id,
                   ft.name as type_name,
-                  fac.name as faction_name, fac.color as faction_color
+                  COALESCE(NULLIF(fac.formal_name, ''), fac.name) as faction_name, fac.color as faction_color
            FROM fleets f
            JOIN fleet_status fs ON f.status_id = fs.id
            JOIN worlds w ON f.position = w.id
@@ -220,7 +229,29 @@ async def get_fleet_for_damage_row(fleet_identifier: str) -> Optional[FleetDamag
     return FleetDamageInfo.from_row(row) if row else None
 
 
-async def get_debris_fleets_rows(query: str, args: list):
+async def get_debris_fleets(faction_id: Optional[int] = None, world_id: Optional[int] = None):
+    query = """
+        SELECT f.id, f.name, f.faction_fleet_number,
+               f.faction_id, f.position as world_id,
+               COALESCE(NULLIF(fac.formal_name, ''), fac.name) as faction_name,
+               w.name as world_name, f.total_cs
+        FROM fleets f
+        JOIN fleet_status fs ON f.status_id = fs.id
+        JOIN factions fac ON f.faction_id = fac.id
+        JOIN worlds w ON f.position = w.id
+        WHERE LOWER(fs.name) = 'debris'
+    """
+    args = []
+
+    if faction_id is not None:
+        args.append(faction_id)
+        query += f" AND f.faction_id = ${len(args)}"
+
+    if world_id is not None:
+        args.append(world_id)
+        query += f" AND f.position = ${len(args)}"
+
+    query += " ORDER BY f.total_cs DESC"
     return await db.fetch(query, *args)
 
 

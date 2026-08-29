@@ -6,6 +6,7 @@
 from typing import Optional
 from dtos.building import Building
 from repositories import building_repo
+from services import spend_service
 from services.building_efficiency_service import (
     get_faction_building_count_unweighted,
     get_faction_building_count_actual,
@@ -14,7 +15,15 @@ from services.building_efficiency_service import (
 )
 
 
-MEGA_FACTORY_BUILDING_ID = 18
+MEGA_FACTORY_NAME = 'Mega Factory'
+
+
+def is_mega_factory(building_id: int) -> bool:
+    from database.static_cache import static_cache
+    building = static_cache.get_building(MEGA_FACTORY_NAME)
+    return bool(building) and building['id'] == building_id
+
+
 MEGA_FACTORY_SCALE_RATE = 0.075
 
 
@@ -62,7 +71,7 @@ def _calculate_refund(base_costs: dict, scaling_count: int, amount: int, level: 
 
 def calculate_upgrade_cost(base_costs: dict, building_id: int, amount: int, source_level: int, target_level: int) -> dict:
     sum_n = lambda n: n * (n + 1) // 2
-    upgrade_factor = 0.1 if building_id == MEGA_FACTORY_BUILDING_ID else 1.0
+    upgrade_factor = 0.1 if is_mega_factory(building_id) else 1.0
     multiplier = sum_n(target_level - 1) - sum_n(source_level - 1)
     return {name: int(base * multiplier * upgrade_factor * amount) for name, base in base_costs.items()}
 
@@ -188,7 +197,7 @@ async def buy_building(faction_id: int, world_id: int, building_id: int, amount:
     else:
         building_cap = await calculate_building_cap(faction_id)
     check_building_cap(current_weighted, amount * level, building_cap)
-    if building_id == MEGA_FACTORY_BUILDING_ID:
+    if is_mega_factory(building_id):
         current_mega = await get_faction_mega_factory_count(faction_id)
         total_costs = _calculate_mega_factory_cost(base_costs, current_mega, amount, level)
     else:
@@ -199,6 +208,7 @@ async def buy_building(faction_id: int, world_id: int, building_id: int, amount:
         await building_repo.buy_building(faction_id, world_id, building_id, amount, level, total_costs)
     except Exception as e:
         raise ValueError(str(e)) from e
+    await spend_service.record_spend(faction_id, total_costs, spend_service.SPEND)
     return {'building_name': building.name, 'costs': total_costs}
 
 
@@ -236,7 +246,7 @@ async def refund_building(faction_id: int, world_id: int, building_id: int, amou
     if not building:
         raise ValueError("Building not found.")
     base_costs = await get_building_base_costs(building_id)
-    if building_id == MEGA_FACTORY_BUILDING_ID:
+    if is_mega_factory(building_id):
         current_mega = await get_faction_mega_factory_count(faction_id)
         refunds = _calculate_mega_factory_refund(base_costs, current_mega, amount, level, week)
     else:
@@ -247,6 +257,7 @@ async def refund_building(faction_id: int, world_id: int, building_id: int, amou
         await building_repo.refund_building(faction_id, world_id, building_id, amount, level, refunds)
     except Exception as e:
         raise ValueError(str(e)) from e
+    await spend_service.record_spend(faction_id, refunds, spend_service.REFUND)
     return {'building_name': building.name, 'refunds': refunds}
 
 

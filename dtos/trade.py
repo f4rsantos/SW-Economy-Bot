@@ -15,9 +15,14 @@ class Trade:
     sender_name: str
     sender_color: str
     receiver_name: str
+    sender_faction_id: Optional[int] = None
+    receiver_faction_id: Optional[int] = None
+    sender_world: Optional[str] = None
+    receiver_world: Optional[str] = None
 
     @classmethod
     def from_row(cls, row) -> "Trade":
+        keys = row.keys()
         return cls(
             id=row["id"],
             amount=row["amount"],
@@ -25,6 +30,10 @@ class Trade:
             sender_name=row["sender_name"],
             sender_color=row["sender_color"],
             receiver_name=row["receiver_name"],
+            sender_faction_id=row["sender_faction_id"] if "sender_faction_id" in keys else None,
+            receiver_faction_id=row["receiver_faction_id"] if "receiver_faction_id" in keys else None,
+            sender_world=row["sender_world"] if "sender_world" in keys else None,
+            receiver_world=row["receiver_world"] if "receiver_world" in keys else None,
         )
 
 

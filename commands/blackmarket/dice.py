@@ -12,7 +12,7 @@ from utils.embeds import success_embed, error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
 from services.validation_service import require_faction, require_world
-from services.casino_wager import parse_casino_wager, requires_world
+from utils.casino_wager import parse_casino_wager, requires_world
 from services.casino_service import get_current_edge, settle_bet
 from utils.casino_games import (
     DICE_EMOJI,
@@ -21,7 +21,7 @@ from utils.casino_games import (
     dice_roll_animation_frames,
     random_loss_message,
 )
-from services.casino_session import start_game, end_game
+from utils.casino_session import start_game, end_game
 
 ROLL_DELAY_SECONDS = 0.6
 
@@ -116,6 +116,8 @@ async def dice_cmd(
             landed = f"The die landed on {face}."
             if settlement['net'] > 0:
                 text = f"{landed}\nYou won {handle_return(settlement['payout'])} {resource}. Net gain: {handle_return(settlement['net'])} {resource}."
+                if settlement['alloys_awarded']:
+                    text += f"\nHigh stakes bonus: {settlement['alloys_awarded']} Alloys."
                 result_embed = success_embed(title=f"Dice [{resource}], Winner!", description=text)
             elif settlement['net'] == 0:
                 text = f"{landed}\nYour wager was returned. No gain, no loss."

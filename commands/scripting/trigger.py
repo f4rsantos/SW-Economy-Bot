@@ -7,7 +7,7 @@ import time
 import discord
 from discord import app_commands
 from utils.embeds import error_embed, create_embed
-from services.scripting.script_service import get_manual_script_by_name, record_execution
+from services.scripting.script_service import get_manual_script_by_name, record_execution, deactivate_script
 from services.scripting.executor import execute_script_manual
 from utils.scripting_helpers import resolve_faction_with_access
 
@@ -39,8 +39,13 @@ async def script_trigger(interaction: discord.Interaction, faction: str, name: s
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
     await record_execution(script.id, faction_data.id, result, elapsed_ms)
+    if result.stopped:
+        await deactivate_script(script.id, faction_data.id)
 
-    if result.aborted:
+    if result.stopped:
+        description = f"{result.actions_taken} action(s) executed. Script reached STOP and has been permanently deactivated."
+        color = 0x808080
+    elif result.aborted:
         description = "Script aborted."
         color = 0xFF0000
     else:

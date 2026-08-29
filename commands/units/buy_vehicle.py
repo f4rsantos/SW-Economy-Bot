@@ -20,7 +20,6 @@ from services.validation_service import require_faction, require_unit, require_v
     faction="Faction to buy for",
     unit_id="Unit ID or name to receive vehicles",
     vehicle_id="Vehicle display ID or name",
-    world="World where vehicles will be built",
     amount="Number of vehicles to build",
     source_faction="Source faction name or ID (required if buying from another faction)"
 )
@@ -31,7 +30,6 @@ async def buy_vehicle_cmd(
     faction: str,
     unit_id: str,
     vehicle_id: str,
-    world: str,
     amount: int,
     source_faction: str = None
 ):
@@ -51,12 +49,12 @@ async def buy_vehicle_cmd(
     if not r_unit_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_unit_data.error))
     unit_data = r_unit_data.data
 
-    r_world = await require_world(world)
+    if not unit_data['position']:
+        return await interaction.followup.send(embed=error_embed("Error", "Could not determine the unit's current world."))
+
+    r_world = await require_world(unit_data['world_name'])
     if not r_world.ok: return await interaction.followup.send(embed=error_embed("Error", r_world.error))
     world_data = r_world.data
-
-    if unit_data['position'] != world_data['id']:
-        return await interaction.followup.send(embed=error_embed("Error", f"Fleet must be on {world_data['name']} to build vehicles there. Fleet is on {unit_data['world_name']}."))
 
     if source_faction:
         r_src_faction = await require_faction(source_faction)

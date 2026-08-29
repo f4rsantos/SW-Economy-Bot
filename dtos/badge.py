@@ -12,6 +12,7 @@ class BadgeCostRow:
     id: int
     name: str
     needs_world: bool
+    icon_url: str
     resource_name: str
     amount: int
 
@@ -21,12 +22,32 @@ class BadgeCostRow:
             id=row["id"],
             name=row["name"],
             needs_world=row["needs_world"],
+            icon_url=row["icon_url"] if "icon_url" in row else None,
             resource_name=row["resource_name"],
             amount=row["amount"],
         )
 
     @classmethod
     def from_rows(cls, rows) -> List["BadgeCostRow"]:
+        return [cls.from_row(row) for row in rows]
+
+
+@dataclass(frozen=True, slots=True)
+class BadgeInfo:
+    id: int
+    name: str
+    icon_url: str
+
+    @classmethod
+    def from_row(cls, row) -> "BadgeInfo":
+        return cls(
+            id=row["id"],
+            name=row["name"],
+            icon_url=row["icon_url"] if "icon_url" in row else None,
+        )
+
+    @classmethod
+    def from_rows(cls, rows) -> List["BadgeInfo"]:
         return [cls.from_row(row) for row in rows]
 
 

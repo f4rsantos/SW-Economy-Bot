@@ -5,7 +5,9 @@
 
 from typing import Optional, List
 from database.db_manager import db
-from dtos.pact import PactType, Pact, PactMember, FactionPact
+from dtos.pact import PactType, Pact, PactMember, FactionPact, PactIntelligenceSharing
+
+INTELLIGENCE_SHARING_PACT_TYPE = 'Intelligence Sharing'
 
 
 async def get_pact_type(pact_type: str) -> Optional[PactType]:
@@ -102,3 +104,61 @@ async def delete_pact_member(pact_id: int, faction_id: int) -> None:
 
 async def get_pact_type_influence_cost(pact_type: str) -> Optional[dict]:
     return await db.fetchrow("SELECT influence_cost FROM pact_types WHERE name = $1", pact_type)
+
+
+async def insert_pact_worlds(pact_id: int, world_ids: List[int]) -> None:
+    if not world_ids:
+        return
+    await db.execute(
+        "INSERT INTO pact_worlds (pact_id, world_id) SELECT $1, unnest($2::integer[]) ON CONFLICT DO NOTHING",
+        pact_id, world_ids
+    )
+
+
+async def get_pact_world_ids(pact_id: int) -> List[int]:
+    rows = await db.fetch("SELECT world_id FROM pact_worlds WHERE pact_id = $1", pact_id)
+    return [r['world_id'] for r in rows]
+
+
+async def insert_pact_intelligence_sharing(pact_id: int, domestic: bool, foreign_alerts: bool) -> None:
+    await db.execute(
+        "INSERT INTO pact_intelligence_sharing (pact_id, domestic, foreign_alerts) VALUES ($1, $2, $3)",
+        pact_id, domestic, foreign_alerts
+    )
+
+
+async def get_pact_intelligence_sharing(pact_id: int) -> Optional[PactIntelligenceSharing]:
+    row = await db.fetchrow(
+        "SELECT pact_id, domestic, foreign_alerts FROM pact_intelligence_sharing WHERE pact_id = $1", pact_id
+    )
+    if not row:
+        return None
+    world_ids = await get_pact_world_ids(pact_id)
+    return PactIntelligenceSharing.from_row(row, world_ids)
+
+
+async def get_intelligence_sharing_pacts_for_faction(faction_id: int, domestic_only: bool = False, foreign_only: bool = False) -> List[dict]:
+    conditions = ["pm.faction_id = $1"]
+    if domestic_only:
+        conditions.append("pis.domestic = true")
+    if foreign_only:
+        conditions.append("pis.foreign_alerts = true")
+    where_clause = " AND ".join(conditions)
+    rows = await db.fetch(f"""
+        SELECT p.id as pact_id, pis.domestic, pis.foreign_alerts
+        FROM pact_members pm
+        JOIN pacts p ON pm.pact_id = p.id
+        JOIN pact_intelligence_sharing pis ON pis.pact_id = p.id
+        WHERE {where_clause}
+    """, faction_id)
+    return [dict(r) for r in rows]
+
+
+async def get_pact_world_count(pact_id: int) -> int:
+    row = await db.fetchrow("SELECT COUNT(*) as count FROM pact_worlds WHERE pact_id = $1", pact_id)
+    return row['count'] if row else 0
+
+
+async def get_pact_member_faction_ids(pact_id: int) -> List[int]:
+    rows = await db.fetch("SELECT faction_id FROM pact_members WHERE pact_id = $1", pact_id)
+    return [r['faction_id'] for r in rows]
