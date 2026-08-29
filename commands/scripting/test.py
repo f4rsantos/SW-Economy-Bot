@@ -41,6 +41,9 @@ async def script_test(interaction: discord.Interaction, faction: str, name: str)
     if result.skipped:
         description = "Script would be skipped today (START ON day does not match)."
         color = 0x808080
+    elif result.stopped:
+        description = f"Dry-run complete. {result.actions_taken} action(s) would fire, then the script would reach STOP and be permanently deactivated."
+        color = 0x808080
     elif result.aborted:
         description = "Script aborted during dry-run."
         color = 0xFF0000

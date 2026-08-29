@@ -23,6 +23,7 @@ class Script:
     created_by: Optional[int]
     faction_id: Optional[int]
     is_company: Optional[bool]
+    is_auto_econ: Optional[bool]
 
     @classmethod
     def from_row(cls, row) -> "Script":
@@ -40,6 +41,7 @@ class Script:
             created_by=row["created_by"] if "created_by" in row else None,
             faction_id=row["faction_id"] if "faction_id" in row else None,
             is_company=row["is_company"] if "is_company" in row else None,
+            is_auto_econ=row["is_auto_econ"] if "is_auto_econ" in row else False,
         )
 
     @classmethod

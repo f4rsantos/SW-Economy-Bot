@@ -40,6 +40,7 @@ async def create_script(
     trigger_day: Optional[str],
     created_by: int,
     trigger_type: Optional[str] = None,
+    is_auto_econ: bool = False,
 ) -> dict:
     count = await count_active_scripts(faction_id)
     if count >= MAX_SCRIPTS_PER_FACTION:
@@ -52,7 +53,9 @@ async def create_script(
     if existing:
         raise ValueError(f"A script named '{name}' already exists for this faction")
 
-    return await script_repo.insert_script(faction_id, name, script_text, trigger_day, trigger_type, created_by)
+    return await script_repo.insert_script(
+        faction_id, name, script_text, trigger_day, trigger_type, created_by, is_auto_econ
+    )
 
 
 async def update_script(
@@ -73,6 +76,11 @@ async def update_script(
 
 async def delete_script(script_id: int, faction_id: int) -> bool:
     return await script_repo.delete_script(script_id, faction_id)
+
+
+async def deactivate_script(script_id: int, faction_id: int) -> bool:
+    """Permanently stop a script from running again, preserving its history. Idempotent."""
+    return await script_repo.deactivate_script(script_id, faction_id)
 
 
 async def get_scripts_for_income_day(income_weekday_name: str) -> list[dict]:

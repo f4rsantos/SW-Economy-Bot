@@ -29,7 +29,7 @@ class StaticCache:
 
     async def load(self):
         resources, fleet_statuses, vehicle_types, fleet_types, buildings, generators, storages, worlds, world_resources = await asyncio.gather(
-            db.fetch("SELECT id, name FROM resources"),
+            db.fetch("SELECT id, name, is_limited, hard_limit FROM resources"),
             db.fetch("SELECT id, name FROM fleet_status"),
             db.fetch("SELECT id, name FROM vehicle_types"),
             db.fetch("SELECT id, name FROM fleet_types"),

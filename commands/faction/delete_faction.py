@@ -8,7 +8,7 @@ from discord import app_commands
 from utils.checks import require_access_level
 from utils.embeds import success_embed, error_embed
 from utils.views import OwnerOnlyView
-from services.faction_service import delete_faction as delete_faction_service
+from services.faction_service import delete_faction as delete_faction_service, get_faction_leader_display
 from services.validation_service import require_faction
 
 
@@ -51,6 +51,8 @@ async def delete_faction(interaction: discord.Interaction, faction: str):
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
+    leader_display = await get_faction_leader_display(faction_data.leader_id)
+
     view = ConfirmDeleteView(interaction.user.id, faction_data.id, faction_data.display_name)
     embed = discord.Embed(
         title="⚠️ Confirm Faction Deletion",
@@ -58,7 +60,7 @@ async def delete_faction(interaction: discord.Interaction, faction: str):
         color=0xe74c3c
     )
     embed.add_field(name="Faction Name", value=faction_data.name, inline=True)
-    embed.add_field(name="Leader", value=faction_data.leader, inline=True)
+    embed.add_field(name="Leader", value=leader_display, inline=True)
     embed.add_field(name="Warning", value="This action is **permanent** and cannot be undone!", inline=False)
     await interaction.followup.send(embed=embed, view=view)
 

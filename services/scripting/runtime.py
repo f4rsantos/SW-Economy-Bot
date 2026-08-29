@@ -35,6 +35,7 @@ class ExecutionResult:
     actions_taken: int = 0
     skipped: bool = False
     aborted: bool = False
+    stopped: bool = False
     dry_run: bool = False
     errors: list = field(default_factory=list)
     warnings: list = field(default_factory=list)

@@ -19,6 +19,13 @@ class User:
     notify_movements: bool
     notify_origin: bool
     notify_destination: bool
+    notify_own: bool
+    notify_recruitment: bool
+    notify_fleet_arrival: bool
+    notify_battle: bool
+    notify_income: bool
+    allegiance: Optional[str]
+    treatment: Optional[str]
 
     @classmethod
     def from_row(cls, row) -> "User":
@@ -30,6 +37,13 @@ class User:
         notify_movements = row["notify_movements"] if "notify_movements" in row else True
         notify_origin = row["notify_origin"] if "notify_origin" in row else True
         notify_destination = row["notify_destination"] if "notify_destination" in row else True
+        notify_own = row["notify_own"] if "notify_own" in row else False
+        notify_recruitment = row["notify_recruitment"] if "notify_recruitment" in row else True
+        notify_fleet_arrival = row["notify_fleet_arrival"] if "notify_fleet_arrival" in row else True
+        notify_battle = row["notify_battle"] if "notify_battle" in row else True
+        notify_income = row["notify_income"] if "notify_income" in row else True
+        allegiance = row["allegiance"] if "allegiance" in row else None
+        treatment = row["treatment"] if "treatment" in row else None
         return cls(
             id=row["id"],
             access_level=row["access_level"],
@@ -41,6 +55,13 @@ class User:
             notify_movements=bool(notify_movements),
             notify_origin=bool(notify_origin),
             notify_destination=bool(notify_destination),
+            notify_own=bool(notify_own),
+            notify_recruitment=bool(notify_recruitment),
+            notify_fleet_arrival=bool(notify_fleet_arrival),
+            notify_battle=bool(notify_battle),
+            notify_income=bool(notify_income),
+            allegiance=allegiance,
+            treatment=treatment,
         )
 
     @classmethod

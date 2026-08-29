@@ -21,6 +21,7 @@ class Faction:
     leader_id: Optional[int]
     is_company: bool
     is_pirate: bool
+    population_limit: Optional[int]
 
     @classmethod
     def from_row(cls, row) -> "Faction":
@@ -40,6 +41,7 @@ class Faction:
             leader_id=row["leader_id"],
             is_company=faction_type == 1,
             is_pirate=faction_type == 2,
+            population_limit=row["population_limit"] if "population_limit" in row.keys() else None,
         )
 
     @classmethod

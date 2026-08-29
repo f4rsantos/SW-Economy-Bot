@@ -12,7 +12,8 @@ class PactGroup(app_commands.Group):
 
 async def setup(bot):
     from commands.diplomacy import (
-        pacts, create_pact, join_pact, leave_pact, end_pact, remove_member, pact_types
+        pacts, create_pact, join_pact, leave_pact, end_pact, remove_member, pact_types,
+        join_intelligence_sharing,
     )
 
     pact_group = PactGroup()
@@ -24,5 +25,6 @@ async def setup(bot):
     pact_group.add_command(end_pact.end_pact)
     pact_group.add_command(remove_member.remove_member)
     pact_group.add_command(pact_types.pact_types)
-    
+    pact_group.add_command(join_intelligence_sharing.join_intelligence_sharing)
+
     bot.tree.add_command(pact_group)

@@ -6,6 +6,7 @@
 import asyncio
 import math
 import discord
+from typing import Optional
 from discord import app_commands
 from discord.ui import View, Select
 from utils.checks import require_access_level, ephemeral_capable, resolve_ephemeral
@@ -15,7 +16,11 @@ from services.fleet_service import get_fleets, get_fleet, get_fleet_vehicles, ge
 from utils.autocomplete import faction_autocomplete, world_autocomplete
 from utils.currency import handle_return
 from services.validation_service import require_faction, require_world
+from services.travel_time_service import calculate_travel_time
+from services.user_service import get_user_access_level
 from services.intelligence_service import (
+    get_foreign_shared_worlds,
+    is_foreign_visible,
     get_user_faction_id,
     has_presence_at_world,
     get_observed_worlds,
@@ -33,6 +38,14 @@ UPKEEP_DIVISORS = {
 def calculate_unit_upkeep(total_cs: int, status: str) -> int:
     divisor = UPKEEP_DIVISORS.get(status.lower(), 8)
     return 0 if divisor == 0 else math.ceil(total_cs / divisor)
+
+
+async def get_arrival_timestamp(origin_name: str, destination_name: str, moving_since) -> Optional[int]:
+    if not origin_name or not destination_name or not moving_since:
+        return None
+    travel_duration = await calculate_travel_time(origin_name, destination_name, moving_since)
+    arrival_time = moving_since + travel_duration
+    return int(arrival_time.timestamp())
 
 
 class UnitDetailView(View):
@@ -64,6 +77,11 @@ class UnitDetailView(View):
         position_text = self.unit_data['position']
         if self.unit_data.get('moving_to_name'):
             position_text = f"{self.unit_data['position']} → **{self.unit_data['moving_to_name']}**"
+            arrival_ts = await get_arrival_timestamp(
+                self.unit_data['position'], self.unit_data['moving_to_name'], self.unit_data.get('moving_since')
+            )
+            if arrival_ts:
+                position_text += f" (arrives <t:{arrival_ts}:R>)"
 
         type_label = self.unit_data.get('type_name') or "Unclassified"
         infantry = self.unit_data.get('infantry_count', 0)
@@ -203,6 +221,7 @@ class UnitView(View):
             'status': unit_row.status_name,
             'position': unit_row.position_name,
             'moving_to_name': unit_row.moving_to_name,
+            'moving_since': unit_row.moving_since,
             'health': unit_row.health,
             'total_cs': unit_row.total_cs,
             'type_name': unit_row.type_name,
@@ -241,6 +260,9 @@ class UnitView(View):
             position_text = unit.position
             if unit.moving_to_name:
                 position_text = f"{unit.position} → **{unit.moving_to_name}**"
+                arrival_ts = await get_arrival_timestamp(unit.position, unit.moving_to_name, unit.moving_since)
+                if arrival_ts:
+                    position_text += f" <t:{arrival_ts}:R>"
             info = (
                 f"**ID:** #{unit.faction_fleet_number}\n"
                 + (f"**Faction:** {unit.faction_name}\n" if self.world_mode else "")
@@ -248,6 +270,7 @@ class UnitView(View):
                 f"**Position:** {position_text}\n"
                 f"**Health:** `{progress_bar(unit.health, 100)}` {unit.health}%\n"
                 f"**Upkeep:** {upkeep:,}/week"
+                "\n​"
             )
             embed.add_field(name=unit_name, value=info, inline=False)
         embed.set_footer(text="Select a unit from the dropdown to view details")
@@ -289,6 +312,9 @@ class UnitView(View):
         await interaction.response.edit_message(embed=await self.create_list_embed(), view=self)
 
 
+REF_ACCESS_LEVEL = 4
+
+
 @app_commands.command(name="list", description="List units (filter by faction, world, or both)")
 @app_commands.describe(
     faction="Filter by Faction name (optional)",
@@ -303,6 +329,10 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
         return
 
     if ref:
+        viewer_level = await get_user_access_level(interaction.user.id)
+        if viewer_level < REF_ACCESS_LEVEL:
+            await interaction.response.send_message(embed=error_embed("Error", "Referee mode requires elevated access."))
+            return
         interaction.extras['ephemeral'] = False
 
     viewer_faction_id = None if ref else await get_user_faction_id(interaction.user.id)
@@ -359,9 +389,15 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
 
     units = await get_fleets(faction_id=faction_id, world_id=world_id)
 
-    if not ref and world_id is None:
+    if not ref:
         observed = await get_observed_worlds(viewer_faction_id)
-        units = [u for u in units if u.faction_id == viewer_faction_id or u.position_id in observed]
+        foreign_worlds = await get_foreign_shared_worlds(viewer_faction_id)
+        units = [
+            u for u in units
+            if u.faction_id == viewer_faction_id
+            or u.position_id in observed
+            or is_foreign_visible(foreign_worlds, u.position_id, u.faction_id)
+        ]
 
     if not units:
         await interaction.response.send_message(embed=error_embed("No Units Found", "No units found matching the given filters."))

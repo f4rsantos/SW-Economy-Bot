@@ -132,7 +132,15 @@ async def calculate_building_efficiency(faction_id: int) -> float:
 async def calculate_efficiency(faction_id: int) -> float:
     base = await calculate_building_efficiency(faction_id)
     infantry_penalty = await get_faction_infantry_penalty(faction_id)
-    return round_efficiency(base - infantry_penalty)
+    megaproject_penalty = await get_megaproject_efficiency_penalty(faction_id)
+    return round_efficiency(base - infantry_penalty - megaproject_penalty)
+
+
+async def get_megaproject_efficiency_penalty(faction_id: int) -> float:
+    from services import megaproject_service
+    if await megaproject_service.has_active_recycling_center(faction_id):
+        return megaproject_service.RECYCLING_CENTER_EFFICIENCY_PENALTY
+    return 0.0
 
 
 def _breakdown_from_stats(stats) -> Dict:

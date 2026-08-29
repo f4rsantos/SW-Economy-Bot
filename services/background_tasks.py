@@ -8,7 +8,7 @@ import logging
 import os
 import discord
 from datetime import datetime, timedelta, timezone
-from repositories import background_tasks_repo
+from repositories import background_tasks_repo, notification_repo
 from services.income_service import execute_income
 from services.event_queue import event_queue
 from services import notification_service
@@ -41,8 +41,16 @@ async def handle_transfer_arrival(payload: dict):
 
 async def handle_fleet_arrival(payload: dict):
     fleet_id = payload['fleet_id']
+    context = await notification_repo.get_fleet_context(fleet_id)
     await background_tasks_repo.complete_fleet_arrival(fleet_id)
     logger.info(f"Fleet #{fleet_id} arrived")
+    if context:
+        try:
+            await notification_service.notify_fleet_arrival(
+                context['faction_id'], context['fleet_name'] or f"Fleet #{fleet_id}", context['world_name']
+            )
+        except Exception as e:
+            logger.warning(f"Fleet arrival notification failed for fleet {fleet_id}: {e}")
 
 
 async def handle_construction_complete(payload: dict):
@@ -64,10 +72,18 @@ async def handle_recruitment_complete(payload: dict):
     recruitment_id = payload['recruitment_id']
     fleet_id = payload['fleet_id']
     amount = payload['amount']
+    context = await notification_repo.get_recruitment_context(recruitment_id)
     result = await background_tasks_repo.delete_completed_recruitment(recruitment_id)
     if result != "DELETE 0":
         await background_tasks_repo.add_fleet_infantry(fleet_id, amount)
         logger.info(f"Recruitment {recruitment_id} completed — {amount} soldiers added to fleet {fleet_id}")
+        try:
+            if context:
+                await notification_service.notify_recruitment_complete(
+                    context['faction_id'], f"Fleet #{fleet_id}", amount
+                )
+        except Exception as e:
+            logger.warning(f"Recruitment notification failed for recruitment {recruitment_id}: {e}")
 
 
 async def check_income_cycle(skip_income: bool = False):
@@ -122,8 +138,17 @@ async def check_income_cycle(skip_income: bool = False):
         weekday_names = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]
         income_weekday_name = weekday_names[target_weekday]
 
+        pending_resources_earned = {}
+        pending_population_change = 0
+
         for i in range(cycles_to_run):
             logger.info(f"Processing Catch-Up Batch {i+1}/{cycles_to_run}")
+
+            if i > 0:
+                try:
+                    await post_weekly_spend_report(pending_resources_earned, pending_population_change)
+                except Exception as e:
+                    logger.error(f"  Weekly spend report error: {e}")
 
             spinner_chars = ["\\", "|", "/", "-"]
             spinner_running = True
@@ -137,13 +162,24 @@ async def check_income_cycle(skip_income: bool = False):
 
             spinner_task = asyncio.create_task(spin())
 
+            global_resources_earned = {}
+            global_population_change = 0
+
             async def _run_one(faction):
                 try:
-                    await execute_income(faction.id, shared_cache)
+                    result = await execute_income(faction.id, shared_cache)
+                    return result
                 except Exception as e:
-                    logger.exception(f"  ✗ Error processing income for {faction.name}: {e}")
+                    logger.exception(f"  Error processing income for {faction.name}: {e}")
+                    return None
 
-            await asyncio.gather(*[_run_one(f) for f in factions])
+            batch_results = await asyncio.gather(*[_run_one(f) for f in factions])
+            for result in batch_results:
+                if not result:
+                    continue
+                for resource_name, amount in result['resources_earned'].items():
+                    global_resources_earned[resource_name] = global_resources_earned.get(resource_name, 0) + amount
+                global_population_change += result['population_change']
 
             spinner_running = False
             await spinner_task
@@ -158,6 +194,19 @@ async def check_income_cycle(skip_income: bool = False):
                 )
             except Exception as e:
                 logger.error(f"  Script runner (income day) error: {e}")
+
+            pending_resources_earned = global_resources_earned
+            pending_population_change = global_population_change
+
+            try:
+                await notification_service.notify_income_cycle_complete()
+            except Exception as e:
+                logger.warning(f"Income cycle notification failed: {e}")
+
+        try:
+            await post_weekly_spend_report(pending_resources_earned, pending_population_change)
+        except Exception as e:
+            logger.error(f"  Weekly spend report error: {e}")
 
         income_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
         await background_tasks_repo.set_last_income(income_date)
@@ -212,6 +261,45 @@ async def run_casino_weekly_trim():
         f"Resources Trimmed this Week: {handle_return(trimmed_total)}",
     ]
     await channel.send("\n".join(lines))
+
+
+async def post_weekly_spend_report(resources_earned: dict, population_change: int):
+    from services import spend_service
+    from utils.currency import handle_return
+    from utils.embeds import create_embed
+
+    channel = await _find_channel_by_name(NATIONAL_UPDATES_CHANNEL_NAME)
+    if not channel:
+        logger.warning(f"Weekly spend report: channel '{NATIONAL_UPDATES_CHANNEL_NAME}' not found, skipping post")
+        return
+
+    async def post(spend_totals) -> bool:
+        earned_total = sum(resources_earned.values())
+        spent_total = sum(t.amount for t in spend_totals)
+        net_change = earned_total - spent_total
+        try:
+            population_sign = "+" if population_change > 0 else ""
+            net_sign = "+" if net_change > 0 else ""
+            lines = [
+                f"Total resources earned: {handle_return(earned_total)}",
+                f"Population change: {population_sign}{handle_return(population_change)}",
+                f"Total resources spent: {handle_return(spent_total)}",
+                f"Change: {net_sign}{handle_return(net_change)}",
+            ]
+            embed = create_embed(
+                title="Weekly National Report",
+                description="\n".join(lines),
+            )
+            await channel.send(embed=embed)
+            return True
+        except Exception as e:
+            logger.error(f"  Weekly spend report: failed to post to channel: {e}")
+            return False
+
+    try:
+        await spend_service.reset_snapshot_and_report(post)
+    except Exception as e:
+        logger.error(f"  Weekly spend report: report/reset failed, spend data preserved: {e}")
 
 
 async def handle_income_cycle(payload: dict):

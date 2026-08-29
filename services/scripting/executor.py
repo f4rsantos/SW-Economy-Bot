@@ -20,10 +20,11 @@ from .ast_nodes import (
     AssignStmt, IfStmt, ForEachStmt, RepeatStmt, SwitchStmt,
     TransferAction, BuyBuildingAction, UpgradeBuildingAction,
     MoveFleetAction, FleetStatusAction, RenameFleetAction, BuyVehiclesAction, RecruitAction,
+    StopStmt,
     ResourceCond, FleetHealthCond, FleetStatusCond, FleetVehiclesCond, FleetAtWorldCond,
     WorldResourceCond, BuildingCountCond,
     AtWarCond, BlockadedCond, TodayIsCond, FactorySpaceCond, ExprComparison, BinaryCond, NotCond,
-    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr,
+    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr, ResourceExpr,
 )
 
 
@@ -139,6 +140,9 @@ class Executor:
                 await self.exec_repeat(stmt)
             elif t is SwitchStmt:
                 await self.exec_switch(stmt)
+            elif t is StopStmt:
+                self.ctx.result.stopped = True
+                self.ctx.result.aborted = True
             else:
                 await self.exec_action(stmt)
         except FALRuntimeError as e:
@@ -463,6 +467,10 @@ class Executor:
             fleet_ids = await self.sandbox.get_fleets_at_world(world["id"])
             return FALValue.list_(fleet_ids)
 
+        if t is ResourceExpr:
+            amount = await self.sandbox.get_resource_amount(node.resource)
+            return FALValue.int(amount)
+
         if t is BinOp:
             left = (await self.eval_expr(node.left)).value
             right = (await self.eval_expr(node.right)).value
@@ -515,6 +523,16 @@ class Executor:
 
 
 
+async def _deactivate_if_stopped(result: ExecutionResult, script_id: int, faction_id: int) -> None:
+    if result.dry_run or not result.stopped:
+        return
+    from .script_service import deactivate_script
+    try:
+        await deactivate_script(script_id, faction_id)
+    except Exception as e:
+        logger.error(f"    Failed to deactivate stopped script {script_id} (faction {faction_id}): {e}")
+
+
 async def run_income_day_scripts(
     factions: list,
     income_weekday_name: str,
@@ -557,6 +575,7 @@ async def run_income_day_scripts(
 
         elapsed = int((time.monotonic() - start) * 1000)
         await record_execution(script_row.id, script_row.faction_id, result, elapsed)
+        await _deactivate_if_stopped(result, script_row.id, script_row.faction_id)
 
         status = "skipped" if result.skipped else ("aborted" if result.aborted else "ok")
         logger.info(f"    Script {script_row.id} (faction {script_row.faction_id}): {status}, {result.actions_taken} actions, {elapsed}ms")
@@ -600,3 +619,4 @@ async def run_scheduled_scripts(current_time: datetime) -> None:
 
         elapsed = int((time.monotonic() - start) * 1000)
         await record_execution(script_row.id, script_row.faction_id, result, elapsed)
+        await _deactivate_if_stopped(result, script_row.id, script_row.faction_id)

@@ -98,6 +98,10 @@ async def storage(
 
     if max_pop > 0:
         embed.add_field(name="Max Population", value=handle_return(max_pop), inline=True)
+        if faction_data.population_limit is not None:
+            effective_limit = min(faction_data.population_limit, max_pop)
+            embed.add_field(name="Self-Set Population Limit", value=handle_return(faction_data.population_limit), inline=True)
+            embed.add_field(name="Effective Population Cap", value=handle_return(effective_limit), inline=True)
 
     await send_response(interaction, embed=embed)
 

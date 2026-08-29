@@ -106,3 +106,27 @@ async def test_stats_issue_a_single_query(fake_db):
     await get_faction_building_stats(faction_id=1)
 
     assert len(fake_db.executed) == 1
+
+
+@pytest.mark.asyncio
+async def test_fractional_city_weight_rounds_instead_of_truncating(fake_db):
+    fake_db.fetch_queue.append([
+        _grouped_row(None, "city", 9, 9, 0.9),
+    ])
+
+    stats = await get_faction_building_stats(faction_id=1)
+
+    assert stats.total_weighted == 1
+    assert stats.by_type_weighted == {"city": 1}
+
+
+@pytest.mark.asyncio
+async def test_fractional_city_weight_below_half_rounds_down(fake_db):
+    fake_db.fetch_queue.append([
+        _grouped_row(None, "city", 3, 3, 0.3),
+    ])
+
+    stats = await get_faction_building_stats(faction_id=1)
+
+    assert stats.total_weighted == 0
+    assert stats.by_type_weighted == {"city": 0}

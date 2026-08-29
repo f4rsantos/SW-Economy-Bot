@@ -114,7 +114,7 @@ def parse_single_amount(input_str: str, fallback_resource: str = None) -> Tuple[
     amount, resource = parsed[0]
     resource = resource or (fallback_resource or "")
     if not resource:
-        raise ValueError("No resource given. Include it in the amount (`10k CM`) or use the `resource` option.")
+        raise ValueError("No resource given. Include it in the amount, e.g. `10k CM`.")
     if amount in (float('inf'), float('-inf')):
         raise ValueError("Amount must be a finite number.")
     return int(amount), resource.upper()

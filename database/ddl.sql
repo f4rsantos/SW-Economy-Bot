@@ -15,12 +15,35 @@
 
 
 
+CREATE TABLE public.allegiance_requests (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  user_id bigint NOT NULL,
+  faction_id integer NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
+  requested_at timestamp with time zone NOT NULL DEFAULT now(),
+  resolved_at timestamp with time zone,
+  resolved_by bigint,
+  CONSTRAINT allegiance_requests_pkey PRIMARY KEY (id),
+  CONSTRAINT allegiance_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT allegiance_requests_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id),
+  CONSTRAINT allegiance_requests_resolved_by_fkey FOREIGN KEY (resolved_by) REFERENCES public.users(id)
+);
+
+CREATE UNIQUE INDEX allegiance_requests_one_pending_per_user
+  ON public.allegiance_requests (user_id)
+  WHERE status = 'pending';
+
+CREATE INDEX allegiance_requests_faction_pending_idx
+  ON public.allegiance_requests (faction_id)
+  WHERE status = 'pending';
+
 CREATE TABLE public.badges (
   id integer NOT NULL DEFAULT nextval('badges_id_seq'::regclass),
   name text NOT NULL UNIQUE,
   created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
   is_purchasable boolean NOT NULL DEFAULT false,
   needs_world boolean NOT NULL DEFAULT false,
+  icon_url text,
   CONSTRAINT badges_pkey PRIMARY KEY (id)
 );
 
@@ -180,9 +203,11 @@ CREATE TABLE public.factions (
   faction_type integer NOT NULL DEFAULT 0,
   capital_world_id integer,
   leader_id bigint,
+  population_limit bigint,
   CONSTRAINT factions_pkey PRIMARY KEY (id),
   CONSTRAINT factions_leader_id_fkey FOREIGN KEY (leader_id) REFERENCES public.users(id),
-  CONSTRAINT factions_capital_world_id_fkey FOREIGN KEY (capital_world_id) REFERENCES public.worlds(id)
+  CONSTRAINT factions_capital_world_id_fkey FOREIGN KEY (capital_world_id) REFERENCES public.worlds(id),
+  CONSTRAINT factions_population_limit_check CHECK (population_limit IS NULL OR population_limit >= 0)
 );
 
 CREATE TABLE public.fleet_status (
@@ -219,6 +244,7 @@ CREATE TABLE public.faction_scripts (
   last_run_at timestamp with time zone,
   run_count integer NOT NULL DEFAULT 0,
   is_active boolean NOT NULL DEFAULT TRUE,
+  is_auto_econ boolean NOT NULL DEFAULT FALSE,
   CONSTRAINT faction_scripts_pkey PRIMARY KEY (id),
   CONSTRAINT faction_scripts_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id),
   CONSTRAINT faction_scripts_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
@@ -558,8 +584,32 @@ CREATE TABLE public.pact_types (
   name text NOT NULL,
   description text,
   influence_cost integer NOT NULL DEFAULT 0,
-  CONSTRAINT pact_types_pkey PRIMARY KEY (id)
+  CONSTRAINT pact_types_pkey PRIMARY KEY (id),
+  CONSTRAINT pact_types_name_key UNIQUE (name)
 );
+
+CREATE TABLE public.pact_worlds (
+  pact_id integer NOT NULL,
+  world_id integer NOT NULL,
+  CONSTRAINT pact_worlds_pkey PRIMARY KEY (pact_id, world_id),
+  CONSTRAINT pact_worlds_pact_id_fkey FOREIGN KEY (pact_id) REFERENCES public.pacts(id) ON DELETE CASCADE,
+  CONSTRAINT pact_worlds_world_id_fkey FOREIGN KEY (world_id) REFERENCES public.worlds(id)
+);
+
+CREATE TABLE public.pact_intelligence_sharing (
+  pact_id integer NOT NULL,
+  domestic boolean NOT NULL DEFAULT false,
+  foreign_alerts boolean NOT NULL DEFAULT false,
+  CONSTRAINT pact_intelligence_sharing_pkey PRIMARY KEY (pact_id),
+  CONSTRAINT pact_intelligence_sharing_pact_id_fkey FOREIGN KEY (pact_id) REFERENCES public.pacts(id) ON DELETE CASCADE,
+  CONSTRAINT pact_intelligence_sharing_mode_check CHECK (domestic OR foreign_alerts)
+);
+
+INSERT INTO pact_types (name, description, influence_cost) VALUES
+    ('Intelligence Sharing',
+     'Members can share unit and building visibility on covered worlds, and can share foreign notification alerts. Cost is computed per pact as 15 Influence per shared world per other member, not a flat rate.',
+     0)
+ON CONFLICT (name) DO NOTHING;
 
 CREATE TABLE public.pacts (
   id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -624,6 +674,109 @@ CREATE TABLE public.settings (
   CONSTRAINT settings_pkey PRIMARY KEY (income_day)
 );
 
+CREATE TABLE public.faction_weekly_spend (
+  faction_id integer NOT NULL,
+  resource_id integer NOT NULL,
+  direction smallint NOT NULL,
+  amount bigint NOT NULL DEFAULT 0,
+  CONSTRAINT faction_weekly_spend_pkey PRIMARY KEY (faction_id, resource_id, direction),
+  CONSTRAINT faction_weekly_spend_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id),
+  CONSTRAINT faction_weekly_spend_resource_id_fkey FOREIGN KEY (resource_id) REFERENCES public.resources(id),
+  CONSTRAINT faction_weekly_spend_direction_check CHECK (direction IN (-1, 1))
+);
+
+CREATE TABLE public.megaproject_types (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  code text NOT NULL UNIQUE,
+  name text NOT NULL,
+  description text,
+  is_world_scoped boolean NOT NULL DEFAULT false,
+  one_per_world boolean NOT NULL DEFAULT false,
+  one_per_faction boolean NOT NULL DEFAULT false,
+  has_maintenance boolean NOT NULL DEFAULT false,
+  CONSTRAINT megaproject_types_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.faction_megaprojects (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  faction_id integer NOT NULL,
+  megaproject_type_id integer NOT NULL,
+  world_id integer,
+  is_active boolean NOT NULL DEFAULT true,
+  built_at timestamp with time zone NOT NULL DEFAULT now(),
+  disabled_at timestamp with time zone,
+  data jsonb NOT NULL DEFAULT '{}'::jsonb,
+  CONSTRAINT faction_megaprojects_pkey PRIMARY KEY (id),
+  CONSTRAINT faction_megaprojects_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id),
+  CONSTRAINT faction_megaprojects_type_id_fkey FOREIGN KEY (megaproject_type_id) REFERENCES public.megaproject_types(id),
+  CONSTRAINT faction_megaprojects_world_id_fkey FOREIGN KEY (world_id) REFERENCES public.worlds(id)
+);
+
+CREATE UNIQUE INDEX faction_megaprojects_one_per_world
+  ON public.faction_megaprojects (megaproject_type_id, world_id)
+  WHERE world_id IS NOT NULL;
+
+CREATE UNIQUE INDEX faction_megaprojects_one_per_faction
+  ON public.faction_megaprojects (megaproject_type_id, faction_id)
+  WHERE world_id IS NULL;
+
+CREATE INDEX faction_megaprojects_faction_idx
+  ON public.faction_megaprojects (faction_id);
+
+INSERT INTO megaproject_types (code, name, description, is_world_scoped, one_per_world, one_per_faction, has_maintenance) VALUES
+    ('terraformer', 'Terraformer', 'Prepares a world for reroll by the mapping corps, raising its CS rating to HIGH and rerolling resource percentages.', true, true, false, true),
+    ('recycling_center', 'Resource Recycling Center', 'Refunds a share of the faction''s refined resource spend from the previous income cycle, at a permanent efficiency cost.', false, false, true, true),
+    ('extractors_upgrade', 'Extractors Upgrade', 'Extractors refine their own resources faction wide, at the cost of raw extraction capacity.', false, false, true, false),
+    ('interplanetary_port', 'Interplanetary Port', 'A port built on a world. Connect two ports with a lane to double travel speed between them. Unlimited ports and lanes per faction.', true, false, false, false)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE public.port_lanes (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  faction_id integer NOT NULL,
+  port_a_id integer NOT NULL,
+  port_b_id integer NOT NULL,
+  built_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT port_lanes_pkey PRIMARY KEY (id),
+  CONSTRAINT port_lanes_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id),
+  CONSTRAINT port_lanes_port_a_id_fkey FOREIGN KEY (port_a_id) REFERENCES public.faction_megaprojects(id),
+  CONSTRAINT port_lanes_port_b_id_fkey FOREIGN KEY (port_b_id) REFERENCES public.faction_megaprojects(id),
+  CONSTRAINT port_lanes_distinct_ports_check CHECK (port_a_id <> port_b_id)
+);
+
+CREATE INDEX port_lanes_port_a_idx ON public.port_lanes (port_a_id);
+CREATE INDEX port_lanes_port_b_idx ON public.port_lanes (port_b_id);
+CREATE INDEX port_lanes_faction_idx ON public.port_lanes (faction_id);
+
+CREATE TABLE public.port_access_rules (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  port_id integer NOT NULL,
+  faction_id integer,
+  traffic_type text NOT NULL,
+  policy text NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT port_access_rules_pkey PRIMARY KEY (id),
+  CONSTRAINT port_access_rules_port_id_fkey FOREIGN KEY (port_id) REFERENCES public.faction_megaprojects(id),
+  CONSTRAINT port_access_rules_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id),
+  CONSTRAINT port_access_rules_traffic_type_check CHECK (traffic_type IN ('transfers', 'units')),
+  CONSTRAINT port_access_rules_policy_check CHECK (policy IN ('allow', 'deny'))
+);
+
+CREATE UNIQUE INDEX port_access_rules_scope_unique
+  ON public.port_access_rules (port_id, traffic_type, COALESCE(faction_id, 0));
+
+CREATE INDEX port_access_rules_port_idx ON public.port_access_rules (port_id);
+
+CREATE TABLE public.faction_last_cycle_spend (
+  faction_id integer NOT NULL,
+  resource_id integer NOT NULL,
+  direction smallint NOT NULL,
+  amount bigint NOT NULL DEFAULT 0,
+  CONSTRAINT faction_last_cycle_spend_pkey PRIMARY KEY (faction_id, resource_id, direction),
+  CONSTRAINT faction_last_cycle_spend_faction_id_fkey FOREIGN KEY (faction_id) REFERENCES public.factions(id),
+  CONSTRAINT faction_last_cycle_spend_resource_id_fkey FOREIGN KEY (resource_id) REFERENCES public.resources(id),
+  CONSTRAINT faction_last_cycle_spend_direction_check CHECK (direction IN (-1, 1))
+);
+
 CREATE TABLE public.trade_deals (
   id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
   sender_faction_id integer NOT NULL,
@@ -663,6 +816,13 @@ CREATE TABLE public.users (
   notify_movements boolean NOT NULL DEFAULT true,
   notify_origin boolean NOT NULL DEFAULT true,
   notify_destination boolean NOT NULL DEFAULT true,
+  notify_own boolean NOT NULL DEFAULT false,
+  notify_recruitment boolean NOT NULL DEFAULT true,
+  notify_fleet_arrival boolean NOT NULL DEFAULT true,
+  notify_battle boolean NOT NULL DEFAULT true,
+  notify_income boolean NOT NULL DEFAULT true,
+  allegiance text,
+  treatment text,
   CONSTRAINT users_pkey PRIMARY KEY (id)
 );
 
@@ -804,6 +964,11 @@ ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_transfers boolean NOT N
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_movements boolean NOT NULL DEFAULT true;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_origin boolean NOT NULL DEFAULT true;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_destination boolean NOT NULL DEFAULT true;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_own boolean NOT NULL DEFAULT false;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_recruitment boolean NOT NULL DEFAULT true;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_fleet_arrival boolean NOT NULL DEFAULT true;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_battle boolean NOT NULL DEFAULT true;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notify_income boolean NOT NULL DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS public.fleet_types (
   id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -855,6 +1020,8 @@ ALTER TABLE public.buildings_storages      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.building_costs          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.faction_world_buildings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.faction_treasury        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.faction_weekly_spend    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.allegiance_requests     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.local_treasury          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.resources               ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transfer_statuses       ENABLE ROW LEVEL SECURITY;
@@ -866,9 +1033,16 @@ ALTER TABLE public.transfer_resources      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.badges                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.badge_costs             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.badge_progress_resources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.megaproject_types        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.faction_megaprojects     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.faction_last_cycle_spend ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.port_lanes               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.port_access_rules        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pacts                   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pact_types              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pact_members            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pact_worlds             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pact_intelligence_sharing ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wars                    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.war_participants        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.battles                 ENABLE ROW LEVEL SECURITY;
@@ -902,6 +1076,7 @@ CREATE POLICY "players_read" ON public.pact_types           FOR SELECT TO authen
 CREATE POLICY "players_read" ON public.badges               FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_read" ON public.badge_costs          FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_read" ON public.badge_progress_resources FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
+CREATE POLICY "players_read" ON public.megaproject_types      FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_read" ON public.settings             FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_read" ON public.users                FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_read" ON public.games                FOR SELECT TO authenticated USING (public.get_player_discord_id() IS NOT NULL);
@@ -923,14 +1098,21 @@ CREATE POLICY "players_all" ON public.vehicles                FOR ALL TO authent
 CREATE POLICY "players_all" ON public.vehicle_construction    FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.faction_world_buildings FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.faction_treasury        FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
+CREATE POLICY "players_all" ON public.faction_weekly_spend    FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
+CREATE POLICY "players_all" ON public.allegiance_requests     FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.local_treasury          FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.trade_deals             FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.resource_transfers      FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.transfer_resources      FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.pacts                   FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.pact_members            FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
+CREATE POLICY "players_all" ON public.pact_worlds             FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
+CREATE POLICY "players_all" ON public.pact_intelligence_sharing FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.wars                    FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.national_spirits        FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
+CREATE POLICY "players_all" ON public.faction_megaprojects     FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
+CREATE POLICY "players_all" ON public.port_lanes               FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
+CREATE POLICY "players_all" ON public.port_access_rules        FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.war_participants        FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.battles                 FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
 CREATE POLICY "players_all" ON public.battle_participants     FOR ALL TO authenticated USING (public.get_player_discord_id() IS NOT NULL) WITH CHECK (public.get_player_discord_id() IS NOT NULL);
@@ -967,6 +1149,8 @@ CREATE POLICY "bot_app_all" ON public.buildings_storages FOR ALL TO bot_app USIN
 CREATE POLICY "bot_app_all" ON public.building_costs FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.faction_world_buildings FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.faction_treasury FOR ALL TO bot_app USING (true) WITH CHECK (true);
+CREATE POLICY "bot_app_all" ON public.faction_weekly_spend FOR ALL TO bot_app USING (true) WITH CHECK (true);
+CREATE POLICY "bot_app_all" ON public.allegiance_requests FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.local_treasury FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.resources FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.transfer_statuses FOR ALL TO bot_app USING (true) WITH CHECK (true);
@@ -978,9 +1162,16 @@ CREATE POLICY "bot_app_all" ON public.transfer_resources FOR ALL TO bot_app USIN
 CREATE POLICY "bot_app_all" ON public.badges FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.badge_costs FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.badge_progress_resources FOR ALL TO bot_app USING (true) WITH CHECK (true);
+CREATE POLICY "bot_app_all" ON public.megaproject_types FOR ALL TO bot_app USING (true) WITH CHECK (true);
+CREATE POLICY "bot_app_all" ON public.faction_megaprojects FOR ALL TO bot_app USING (true) WITH CHECK (true);
+CREATE POLICY "bot_app_all" ON public.faction_last_cycle_spend FOR ALL TO bot_app USING (true) WITH CHECK (true);
+CREATE POLICY "bot_app_all" ON public.port_lanes FOR ALL TO bot_app USING (true) WITH CHECK (true);
+CREATE POLICY "bot_app_all" ON public.port_access_rules FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.pacts FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.pact_types FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.pact_members FOR ALL TO bot_app USING (true) WITH CHECK (true);
+CREATE POLICY "bot_app_all" ON public.pact_worlds FOR ALL TO bot_app USING (true) WITH CHECK (true);
+CREATE POLICY "bot_app_all" ON public.pact_intelligence_sharing FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.wars FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.war_participants FOR ALL TO bot_app USING (true) WITH CHECK (true);
 CREATE POLICY "bot_app_all" ON public.battles FOR ALL TO bot_app USING (true) WITH CHECK (true);

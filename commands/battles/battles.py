@@ -97,7 +97,7 @@ async def battles(interaction: discord.Interaction, faction: Optional[str] = Non
         sides_text = _parse_sides(battle.sides)
         embed.add_field(
             name=f"Battle #{battle.id} - {battle.world_name}{war_info}",
-            value=f"{sides_text}\n**Started:** <t:{int(battle.date_start.timestamp())}:R>",
+            value=f"{sides_text}\n**Started:** <t:{int(battle.date_start.timestamp())}:R>\n​",
             inline=False
         )
 

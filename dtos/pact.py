@@ -74,6 +74,23 @@ class PactMember:
 
 
 @dataclass(frozen=True, slots=True)
+class PactIntelligenceSharing:
+    pact_id: int
+    domestic: bool
+    foreign_alerts: bool
+    world_ids: List[int]
+
+    @classmethod
+    def from_row(cls, row, world_ids: List[int]) -> "PactIntelligenceSharing":
+        return cls(
+            pact_id=row["pact_id"],
+            domestic=row["domestic"],
+            foreign_alerts=row["foreign_alerts"],
+            world_ids=world_ids,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class FactionPact:
     id: int
     name: str

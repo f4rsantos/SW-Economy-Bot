@@ -5,7 +5,7 @@
 
 import discord
 from discord import app_commands
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import error_embed
 from utils.faction_utils import hex_to_int
@@ -13,13 +13,15 @@ from services.travel_time_service import calculate_travel_time, format_travel_ti
 from services.fleet_service import move_fleet
 from utils.autocomplete import faction_autocomplete
 from services.validation_service import require_faction, require_unit, require_world
+from services import port_service
 
 
 @app_commands.command(name="move", description="Move a unit to another world")
 @app_commands.describe(
     faction="Faction owning the unit",
     unit_id="Unit ID or name to move",
-    destination="World to move to"
+    destination="World to move to",
+    use_lanes="Route through faction lanes when faster than the direct route"
 )
 @require_access_level(0)
 @ephemeral_capable('faction')
@@ -27,7 +29,8 @@ async def unit_move(
     interaction: discord.Interaction,
     faction: str,
     unit_id: str,
-    destination: str
+    destination: str,
+    use_lanes: bool = False
 ):
     await defer_response(interaction)
 
@@ -52,7 +55,15 @@ async def unit_move(
     was_blockading = unit_data['status_name'].lower() == 'blockading'
 
     now = datetime.now(timezone.utc)
-    travel_duration = await calculate_travel_time(unit_data['world_name'], dest_data['name'])
+    route_info = None
+    if use_lanes:
+        route_info = await port_service.calculate_best_route(
+            unit_data['position'], unit_data['world_name'], dest_data['id'], dest_data['name'],
+            faction_data.id, port_service.TRAFFIC_UNITS,
+        )
+        travel_duration = route_info['duration']
+    else:
+        travel_duration = await calculate_travel_time(unit_data['world_name'], dest_data['name'])
     arrival_time = now + travel_duration
 
     try:
@@ -77,6 +88,19 @@ async def unit_move(
     embed.add_field(name="To", value=dest_data['name'], inline=True)
     embed.add_field(name="Travel Time", value=travel_time_str, inline=True)
     embed.add_field(name="Arrival", value=f"<t:{int(arrival_time.timestamp())}:R>", inline=False)
+
+    if route_info and route_info['used_lanes']:
+        from services.map_service import get_worlds_by_ids
+        path_worlds = await get_worlds_by_ids(route_info['world_path'])
+        path_names_by_id = {w['id']: w['name'] for w in path_worlds}
+        path_names = [path_names_by_id.get(wid, str(wid)) for wid in route_info['world_path']]
+        saving_str = await format_travel_time(timedelta(seconds=route_info['saving_seconds']))
+        embed.add_field(
+            name="Route",
+            value=f"Via lanes through {' then '.join(path_names)}, saving {saving_str}",
+            inline=False,
+        )
+
     await interaction.followup.send(embed=embed)
 
 

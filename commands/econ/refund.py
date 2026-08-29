@@ -74,9 +74,9 @@ async def refund(
 
     try:
         if global_resources:
-            await add_resources(faction_id, None, global_resources)
+            await add_resources(faction_id, None, global_resources, is_refund=True)
         if local_resources:
-            await add_resources(faction_id, world_id, local_resources)
+            await add_resources(faction_id, world_id, local_resources, is_refund=True)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return

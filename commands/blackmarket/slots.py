@@ -12,22 +12,40 @@ from utils.embeds import success_embed, error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
 from services.validation_service import require_faction, require_world
-from services.casino_wager import parse_casino_wager, requires_world
+from utils.casino_wager import parse_casino_wager, requires_world
 from services.casino_service import get_current_edge, settle_bet
-from utils.casino_games import SLOT_EMOJI, slot_weights_for_edge, spin_reel, evaluate_slots, random_loss_message
-from services.casino_session import start_game, end_game
+from utils.casino_games import SLOT_EMOJI, SLOT_SYMBOLS, slot_weights_for_edge, spin_reel, evaluate_slots, random_loss_message
+from utils.casino_session import start_game, end_game
 
-SPIN_DELAY_SECONDS = 0.9
+SPIN_FRAME_SECONDS = 0.28
+FRAMES_BEFORE_FIRST_LOCK = 4
+FRAMES_BETWEEN_LOCKS = 3
 
 
 def _reel_line(symbols):
     return "  ".join(SLOT_EMOJI[s] for s in symbols)
 
 
-def _render(reel1, reel2, reel3, locked: list[bool]):
-    def cell(sym, is_locked):
-        return SLOT_EMOJI[sym] if is_locked else "❔"
-    return f"[ {cell(reel1, locked[0])} | {cell(reel2, locked[1])} | {cell(reel3, locked[2])} ]"
+def _render(reels, locked: list[bool], tick: int):
+    def cell(index):
+        if locked[index]:
+            return SLOT_EMOJI[reels[index]]
+        spinning = SLOT_SYMBOLS[(tick + index * 3) % len(SLOT_SYMBOLS)]
+        return SLOT_EMOJI[spinning]
+    return f"[ {cell(0)} | {cell(1)} | {cell(2)} ]"
+
+
+def _spin_frames():
+    frames = []
+    tick = 0
+    for locked_count in range(4):
+        held = FRAMES_BEFORE_FIRST_LOCK if locked_count == 0 else FRAMES_BETWEEN_LOCKS
+        if locked_count == 3:
+            held = 1
+        for _ in range(held):
+            frames.append(([j < locked_count for j in range(3)], tick))
+            tick += 1
+    return frames
 
 
 @app_commands.command(name="slots", description="Pull the lever on the black market's slot machine")
@@ -79,16 +97,20 @@ async def slots_cmd(interaction: discord.Interaction, faction: str, amount: str,
             reels = [spin_reel(weights) for _ in range(3)]
             multiplier = evaluate_slots(reels)
 
-            embed = success_embed(title=f"Slots [{resource}]", description=_render(reels[0], reels[1], reels[2], [False, False, False]))
+            frames = _spin_frames()
+            first_locked, first_tick = frames[0]
+            embed = success_embed(title=f"Slots [{resource}]", description=_render(reels, first_locked, first_tick))
             embed.color = faction_color
             msg = await interaction.followup.send(embed=embed, wait=True)
 
-            for i in range(3):
-                await asyncio.sleep(SPIN_DELAY_SECONDS)
-                locked = [j <= i for j in range(3)]
-                embed = success_embed(title=f"Slots [{resource}]", description=_render(reels[0], reels[1], reels[2], locked))
+            for locked, tick in frames[1:]:
+                await asyncio.sleep(SPIN_FRAME_SECONDS)
+                embed = success_embed(title=f"Slots [{resource}]", description=_render(reels, locked, tick))
                 embed.color = faction_color
-                await msg.edit(embed=embed)
+                try:
+                    await msg.edit(embed=embed)
+                except discord.HTTPException:
+                    break
 
             try:
                 settlement = await settle_bet(faction_id, world_id, resource, stake, multiplier)
@@ -100,6 +122,8 @@ async def slots_cmd(interaction: discord.Interaction, faction: str, amount: str,
 
             if settlement['net'] > 0:
                 text = f"{_reel_line(reels)}\nYou won {handle_return(settlement['payout'])} {resource}. Net gain: {handle_return(settlement['net'])} {resource}."
+                if settlement['alloys_awarded']:
+                    text += f"\nHigh stakes bonus: {settlement['alloys_awarded']} Alloys."
                 result_embed = success_embed(title=f"Slots [{resource}], Winner!", description=text)
             elif settlement['net'] == 0:
                 text = f"{_reel_line(reels)}\nYour wager was returned. No gain, no loss."

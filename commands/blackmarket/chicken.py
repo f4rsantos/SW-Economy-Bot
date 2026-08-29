@@ -12,7 +12,7 @@ from utils.embeds import success_embed, error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
 from services.validation_service import require_faction, require_world
-from services.casino_wager import parse_casino_wager, requires_world
+from utils.casino_wager import parse_casino_wager, requires_world
 from services.casino_service import (
     open_chicken_round,
     close_chicken_round_cashout,
@@ -25,7 +25,7 @@ from utils.casino_games import (
     chicken_resolve_step,
     random_loss_message,
 )
-from services.casino_session import start_game, end_game
+from utils.casino_session import start_game, end_game
 
 VIEW_TIMEOUT_SECONDS = 90
 
@@ -42,8 +42,11 @@ def _render_lanes(step: int) -> str:
     return " ".join(lanes)
 
 
+CHICKEN_ALLOY_MIN_STEP = 3
+
+
 class ChickenView(discord.ui.View):
-    def __init__(self, owner_id: int, faction_id: int, faction_color: int, resource: str, wager: int, res_id: int, edge: float):
+    def __init__(self, owner_id: int, faction_id: int, faction_color: int, resource: str, wager: int, res_id: int, edge: float, table_max: int = 0):
         super().__init__(timeout=VIEW_TIMEOUT_SECONDS)
         self.owner_id = owner_id
         self.faction_id = faction_id
@@ -52,6 +55,7 @@ class ChickenView(discord.ui.View):
         self.wager = wager
         self.res_id = res_id
         self.edge = edge
+        self.table_max = table_max
         self.step = 0
         self.world_id = None
         self.settled = False
@@ -120,13 +124,16 @@ class ChickenView(discord.ui.View):
                 self.settled = True
                 multiplier = self._current_multiplier()
                 result = await close_chicken_round_cashout(
-                    self.faction_id, self.world_id, self.resource, self.res_id, self.wager, multiplier
+                    self.faction_id, self.world_id, self.resource, self.res_id, self.wager, multiplier,
+                    table_max=self.table_max, alloy_eligible=(self.step >= CHICKEN_ALLOY_MIN_STEP),
                 )
                 text = (
                     f"{_render_lanes(self.step)}\nThe chicken made it all the way across. "
                     f"You cashed out {handle_return(result['payout'])} {self.resource}. "
                     f"Net gain: {handle_return(result['net'])} {self.resource}."
                 )
+                if result.get('alloys_awarded'):
+                    text += f"\nHigh stakes bonus: {result['alloys_awarded']} Alloys."
                 embed = success_embed(title=f"Chicken Crossing [{self.resource}], Made it!", description=text)
                 embed.color = self.faction_color
                 await self._finish(embed)
@@ -154,12 +161,15 @@ class ChickenView(discord.ui.View):
             else:
                 multiplier = self._current_multiplier()
                 result = await close_chicken_round_cashout(
-                    self.faction_id, self.world_id, self.resource, self.res_id, self.wager, multiplier
+                    self.faction_id, self.world_id, self.resource, self.res_id, self.wager, multiplier,
+                    table_max=self.table_max, alloy_eligible=(self.step >= CHICKEN_ALLOY_MIN_STEP),
                 )
                 text = (
                     f"{_render_lanes(self.step)}\nYou cashed out {handle_return(result['payout'])} {self.resource}. "
                     f"Net gain: {handle_return(result['net'])} {self.resource}."
                 )
+                if result.get('alloys_awarded'):
+                    text += f"\nHigh stakes bonus: {result['alloys_awarded']} Alloys."
                 embed = success_embed(title=f"Chicken Crossing [{self.resource}], Cashed Out!", description=text)
             embed.color = self.faction_color
             await self._finish(embed)
@@ -178,12 +188,15 @@ class ChickenView(discord.ui.View):
             else:
                 multiplier = self._current_multiplier()
                 result = await close_chicken_round_cashout(
-                    self.faction_id, self.world_id, self.resource, self.res_id, self.wager, multiplier
+                    self.faction_id, self.world_id, self.resource, self.res_id, self.wager, multiplier,
+                    table_max=self.table_max, alloy_eligible=(self.step >= CHICKEN_ALLOY_MIN_STEP),
                 )
                 text = (
                     f"{_render_lanes(self.step)}\nGame abandoned. Auto cashed out {handle_return(result['payout'])} {self.resource} "
                     f"at the multiplier you had reached."
                 )
+                if result.get('alloys_awarded'):
+                    text += f"\nHigh stakes bonus: {result['alloys_awarded']} Alloys."
                 embed = success_embed(title=f"Chicken Crossing [{self.resource}], Timed Out", description=text)
             embed.color = self.faction_color
             for child in self.children:
@@ -255,6 +268,7 @@ async def chicken_cmd(interaction: discord.Interaction, faction: str, amount: st
         wager=stake,
         res_id=opened['res_id'],
         edge=opened['edge'],
+        table_max=opened['table_max'],
     )
     view.world_id = world_id
 
