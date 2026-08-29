@@ -13,9 +13,6 @@ If you accept the Terms of Service, please click Accept below. You must be 13 or
 """
 
 
-
-
-
 async def send_tos_prompt(interaction: discord.Interaction) -> discord.Message:
     embed = discord.Embed(
         title="Welcome to Solar Economy",
