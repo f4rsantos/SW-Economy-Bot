@@ -82,14 +82,15 @@ class FactionPaginationView(OwnerOnlyView):
 @app_commands.describe(long="Show factions sorted by formal name length instead of alphabetically")
 @require_access_level(0)
 async def list_factions(interaction: discord.Interaction, long: bool = False):
+    await interaction.response.defer()
     factions = await list_factions_service(long)
 
     if not factions:
-        await interaction.response.send_message(embed=success_embed(title="Factions", description="No factions exist yet."))
+        await interaction.followup.send(embed=success_embed(title="Factions", description="No factions exist yet."))
         return
 
     view = FactionPaginationView(interaction.user.id, list(factions), long)
-    await interaction.response.send_message(embed=view.get_embed(), view=view)
+    await interaction.followup.send(embed=view.get_embed(), view=view)
 
 
 async def setup(bot):

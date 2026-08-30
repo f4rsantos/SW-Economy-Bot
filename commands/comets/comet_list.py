@@ -132,14 +132,15 @@ class CometListView(View):
 @app_commands.command(name="list", description="Browse all discovered comets")
 @require_access_level(0)
 async def comet_list(interaction: discord.Interaction):
+    await interaction.response.defer()
     comets = await get_comets(limit=200)
     if not comets:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=error_embed("No Comets", "No comets have been discovered yet.")
         )
         return
     view = CometListView(comets, interaction.user.id)
-    await interaction.response.send_message(embed=view.create_list_embed(), view=view)
+    await interaction.followup.send(embed=view.create_list_embed(), view=view)
 
 
 async def setup(bot):

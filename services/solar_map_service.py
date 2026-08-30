@@ -18,6 +18,24 @@ from services.orbital_config import IRL_SECONDS_PER_GAME_YEAR
 from utils.date_utils import get_solar_date, is_leap_year
 
 
+from utils.solar_map_geometry import (
+    SolarMapError,
+    resolve_system,
+    resolve_body,
+    parse_game_date,
+    current_game_date_str,
+    _is_top_level,
+    list_pageable_bodies,
+    list_focus_bodies,
+    _overview_radius_fn,
+    _focus_radius_fn,
+    center_pan_for_body,
+    _radius_scale_for_bodies,
+    BODY_RADII_KM,
+    DEFAULT_BODY_RADIUS_KM,
+    _icon_size_for,
+)
+
 _APP_ROOT = getattr(sys, "_MEIPASS", os.getcwd())
 WORLDS_DIR = os.getenv("WORLDS_DIR", os.path.join(_APP_ROOT, "assets", "worlds"))
 PLACEHOLDER_ICON = os.path.join(WORLDS_DIR, "placeholder.png")
@@ -83,9 +101,6 @@ _icon_cache = {}
 _font_cache = {}
 
 
-class SolarMapError(ValueError):
-    pass
-
 
 def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     key = (size, bold)
@@ -106,64 +121,6 @@ def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     return font
 
 
-def resolve_system(system_name: str) -> tuple[str, dict]:
-    for key in config.SYSTEMS_DATA:
-        if key.lower() == system_name.strip().lower():
-            return key, config.SYSTEMS_DATA[key]
-    raise SolarMapError(f"Unknown system '{system_name}'. Valid systems: {', '.join(config.SYSTEMS_DATA.keys())}")
-
-
-def resolve_body(body_name: str, system_data: dict) -> str:
-    key = get_config_key(body_name, system_data)
-    if not key:
-        raise SolarMapError(f"Unknown body '{body_name}' in this system.")
-    return key
-
-
-def parse_game_date(date_str: str) -> datetime:
-    parts = date_str.strip().split("-")
-    if len(parts) != 3:
-        raise SolarMapError(f"Invalid date '{date_str}'. Use format yyyy-mm-dd (in-game date).")
-    try:
-        year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
-    except ValueError:
-        raise SolarMapError(f"Invalid date '{date_str}'. Use format yyyy-mm-dd (in-game date).")
-    if not (1 <= month <= 12):
-        raise SolarMapError(f"Invalid month '{month}'. Must be between 1 and 12.")
-    if day < 1 or day > 31:
-        raise SolarMapError(f"Invalid day '{day}'. Must be between 1 and 31.")
-    return _solar_to_real(year, month, day)
-
-
-def _solar_to_real(year: int, month: int, day: int) -> datetime:
-    total_months = year - SOLAR_EPOCH_YEAR
-    real_month_index = (SOLAR_EPOCH.month - 1) + total_months
-    real_year = SOLAR_EPOCH.year + real_month_index // 12
-    real_month = real_month_index % 12 + 1
-
-    month_start = datetime(real_year, real_month, 1)
-    month_end = datetime(real_year + 1, 1, 1) if real_month == 12 else datetime(real_year, real_month + 1, 1)
-    year_len = (month_end - month_start).total_seconds() - 1
-
-    leap = is_leap_year(year)
-    months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    if leap:
-        months[1] = 29
-    if month > 12 or day > months[month - 1]:
-        raise SolarMapError(f"Invalid day '{day}' for month '{month}'.")
-
-    day_count = sum(months[: month - 1]) + day
-    days_in_year = 366 if leap else 365
-    fraction = min((day_count + 0.5) / days_in_year, 1.0)
-    point_seconds = fraction * year_len
-    return month_start + timedelta(seconds=point_seconds)
-
-
-def current_game_date_str(now: Optional[datetime] = None) -> str:
-    year, month, day = get_solar_date(now)
-    return f"{year:04d}-{month:02d}-{day:02d}"
-
-
 def _icon_path(body_name: str) -> str:
     candidate = os.path.join(WORLDS_DIR, f"{body_name}.png")
     return candidate if os.path.exists(candidate) else PLACEHOLDER_ICON
@@ -178,31 +135,6 @@ def _load_icon(body_name: str, target_size: int) -> Image.Image:
     icon = icon.resize((target_size, target_size), Image.LANCZOS)
     _icon_cache[key] = icon
     return icon
-
-
-def _is_top_level(name: str, data: dict) -> bool:
-    return data.get("parent") is None
-
-
-def _radius_scale_for_bodies(bodies: list[str], system_data: dict) -> dict:
-    if not bodies:
-        return {}
-    radii = [BODY_RADII_KM.get(b, DEFAULT_BODY_RADIUS_KM) for b in bodies]
-    min_r, max_r = min(radii), max(radii)
-    scale = {}
-    for b in bodies:
-        r = BODY_RADII_KM.get(b, DEFAULT_BODY_RADIUS_KM)
-        if max_r > min_r:
-            t = (math.log(r) - math.log(min_r)) / (math.log(max_r) - math.log(min_r))
-        else:
-            t = 0.5
-        scale[b] = t
-    return scale
-
-
-def _icon_size_for(t: float, is_moon: bool = False) -> int:
-    lo, hi = (MOON_ICON_MIN, MOON_ICON_MAX) if is_moon else (PLANET_ICON_MIN, PLANET_ICON_MAX)
-    return int(lo + (hi - lo) * t)
 
 
 def _draw_orbit_path(draw: ImageDraw.Draw, cx: float, cy: float, points: list):
@@ -224,6 +156,51 @@ def _resolve_route_points(route: Optional[list], plots: dict) -> list[tuple[str,
     if len(resolved) < 2:
         return []
     return resolved
+
+
+def _route_body_keys(route: Optional[list], system_data: dict) -> list[str]:
+    if not route:
+        return []
+    keys = []
+    for name in route:
+        key = get_config_key(str(name), system_data)
+        if key is None:
+            continue
+        keys.append(key)
+    return keys
+
+
+def _route_common_parent(route: Optional[list], system_data: dict) -> Optional[str]:
+    keys = _route_body_keys(route, system_data)
+    if len(keys) < 2:
+        return None
+    candidate_parents = set()
+    has_moon = False
+    for key in keys:
+        parent = system_data.get(key, {}).get("parent")
+        if parent is not None:
+            has_moon = True
+            candidate_parents.add(parent)
+        else:
+            candidate_parents.add(key)
+    if not has_moon:
+        return None
+    if len(candidate_parents) == 1:
+        return next(iter(candidate_parents))
+    return None
+
+
+def _substitute_moons_for_overview(route: Optional[list], system_data: dict) -> list[str]:
+    keys = _route_body_keys(route, system_data)
+    substituted = []
+    for key in keys:
+        parent = system_data.get(key, {}).get("parent")
+        substituted.append(parent if parent is not None else key)
+    collapsed = []
+    for name in substituted:
+        if not collapsed or collapsed[-1] != name:
+            collapsed.append(name)
+    return collapsed
 
 
 def _draw_route(image: Image.Image, draw: ImageDraw.Draw, resolved_route: list, supersample: int):
@@ -418,8 +395,14 @@ def render_solar_map(
         image_bytes, closest_body = _render_focus(canonical_system, system_data, canonical_focus, when, zoom, pan_x, pan_y, route)
         title = f"{canonical_focus} System"
     else:
-        image_bytes, closest_body = _render_overview(canonical_system, system_data, when, mode, zoom, pan_x, pan_y, route)
-        title = f"{canonical_system} System"
+        common_parent = _route_common_parent(route, system_data) if route else None
+        if common_parent:
+            image_bytes, closest_body = _render_focus(canonical_system, system_data, common_parent, when, zoom, pan_x, pan_y, route)
+            title = f"{common_parent} System"
+        else:
+            overview_route = _substitute_moons_for_overview(route, system_data) if route else route
+            image_bytes, closest_body = _render_overview(canonical_system, system_data, when, mode, zoom, pan_x, pan_y, overview_route)
+            title = f"{canonical_system} System"
 
     return image_bytes, title, game_date_label, closest_body
 
@@ -439,31 +422,7 @@ def _render_overview(system_name: str, system_data: dict, when: datetime, mode: 
 
     dists = {name: math.hypot(positions[name].x, positions[name].y) for name in bodies}
 
-    perihelions = []
-    aphelions = []
-    for name in bodies:
-        data = system_data[name]
-        a = data.get("a", data.get("dist", 1.0))
-        e = data.get("e", 0.0)
-        perihelions.append(a * (1.0 - e))
-        aphelions.append(a * (1.0 + e))
-
-    min_dist = (min(perihelions) * 0.75) if perihelions else 0.2
-    max_dist = (max(aphelions) * 1.05) if aphelions else 45.0
-
-    if mode == "log":
-        min_radius_px = 90 * SUPERSAMPLE
-
-        def radius_px(d):
-            d = max(d, min_dist)
-            t = (math.log(d) - math.log(min_dist)) / (math.log(max_dist) - math.log(min_dist)) if max_dist > min_dist else 0.0
-            return (min_radius_px + (max_radius_px - min_radius_px) * t) * zoom
-    else:
-        current_max = max(dists.values()) if dists else 1.0
-        px_per_au = (max_radius_px / current_max) * zoom if current_max > 0 else 1.0
-
-        def radius_px(d):
-            return d * px_per_au
+    radius_px = _overview_radius_fn(system_data, bodies, mode, zoom, dists, max_radius_px)
 
     size_scale = _radius_scale_for_bodies(bodies, system_data)
 
@@ -579,8 +538,6 @@ def _render_focus(system_name: str, system_data: dict, focus_name: str, when: da
     max_radius_px = center - MARGIN * SUPERSAMPLE
 
     moons = [name for name, data in system_data.items() if data.get("parent") == focus_name]
-    if not moons:
-        raise SolarMapError(f"'{focus_name}' has no moons to display.")
 
     focus_pos = get_absolute_position_3d(focus_name, when, system_data)
     moon_positions = {}
@@ -590,30 +547,11 @@ def _render_focus(system_name: str, system_data: dict, focus_name: str, when: da
         dist = math.hypot(rel_x, rel_y)
         moon_positions[name] = (rel_x, rel_y, dist)
 
-    moon_perihelions = []
-    moon_aphelions = []
-    for name in moons:
-        data = system_data[name]
-        a = data.get("a", data.get("dist", 0.005))
-        e = data.get("e", 0.0)
-        moon_perihelions.append(a * (1.0 - e))
-        moon_aphelions.append(a * (1.0 + e))
-
-    min_dist = (min(moon_perihelions) * 0.75) if moon_perihelions else 0.0005
-    max_dist = (max(moon_aphelions) * 1.05) if moon_aphelions else 0.03
-
     size_scale = _radius_scale_for_bodies(list(system_data.keys()), system_data)
     planet_t = size_scale.get(focus_name, 0.6)
     planet_icon_size = int(_icon_size_for(planet_t) * 1.6 * SUPERSAMPLE * min(zoom, 1.5))
-    inner_radius_px = max(90 * SUPERSAMPLE, planet_icon_size * 1.05)
 
-    def moon_radius_px(dist):
-        dist = max(dist, min_dist)
-        if max_dist > min_dist:
-            t = (math.log(dist) - math.log(min_dist)) / (math.log(max_dist) - math.log(min_dist))
-        else:
-            t = 1.0
-        return (inner_radius_px + (max_radius_px - inner_radius_px) * t) * zoom
+    moon_radius_px = _focus_radius_fn(system_data, moons, focus_name, zoom, max_radius_px)
 
     bg = _draw_gradient_background(size).convert("RGBA")
     draw = ImageDraw.Draw(bg, "RGBA")
@@ -693,3 +631,41 @@ def _render_focus(system_name: str, system_data: dict, focus_name: str, when: da
     output = io.BytesIO()
     final.convert("RGB").save(output, format="PNG")
     return output.getvalue(), closest_body
+
+
+def render_intersystem_route(from_system: str, to_system: str, from_world: str, to_world: str) -> bytes:
+    size = BASE_SIZE * SUPERSAMPLE
+    center_y = size / 2
+    star_radius = 34 * SUPERSAMPLE
+    left_x = size * 0.28
+    right_x = size * 0.72
+
+    bg = _draw_gradient_background(size).convert("RGBA")
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    resolved_route = [
+        (from_system, left_x, center_y),
+        (to_system, right_x, center_y),
+    ]
+    _draw_route(bg, draw, resolved_route, SUPERSAMPLE)
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    _draw_sun(bg, left_x, center_y, star_radius)
+    _draw_sun(bg, right_x, center_y, star_radius)
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    font = _load_font(20 * SUPERSAMPLE, bold=True)
+    font_small = _load_font(15 * SUPERSAMPLE)
+
+    _text_with_shadow(draw, (left_x, center_y + star_radius + 10 * SUPERSAMPLE), from_system, font, anchor="ma")
+    _text_with_shadow(draw, (left_x, center_y + star_radius + 10 * SUPERSAMPLE + 30 * SUPERSAMPLE), from_world, font_small, fill=SUBTLE_TEXT, anchor="ma")
+
+    _text_with_shadow(draw, (right_x, center_y + star_radius + 10 * SUPERSAMPLE), to_system, font, anchor="ma")
+    _text_with_shadow(draw, (right_x, center_y + star_radius + 10 * SUPERSAMPLE + 30 * SUPERSAMPLE), to_world, font_small, fill=SUBTLE_TEXT, anchor="ma")
+
+    _text_with_shadow(draw, (24 * SUPERSAMPLE, size - 40 * SUPERSAMPLE), "Interstellar Route", font_small, fill=SUBTLE_TEXT, anchor="lm")
+
+    final = bg.resize((BASE_SIZE, BASE_SIZE), Image.LANCZOS)
+    output = io.BytesIO()
+    final.convert("RGB").save(output, format="PNG")
+    return output.getvalue()

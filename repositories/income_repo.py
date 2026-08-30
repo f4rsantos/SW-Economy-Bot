@@ -58,6 +58,14 @@ async def fetch_fleet_cs_by_status(faction_id: int, status_ids: dict) -> Dict:
     return await db.fetchrow(query, faction_id)
 
 
+async def fetch_fleet_cs_rows(faction_id: int, debris_status_id: int) -> List[Dict]:
+    return await db.fetch("""
+        SELECT id, position, status_id, total_cs
+        FROM fleets
+        WHERE faction_id = $1 AND status_id != $2
+    """, faction_id, debris_status_id)
+
+
 async def fetch_status_ids() -> Dict[str, int]:
     rows = await db.fetch("SELECT id, name FROM fleet_status")
     return {r['name'].lower(): r['id'] for r in rows}
@@ -65,7 +73,7 @@ async def fetch_status_ids() -> Dict[str, int]:
 
 async def fetch_non_debris_fleets(faction_id: int, debris_status_id: int) -> List[Dict]:
     return await db.fetch("""
-        SELECT f.id, f.name, f.health, f.total_cs, f.status_id, fs.name as status_name
+        SELECT f.id, f.name, f.health, f.total_cs, f.status_id, f.position, fs.name as status_name
         FROM fleets f
         JOIN fleet_status fs ON f.status_id = fs.id
         WHERE f.faction_id = $1 AND f.status_id != $2

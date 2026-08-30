@@ -7,7 +7,7 @@ import json
 import discord
 from discord import app_commands
 from discord.ui import View, Select, Button
-from utils.checks import require_access_level, ephemeral_capable, resolve_ephemeral
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
@@ -267,22 +267,22 @@ class VehiclePaginationView(OwnerOnlyView):
 @require_access_level(0)
 @ephemeral_capable('faction')
 async def list_vehicles(interaction: discord.Interaction, faction: str):
+    await defer_response(interaction)
+
     r_faction_data = await require_faction(faction)
     if not r_faction_data.ok:
-        await interaction.response.send_message(embed=error_embed("Error", r_faction_data.error))
+        await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         return
     faction_data = r_faction_data.data
 
     vehicles = await list_vehicles_service(faction_data.id)
 
     if not vehicles:
-        await interaction.response.send_message(embed=error_embed("Error", f"No vehicles found for {faction_data.display_name}."))
+        await interaction.followup.send(embed=error_embed("Error", f"No vehicles found for {faction_data.display_name}."))
         return
 
     view = VehiclePaginationView(interaction.user.id, list(vehicles), faction_data)
-    await interaction.response.send_message(
-        embed=view.get_embed(), view=view, ephemeral=await resolve_ephemeral(interaction)
-    )
+    await interaction.followup.send(embed=view.get_embed(), view=view)
 
 
 async def setup(bot):
