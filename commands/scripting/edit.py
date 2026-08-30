@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.embeds import success_embed, error_embed
@@ -29,7 +34,7 @@ class ScriptEditModal(discord.ui.Modal, title="Edit Faction Script"):
             await interaction.followup.send(embed=error_embed(err))
             return
 
-        script = await get_script_by_name(faction_data["id"], self.script_name)
+        script = await get_script_by_name(faction_data.id, self.script_name)
         if not script:
             await interaction.followup.send(
                 embed=error_embed(f"No active script named '{self.script_name}'.")
@@ -55,8 +60,8 @@ class ScriptEditModal(discord.ui.Modal, title="Edit Faction Script"):
 
         try:
             await update_script(
-                script_id=script["id"],
-                faction_id=faction_data["id"],
+                script_id=script.id,
+                faction_id=faction_data.id,
                 script_text=text,
                 trigger_day=trigger_day,
                 trigger_type=trigger_type,
@@ -68,7 +73,7 @@ class ScriptEditModal(discord.ui.Modal, title="Edit Faction Script"):
         runs_on = "Manual Trigger" if trigger_type == "manual" else (trigger_day or "Income Day")
         embed = success_embed(
             title="Script Updated",
-            description=f"Script **{script['name']}** updated. Runs on: **{runs_on}**",
+            description=f"Script **{script.name}** updated. Runs on: **{runs_on}**",
         )
         await interaction.followup.send(embed=embed)
 

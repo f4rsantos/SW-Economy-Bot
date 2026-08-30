@@ -1,7 +1,12 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import error_embed
 from utils.faction_utils import hex_to_int
 from utils.currency import handle_currency
@@ -17,6 +22,7 @@ from services.validation_service import require_faction, require_unit
     amount="Amount of infantry to transfer (supports k/m/b/t multipliers)"
 )
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def transfer(
     interaction: discord.Interaction,
     faction: str,
@@ -24,7 +30,7 @@ async def transfer(
     to_unit: str,
     amount: str
 ):
-    await interaction.response.defer()
+    await defer_response(interaction)
 
     try:
         transfer_amount = int(handle_currency(amount))
@@ -38,8 +44,8 @@ async def transfer(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     r_from_unit_data, r_to_unit_data = await asyncio.gather(
         require_unit(from_unit, faction_id),
@@ -63,7 +69,7 @@ async def transfer(
     from_label = from_unit_data['name'] or f"Unit #{from_unit_data['faction_fleet_number']}"
     to_label = to_unit_data['name'] or f"Unit #{to_unit_data['faction_fleet_number']}"
     embed = discord.Embed(
-        title=f"Military: {faction_data['display_name']}",
+        title=f"Military: {faction_data.display_name}",
         description=f"Transferred **{transfer_amount:,} infantry**\n\nFrom: **{from_label}**\nTo: **{to_label}**",
         color=faction_color
     )

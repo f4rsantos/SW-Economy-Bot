@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -25,8 +30,8 @@ async def overview_cmd(
         if not org_data:
             await interaction.followup.send(embed=error_embed("Error", f"Organization `{org}` not found."))
             return
-        org_id   = org_data['id']
-        org_name = org_data['name']
+        org_id   = org_data.id
+        org_name = org_data.name
 
     boards = await list_boards()
     count_map = await board_task_counts(org_id=org_id)
@@ -47,7 +52,7 @@ async def overview_cmd(
     )
 
     for board in boards:
-        bid   = board['id']
+        bid   = board.id
         cnt   = count_map.get(bid, 0)
         tasks = tasks_by_board.get(bid, [])
 
@@ -62,7 +67,7 @@ async def overview_cmd(
                 value += f"\n*…and {cnt - PREVIEW_TASKS} more*"
 
         embed.add_field(
-            name=f"{board['name']}  ({cnt})",
+            name=f"{board.name}  ({cnt})",
             value=value,
             inline=False
         )

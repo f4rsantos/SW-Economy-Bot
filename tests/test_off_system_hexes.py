@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import pytest
 from services.map_service import _get_system_root_id, _count_off_capital_system_hexes
 from services.fleet_service import get_ftl_supply_capacity

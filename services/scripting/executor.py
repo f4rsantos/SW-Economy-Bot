@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from __future__ import annotations
 import logging
 from datetime import datetime, timezone
@@ -15,10 +20,11 @@ from .ast_nodes import (
     AssignStmt, IfStmt, ForEachStmt, RepeatStmt, SwitchStmt,
     TransferAction, BuyBuildingAction, UpgradeBuildingAction,
     MoveFleetAction, FleetStatusAction, RenameFleetAction, BuyVehiclesAction, RecruitAction,
+    StopStmt,
     ResourceCond, FleetHealthCond, FleetStatusCond, FleetVehiclesCond, FleetAtWorldCond,
     WorldResourceCond, BuildingCountCond,
     AtWarCond, BlockadedCond, TodayIsCond, FactorySpaceCond, ExprComparison, BinaryCond, NotCond,
-    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr,
+    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr, ResourceExpr,
 )
 
 
@@ -134,6 +140,9 @@ class Executor:
                 await self.exec_repeat(stmt)
             elif t is SwitchStmt:
                 await self.exec_switch(stmt)
+            elif t is StopStmt:
+                self.ctx.result.stopped = True
+                self.ctx.result.aborted = True
             else:
                 await self.exec_action(stmt)
         except FALRuntimeError as e:
@@ -232,7 +241,7 @@ class Executor:
             resource_name=stmt.resource,
             from_world_id=from_world["id"],
             from_world_name=from_world["name"],
-            to_faction_id=to_faction["id"],
+            to_faction_id=to_faction.id,
             to_world_id=to_world["id"],
             to_world_name=to_world["name"],
             current_time=self.current_time,
@@ -371,7 +380,7 @@ class Executor:
             if cond.faction_ref is not None:
                 faction_ref_val = (await self.eval_expr(cond.faction_ref)).value
                 faction = await self.sandbox.resolve_faction(str(faction_ref_val))
-                faction_id = faction["id"]
+                faction_id = faction.id
                 fleet = await self.sandbox.resolve_fleet_for_faction(fleet_ref_val, faction_id)
                 fleet_ids = await self.sandbox.get_fleets_at_world_for_faction(world["id"], faction_id)
             else:
@@ -458,6 +467,10 @@ class Executor:
             fleet_ids = await self.sandbox.get_fleets_at_world(world["id"])
             return FALValue.list_(fleet_ids)
 
+        if t is ResourceExpr:
+            amount = await self.sandbox.get_resource_amount(node.resource)
+            return FALValue.int(amount)
+
         if t is BinOp:
             left = (await self.eval_expr(node.left)).value
             right = (await self.eval_expr(node.right)).value
@@ -510,6 +523,16 @@ class Executor:
 
 
 
+async def _deactivate_if_stopped(result: ExecutionResult, script_id: int, faction_id: int) -> None:
+    if result.dry_run or not result.stopped:
+        return
+    from .script_service import deactivate_script
+    try:
+        await deactivate_script(script_id, faction_id)
+    except Exception as e:
+        logger.error(f"    Failed to deactivate stopped script {script_id} (faction {faction_id}): {e}")
+
+
 async def run_income_day_scripts(
     factions: list,
     income_weekday_name: str,
@@ -532,9 +555,9 @@ async def run_income_day_scripts(
             import asyncio
             result = await asyncio.wait_for(
                 execute_script(
-                    script_text=script_row["script_text"],
-                    faction_id=script_row["faction_id"],
-                    is_company=faction_is_company.get(script_row["faction_id"], False),
+                    script_text=script_row.script_text,
+                    faction_id=script_row.faction_id,
+                    is_company=faction_is_company.get(script_row.faction_id, False),
                     dry_run=False,
                     current_time=current_time,
                 ),
@@ -546,15 +569,16 @@ async def run_income_day_scripts(
             result = ExecutionResult()
             result.error(f"Unexpected error: {e}")
             result.aborted = True
-            await record_execution(script_row["id"], script_row["faction_id"], result, elapsed)
-            logger.error(f"    Script {script_row['id']} (faction {script_row['faction_id']}): ERROR — {e}")
+            await record_execution(script_row.id, script_row.faction_id, result, elapsed)
+            logger.error(f"    Script {script_row.id} (faction {script_row.faction_id}): ERROR — {e}")
             continue
 
         elapsed = int((time.monotonic() - start) * 1000)
-        await record_execution(script_row["id"], script_row["faction_id"], result, elapsed)
+        await record_execution(script_row.id, script_row.faction_id, result, elapsed)
+        await _deactivate_if_stopped(result, script_row.id, script_row.faction_id)
 
         status = "skipped" if result.skipped else ("aborted" if result.aborted else "ok")
-        logger.info(f"    Script {script_row['id']} (faction {script_row['faction_id']}): {status}, {result.actions_taken} actions, {elapsed}ms")
+        logger.info(f"    Script {script_row.id} (faction {script_row.faction_id}): {status}, {result.actions_taken} actions, {elapsed}ms")
 
 
 async def run_scheduled_scripts(current_time: datetime) -> None:
@@ -576,8 +600,8 @@ async def run_scheduled_scripts(current_time: datetime) -> None:
             import asyncio
             result = await asyncio.wait_for(
                 execute_script(
-                    script_text=script_row["script_text"],
-                    faction_id=script_row["faction_id"],
+                    script_text=script_row.script_text,
+                    faction_id=script_row.faction_id,
                     is_company=script_row.get("is_company", False),
                     dry_run=False,
                     current_time=current_time,
@@ -590,8 +614,9 @@ async def run_scheduled_scripts(current_time: datetime) -> None:
             result = ExecutionResult()
             result.error(f"Unexpected error: {e}")
             result.aborted = True
-            await record_execution(script_row["id"], script_row["faction_id"], result, elapsed)
+            await record_execution(script_row.id, script_row.faction_id, result, elapsed)
             continue
 
         elapsed = int((time.monotonic() - start) * 1000)
-        await record_execution(script_row["id"], script_row["faction_id"], result, elapsed)
+        await record_execution(script_row.id, script_row.faction_id, result, elapsed)
+        await _deactivate_if_stopped(result, script_row.id, script_row.faction_id)

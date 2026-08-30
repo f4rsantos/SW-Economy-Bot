@@ -1,7 +1,13 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
+import asyncio
 import discord
 from discord import app_commands
 from typing import Optional
-from services.user_service import get_user_access_level
+from services.user_service import get_user_access_level, get_user_ephemeral
 
 
 class InsufficientAccessLevel(app_commands.CheckFailure):
@@ -24,6 +30,46 @@ def require_access_level(level: int = 0):
             raise InsufficientAccessLevel(level, user_level)
         return True
     return app_commands.check(predicate)
+
+
+def ephemeral_capable(faction_param: str = "faction"):
+    def predicate(interaction: discord.Interaction) -> bool:
+        interaction.extras['ephemeral_param'] = faction_param
+        return True
+    return app_commands.check(predicate)
+
+
+async def resolve_ephemeral(interaction: discord.Interaction) -> bool:
+    param = interaction.extras.get('ephemeral_param')
+    if not param:
+        return False
+
+    cached = interaction.extras.get('ephemeral')
+    if cached is not None:
+        return cached
+
+    result = False
+    try:
+        if await get_user_ephemeral(interaction.user.id):
+            faction_value = interaction.namespace.__dict__.get(param)
+            if faction_value:
+                from utils.faction_utils import leads_faction_named
+                result = await leads_faction_named(interaction.user.id, faction_value)
+    except Exception:
+        result = False
+
+    interaction.extras['ephemeral'] = result
+    return result
+
+
+async def defer_response(interaction: discord.Interaction, **kwargs):
+    try:
+        ephemeral = await asyncio.wait_for(resolve_ephemeral(interaction), timeout=1.0)
+    except Exception:
+        ephemeral = False
+        interaction.extras['ephemeral'] = False
+    await interaction.response.defer(ephemeral=ephemeral, **kwargs)
+    return ephemeral
 
 
 async def check_access_level(user_id: int, required_level: int = 0) -> tuple[bool, Optional[str]]:

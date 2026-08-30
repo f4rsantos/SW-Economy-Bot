@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -17,8 +22,8 @@ async def leave_pact(interaction: discord.Interaction, faction: str, pact_id: in
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     try:
         result = await leave_pact_service(pact_id, faction_id)
@@ -28,7 +33,7 @@ async def leave_pact(interaction: discord.Interaction, faction: str, pact_id: in
 
     embed = success_embed(
         title="Left Pact",
-        description=f"**{faction_data['display_name']}** has left **{result['name']}** ({result['pact_type']}).\n\n**Former Leader:** {result['leader_name']}"
+        description=f"**{faction_data.display_name}** has left **{result['name']}** ({result['pact_type']}).\n\n**Former Leader:** {result['leader_name']}"
     )
     embed.color = faction_color
     await interaction.followup.send(embed=embed)

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
@@ -20,8 +25,8 @@ async def unclaim_hex(interaction: discord.Interaction, faction: str, world: str
     faction_data = r_faction_data.data
     world_data = r_world.data
 
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     world_id = world_data['id']
 
@@ -35,7 +40,7 @@ async def unclaim_hex(interaction: discord.Interaction, faction: str, world: str
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
-    embed = success_embed(title="Hexes Unclaimed", description=f"**{faction_data['display_name']}** unclaimed **{hexes}** hex(es) from **{world_data['name']}**.")
+    embed = success_embed(title="Hexes Unclaimed", description=f"**{faction_data.display_name}** unclaimed **{hexes}** hex(es) from **{world_data['name']}**.")
     embed.color = faction_color
     embed.add_field(name="Remaining Hexes", value=f"{result['remaining_hexes']:,}", inline=True)
     embed.add_field(name="Buildings", value=f"{result['total_buildings']:,}", inline=True)

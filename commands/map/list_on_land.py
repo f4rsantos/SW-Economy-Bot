@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -26,14 +31,14 @@ async def list_on_land(interaction: discord.Interaction, world: str):
         await interaction.followup.send(embed=error_embed("No Claims", f"No factions have claimed hexes on {world_data['name']}."))
         return
 
-    total_claimed = sum(f['territory'] for f in factions)
+    total_claimed = sum(f.territory for f in factions)
     embed = discord.Embed(
         title=f"Factions on {world_data['name']}",
         description=f"**Total Hexes:** {max_hexes:,}\n**Claimed:** {total_claimed:,}\n**Available:** {max_hexes - total_claimed:,}",
-        color=hex_to_int(factions[0]['color'])
+        color=hex_to_int(factions[0].color)
     )
 
-    lines = [f"**{f['display_name']}:** {f['territory']:,} ({f['territory'] / max_hexes * 100:.1f}%)" for f in factions]
+    lines = [f"**{f.display_name}:** {f.territory:,} ({f.territory / max_hexes * 100:.1f}%)" for f in factions]
     for i in range(0, len(lines), 20):
         embed.add_field(name="Factions" if i == 0 else "...", value="\n".join(lines[i:i+20]), inline=False)
 

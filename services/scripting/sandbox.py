@@ -1,9 +1,14 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from __future__ import annotations
 import math
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from database.db_manager import db
+from repositories import scripting_sandbox_repo as sandbox_repo
 from services.map_service import get_world, get_world_by_id
 from services.transfer_service import (
     check_blockade,
@@ -12,7 +17,7 @@ from services.transfer_service import (
     has_world_presence,
     get_local_resource_amount,
 )
-from services.econ_query_service import get_global_resource_amount
+from repositories.econ_repo import get_global_resource_amount
 from services.fleet_service import (
     get_fleet,
     move_fleet,
@@ -51,62 +56,33 @@ class FALSandbox:
         res_upper = resource_name.upper()
 
         if res_upper in LOCAL_RESOURCES:
-            row = await db.fetchrow(
-                """SELECT COALESCE(SUM(lt.amount), 0) as total
-                   FROM local_treasury lt
-                   JOIN resources r ON lt.resource_id = r.id
-                   WHERE lt.faction_id = $1 AND UPPER(r.name) = $2""",
-                self._faction_id, res_upper,
-            )
+            row = await sandbox_repo.get_local_resource_total(self._faction_id, res_upper)
             return int(row["total"]) if row else 0
 
         if res_upper in GLOBAL_RESOURCES:
-            db_name = res_upper.capitalize() if res_upper != "ER" else "ER"
-            row = await db.fetchrow(
-                """SELECT COALESCE(ft.amount, 0) as total
-                   FROM faction_treasury ft
-                   JOIN resources r ON ft.resource_id = r.id
-                   WHERE ft.faction_id = $1 AND UPPER(r.name) = $2""",
-                self._faction_id, res_upper,
-            )
+            row = await sandbox_repo.get_faction_resource_total(self._faction_id, res_upper)
             return int(row["total"]) if row else 0
 
         return 0
 
     async def get_fleet_health(self, fleet_id: int) -> int:
-        row = await db.fetchrow(
-            "SELECT health FROM fleets WHERE id = $1 AND faction_id = $2",
-            fleet_id, self._faction_id,
-        )
+        row = await sandbox_repo.get_fleet_health(self._faction_id, fleet_id)
         if not row:
             raise ValueError(f"Fleet {fleet_id} not found or does not belong to your faction")
         return int(row["health"])
 
     async def get_fleet_status_name(self, fleet_id: int) -> str:
-        row = await db.fetchrow(
-            """SELECT fs.name FROM fleets f
-               JOIN fleet_status fs ON f.status_id = fs.id
-               WHERE f.id = $1 AND f.faction_id = $2""",
-            fleet_id, self._faction_id,
-        )
+        row = await sandbox_repo.get_fleet_status_name(self._faction_id, fleet_id)
         if not row:
             raise ValueError(f"Fleet {fleet_id} not found or does not belong to your faction")
         return row["name"].upper()
 
     async def get_building_count(self, building_id: int, world_id: int) -> int:
-        row = await db.fetchrow(
-            """SELECT COALESCE(amount, 0) as total
-               FROM faction_world_buildings
-               WHERE faction_id = $1 AND building_id = $2 AND world_id = $3""",
-            self._faction_id, building_id, world_id,
-        )
+        row = await sandbox_repo.get_building_count(self._faction_id, building_id, world_id)
         return int(row["total"]) if row else 0
 
     async def is_at_war(self) -> bool:
-        row = await db.fetchrow(
-            "SELECT 1 FROM war_participants WHERE faction_id = $1 LIMIT 1",
-            self._faction_id,
-        )
+        row = await sandbox_repo.get_war_participation(self._faction_id)
         return row is not None
 
     async def is_blockaded(self, world_id: int) -> bool:
@@ -129,25 +105,9 @@ class FALSandbox:
     async def resolve_fleet(self, ref) -> dict:
         """Resolve a fleet number (int) or name (str) to a fleet dict scoped to own faction."""
         if isinstance(ref, int):
-            row = await db.fetchrow(
-                """SELECT f.id, f.name, f.faction_fleet_number, f.health, f.total_cs,
-                          f.position, fs.name as status_name, w.name as world_name
-                   FROM fleets f
-                   JOIN fleet_status fs ON f.status_id = fs.id
-                   JOIN worlds w ON f.position = w.id
-                   WHERE f.faction_id = $1 AND (f.id = $2 OR f.faction_fleet_number = $2)""",
-                self._faction_id, ref,
-            )
+            row = await sandbox_repo.get_fleet_by_ref(self._faction_id, ref)
         else:
-            row = await db.fetchrow(
-                """SELECT f.id, f.name, f.faction_fleet_number, f.health, f.total_cs,
-                          f.position, fs.name as status_name, w.name as world_name
-                   FROM fleets f
-                   JOIN fleet_status fs ON f.status_id = fs.id
-                   JOIN worlds w ON f.position = w.id
-                   WHERE f.faction_id = $1 AND LOWER(f.name) = LOWER($2)""",
-                self._faction_id, str(ref),
-            )
+            row = await sandbox_repo.get_fleet_by_name(self._faction_id, str(ref))
         if not row:
             raise ValueError(f"Fleet '{ref}' not found or does not belong to your faction")
         return dict(row)
@@ -160,7 +120,7 @@ class FALSandbox:
             building = await get_building_by_name(str(ref))
         if not building:
             raise ValueError(f"Building '{ref}' not found")
-        return building
+        return {"id": building.id, "name": building.name}
 
     async def resolve_faction(self, ref: str) -> dict:
         """Resolve a faction name to a faction dict. Used for TRANSFER destination."""
@@ -172,21 +132,9 @@ class FALSandbox:
     async def resolve_vehicle(self, ref) -> dict:
         """Resolve a vehicle by number (int) or name (str) scoped to own faction."""
         if isinstance(ref, int):
-            row = await db.fetchrow(
-                """SELECT v.id, v.name, v.designation, v.faction_vehicle_number
-                   FROM vehicles v
-                   WHERE v.faction_id = $1 AND v.faction_vehicle_number = $2""",
-                self._faction_id, ref,
-            )
+            row = await sandbox_repo.get_vehicle_by_number(self._faction_id, ref)
         else:
-            row = await db.fetchrow(
-                """SELECT v.id, v.name, v.designation, v.faction_vehicle_number
-                   FROM vehicles v
-                   WHERE v.faction_id = $1
-                     AND (LOWER(v.name) = LOWER($2)
-                       OR LOWER(CONCAT(v.name, ' ', v.designation)) = LOWER($2))""",
-                self._faction_id, str(ref),
-            )
+            row = await sandbox_repo.get_vehicle_by_name(self._faction_id, str(ref))
         if not row:
             raise ValueError(f"Vehicle '{ref}' not found or does not belong to your faction")
         return dict(row)
@@ -198,70 +146,32 @@ class FALSandbox:
 
     async def get_fleets_at_world(self, world_id: int) -> list[int]:
         """Return list of fleet IDs at the given world belonging to own faction."""
-        rows = await db.fetch(
-            "SELECT id FROM fleets WHERE faction_id = $1 AND position = $2 ORDER BY faction_fleet_number",
-            self._faction_id, world_id,
-        )
+        rows = await sandbox_repo.get_fleet_ids_at_world(self._faction_id, world_id)
         return [r["id"] for r in rows]
 
     async def get_fleets_at_world_for_faction(self, world_id: int, faction_id: int) -> list[int]:
-        rows = await db.fetch(
-            "SELECT id FROM fleets WHERE faction_id = $1 AND position = $2 ORDER BY faction_fleet_number",
-            faction_id, world_id,
-        )
+        rows = await sandbox_repo.get_fleet_ids_at_world(faction_id, world_id)
         return [r["id"] for r in rows]
 
     async def resolve_fleet_for_faction(self, ref, faction_id: int) -> dict:
         if isinstance(ref, int):
-            row = await db.fetchrow(
-                """SELECT f.id, f.name, f.faction_fleet_number, f.health, f.total_cs,
-                          f.position, fs.name as status_name, w.name as world_name
-                   FROM fleets f
-                   JOIN fleet_status fs ON f.status_id = fs.id
-                   JOIN worlds w ON f.position = w.id
-                   WHERE f.faction_id = $1 AND (f.id = $2 OR f.faction_fleet_number = $2)""",
-                faction_id, ref,
-            )
+            row = await sandbox_repo.get_fleet_by_ref(faction_id, ref)
         else:
-            row = await db.fetchrow(
-                """SELECT f.id, f.name, f.faction_fleet_number, f.health, f.total_cs,
-                          f.position, fs.name as status_name, w.name as world_name
-                   FROM fleets f
-                   JOIN fleet_status fs ON f.status_id = fs.id
-                   JOIN worlds w ON f.position = w.id
-                   WHERE f.faction_id = $1 AND LOWER(f.name) = LOWER($2)""",
-                faction_id, str(ref),
-            )
+            row = await sandbox_repo.get_fleet_by_name(faction_id, str(ref))
         if not row:
             raise ValueError(f"Fleet '{ref}' not found for the specified faction")
         return dict(row)
 
     async def get_fleet_vehicle_count(self, fleet_id: int) -> int:
-        row = await db.fetchrow(
-            """SELECT COALESCE(SUM(fv.amount), 0) as total
-               FROM fleet_vehicles fv
-               JOIN vehicles v ON fv.vehicle_id = v.id
-               LEFT JOIN vehicle_types vt ON v.type = vt.id
-               WHERE fv.fleet_id = $1 AND LOWER(COALESCE(vt.name, '')) != 'missile'""",
-            fleet_id,
-        )
+        row = await sandbox_repo.get_fleet_vehicle_count(fleet_id)
         return int(row["total"]) if row else 0
 
     async def get_world_resource_amount(self, world_id: int, resource_name: str) -> int:
-        row = await db.fetchrow(
-            """SELECT COALESCE(lt.amount, 0) as total
-               FROM local_treasury lt
-               JOIN resources r ON lt.resource_id = r.id
-               WHERE lt.faction_id = $1 AND lt.world_id = $2 AND UPPER(r.name) = $3""",
-            self._faction_id, world_id, resource_name.upper(),
-        )
+        row = await sandbox_repo.get_world_resource_amount(self._faction_id, world_id, resource_name.upper())
         return int(row["total"]) if row else 0
 
     async def get_resource_id(self, resource_name: str) -> Optional[int]:
-        row = await db.fetchrow(
-            "SELECT id FROM resources WHERE UPPER(name) = $1",
-            resource_name.upper(),
-        )
+        row = await sandbox_repo.get_resource_id(resource_name.upper())
         return row["id"] if row else None
 
 
@@ -371,7 +281,7 @@ class FALSandbox:
         current_time: datetime,
     ) -> str:
         fleet = await get_fleet(fleet_id)
-        if not fleet or fleet["faction_id"] != self._faction_id:
+        if not fleet or fleet.faction_id != self._faction_id:
             raise ValueError(f"Fleet {fleet_id} not found or does not belong to your faction")
 
         if self._dry_run:
@@ -383,7 +293,7 @@ class FALSandbox:
 
     async def do_rename_fleet(self, fleet_id: int, new_name: str) -> str:
         fleet = await get_fleet(fleet_id)
-        if not fleet or fleet["faction_id"] != self._faction_id:
+        if not fleet or fleet.faction_id != self._faction_id:
             raise ValueError(f"Fleet {fleet_id} not found or does not belong to your faction")
 
         new_name = new_name.strip()
@@ -400,7 +310,7 @@ class FALSandbox:
 
     async def do_fleet_status(self, fleet_id: int, status_name: str) -> str:
         fleet = await get_fleet(fleet_id)
-        if not fleet or fleet["faction_id"] != self._faction_id:
+        if not fleet or fleet.faction_id != self._faction_id:
             raise ValueError(f"Fleet {fleet_id} not found or does not belong to your faction")
 
         if self._dry_run:
@@ -417,10 +327,10 @@ class FALSandbox:
         current_time: datetime,
     ) -> str:
         fleet = await get_fleet(fleet_id)
-        if not fleet or fleet["faction_id"] != self._faction_id:
+        if not fleet or fleet.faction_id != self._faction_id:
             raise ValueError(f"Fleet {fleet_id} not found or does not belong to your faction")
 
-        world_id = fleet["position"]
+        world_id = fleet.position
         vehicle_length = await get_vehicle_length(vehicle_id)
         costs = await get_vehicle_cost_rows(vehicle_id)
         if not costs:
@@ -473,30 +383,16 @@ class FALSandbox:
 
         LOCAL_RESOURCES = {"CM", "CS", "EL", "U-CM", "U-CS", "U-EL", "POPULATION"}
         if resource_name.upper() in LOCAL_RESOURCES:
-            row = await db.fetchrow(
-                """SELECT world_id FROM local_treasury
-                   WHERE faction_id = $1 AND resource_id = $2 AND amount >= $3
-                   ORDER BY amount DESC LIMIT 1""",
-                self._faction_id, resource_id, total_cost,
-            )
+            row = await sandbox_repo.get_local_treasury_world_with_amount(self._faction_id, resource_id, total_cost)
             if not row:
                 raise ValueError(f"Insufficient {resource_name} for recruitment cost {total_cost:,}")
-            await db.execute(
-                "UPDATE local_treasury SET amount = amount - $1 WHERE faction_id = $2 AND world_id = $3 AND resource_id = $4",
-                total_cost, self._faction_id, row["world_id"], resource_id,
-            )
+            await sandbox_repo.debit_local_treasury(self._faction_id, row["world_id"], resource_id, total_cost)
         else:
-            row = await db.fetchrow(
-                "SELECT amount FROM faction_treasury WHERE faction_id = $1 AND resource_id = $2",
-                self._faction_id, resource_id,
-            )
+            row = await sandbox_repo.get_faction_treasury_amount(self._faction_id, resource_id)
             current = int(row["amount"]) if row else 0
             if current < total_cost:
                 raise ValueError(f"Insufficient {resource_name}: need {total_cost:,}, have {current:,}")
-            await db.execute(
-                "UPDATE faction_treasury SET amount = amount - $1 WHERE faction_id = $2 AND resource_id = $3",
-                total_cost, self._faction_id, resource_id,
-            )
+            await sandbox_repo.debit_faction_treasury(self._faction_id, resource_id, total_cost)
 
         result = await create_recruitment(self._faction_id, amount, duration, name)
         return f"Recruitment '{name}' started: {amount:,} troops, completes at {result['completion_time'].isoformat()}"

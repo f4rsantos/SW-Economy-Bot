@@ -1,69 +1,83 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
+import logging
 from typing import Optional
-from database.db_manager import db
 from database.cache_manager import cache_manager
+from repositories import faction_repo
+from utils.vehicle_utils import get_next_vehicle_number, VEHICLE_NUMBER_LOCK
+
+logger = logging.getLogger(__name__)
 
 
 async def list_factions(long_sort: bool = False) -> list:
-    if long_sort:
-        rows = await db.fetch("""
-            SELECT id, name, formal_name, COALESCE(formal_name, name) as display_name, color, leader, faction_type, (faction_type = 1) as is_company, (faction_type = 2) as is_pirate
-            FROM factions ORDER BY LENGTH(COALESCE(formal_name, name)) DESC, name ASC
-        """)
-    else:
-        rows = await db.fetch("""
-            SELECT id, name, formal_name, COALESCE(formal_name, name) as display_name, color, leader, faction_type, (faction_type = 1) as is_company, (faction_type = 2) as is_pirate
-            FROM factions ORDER BY name ASC
-        """)
-    return [dict(r) for r in rows]
+    return await faction_repo.list_factions(long_sort)
 
 
 async def search_faction_names(current: str, limit: int = 25) -> list[str]:
-    rows = await db.fetch(
-        "SELECT name FROM factions WHERE LOWER(name) LIKE $1 OR LOWER(formal_name) LIKE $1 ORDER BY name LIMIT $2",
-        f"%{current.lower()}%",
-        limit,
-    )
-    return [r['name'] for r in rows]
+    return await faction_repo.search_faction_names(current, limit)
 
 
 async def get_faction_row_by_id(faction_id: int) -> Optional[dict]:
-    row = await db.fetchrow("SELECT * FROM factions WHERE id = $1", faction_id)
-    return dict(row) if row else None
+    return await faction_repo.get_faction_row_by_id(faction_id)
 
 
 async def get_faction_territory_summary(faction_id: int) -> dict:
-    row = await db.fetchrow(
-        "SELECT COUNT(*) as world_count, COALESCE(SUM(territory), 0) as total_territory FROM world_factions WHERE faction_id = $1",
-        faction_id,
-    )
-    return {'world_count': row['world_count'] or 0, 'total_territory': row['total_territory'] or 0}
+    return await faction_repo.get_faction_territory_summary(faction_id)
 
 
 async def get_faction_leader_role_id(faction_id: int) -> Optional[int]:
-    row = await db.fetchrow("SELECT leader FROM factions WHERE id = $1", faction_id)
-    if not row:
-        return None
-    return row['leader']
+    return await faction_repo.get_faction_leader_role_id(faction_id)
+
+
+NO_LEADER_LABEL = "No leader appointed"
+NO_TREATMENT_LABEL = "No treatment set"
+
+
+async def get_faction_leader_display(leader_id: Optional[int]) -> str:
+    if leader_id is None:
+        return NO_LEADER_LABEL
+    from services.user_service import get_user_treatment
+    treatment = await get_user_treatment(leader_id)
+    return treatment or NO_TREATMENT_LABEL
 
 
 async def rename_faction(faction_id: int, new_name: str):
-    existing = await db.fetchrow("SELECT id FROM factions WHERE LOWER(name) = $1 AND id != $2", new_name, faction_id)
+    existing = await faction_repo.find_faction_by_name_excluding(new_name, faction_id)
     if existing:
         raise ValueError(f"A faction with the name '{new_name}' already exists.")
-    await db.execute("UPDATE factions SET name = $1 WHERE id = $2", new_name, faction_id)
+    await faction_repo.update_faction_name(faction_id, new_name)
     cache_manager.invalidate_faction(faction_id)
 
 
 async def set_leader(faction_id: int, user_id: int):
-    user_exists = await db.fetchrow("SELECT id FROM users WHERE id = $1", user_id)
-    if not user_exists:
+    if not await faction_repo.user_exists(user_id):
         raise ValueError(f"User {user_id} is not registered in the database.")
-    await db.execute("UPDATE factions SET leader_id = $1 WHERE id = $2", user_id, faction_id)
+    await faction_repo.update_faction_leader(faction_id, user_id)
     cache_manager.invalidate_faction(faction_id)
 
 
-async def update_faction_details(faction_id: int, color: Optional[str], leader_treatment: Optional[str],
+async def set_population_limit(faction_id: int, population_limit: Optional[int]) -> Optional[int]:
+    from repositories.econ_repo import get_max_population_capacity
+
+    if population_limit is not None:
+        if population_limit < 0:
+            raise ValueError("Population limit cannot be negative.")
+        physical_capacity = await get_max_population_capacity(faction_id)
+        if population_limit > physical_capacity:
+            raise ValueError(
+                f"Population limit cannot exceed your faction's physical capacity of {physical_capacity:,}."
+            )
+
+    await faction_repo.update_faction_population_limit(faction_id, population_limit)
+    cache_manager.invalidate_faction(faction_id)
+    return population_limit
+
+
+async def update_faction_details(faction_id: int, color: Optional[str],
                                  formal_name: Optional[str], flag: Optional[str],
                                  capital_world_id: Optional[int] = None) -> dict:
     updates = []
@@ -77,10 +91,6 @@ async def update_faction_details(faction_id: int, color: Optional[str], leader_t
         updates.append(f"color = ${param_count}")
         values.append(color)
         param_count += 1
-    if leader_treatment is not None:
-        updates.append(f"leader = ${param_count}")
-        values.append(leader_treatment)
-        param_count += 1
     if formal_name:
         updates.append(f"formal_name = ${param_count}")
         values.append(formal_name)
@@ -90,112 +100,79 @@ async def update_faction_details(faction_id: int, color: Optional[str], leader_t
         values.append(flag)
         param_count += 1
     values.append(faction_id)
-    updated = await db.fetchrow(f"UPDATE factions SET {', '.join(updates)} WHERE id = ${param_count} RETURNING *", *values)
-    cache_manager.set_faction(faction_id, dict(updated))
-    return dict(updated)
+    set_clause = f"{', '.join(updates)} WHERE id = ${param_count}"
+    updated = await faction_repo.update_faction_details(set_clause, values)
+    cache_manager.set_faction(faction_id, updated)
+    return updated
+
+
+async def _copy_vehicles_for_owner(owner_faction_id: int, vehicles: list) -> dict:
+    copies = {}
+    async with faction_repo.get_connection() as conn:
+        async with conn.transaction():
+            await faction_repo.acquire_vehicle_number_lock(conn, VEHICLE_NUMBER_LOCK, owner_faction_id)
+            for vehicle_id, original in vehicles:
+                number = await get_next_vehicle_number(owner_faction_id, conn=conn)
+                copies[vehicle_id] = await faction_repo.insert_vehicle_copy(
+                    conn, owner_faction_id, original, number
+                )
+    return copies
+
+
+async def _reassign_external_vehicles(vehicle_ids: list, vehicle_map: dict, faction_id: int) -> None:
+    external_usages = await faction_repo.get_external_vehicle_usages(vehicle_ids, faction_id)
+    if not external_usages:
+        return
+
+    needed_by_owner: dict = {}
+    for usage in external_usages:
+        owner_faction_id = usage['owner_faction_id']
+        vehicle_id = usage['vehicle_id']
+        owner_vehicles = needed_by_owner.setdefault(owner_faction_id, {})
+        owner_vehicles[vehicle_id] = vehicle_map[vehicle_id]
+
+    copy_map: dict = {}
+    for owner_faction_id, owner_vehicles in needed_by_owner.items():
+        copies = await _copy_vehicles_for_owner(owner_faction_id, list(owner_vehicles.items()))
+        for vehicle_id, new_id in copies.items():
+            copy_map[(owner_faction_id, vehicle_id)] = new_id
+
+    await faction_repo.repoint_fleet_vehicles([
+        (copy_map[(usage['owner_faction_id'], usage['vehicle_id'])], usage['fleet_id'], usage['vehicle_id'])
+        for usage in external_usages
+    ])
 
 
 async def delete_faction(faction_id: int):
-    fleet_rows, vehicle_rows, led_pact_rows, transfer_rows = await asyncio.gather(
-        db.fetch("SELECT id FROM fleets WHERE faction_id = $1", faction_id),
-        db.fetch("SELECT id, type, name, designation, vehicle_data FROM vehicles WHERE faction_id = $1", faction_id),
-        db.fetch("SELECT id FROM pacts WHERE leader_id = $1", faction_id),
-        db.fetch("SELECT id FROM resource_transfers WHERE from_faction_id = $1 OR to_faction_id = $1 OR intercepting_faction_id = $1", faction_id),
+    fleet_ids, vehicle_rows, led_pact_ids, transfer_ids = await asyncio.gather(
+        faction_repo.get_faction_fleet_ids(faction_id),
+        faction_repo.get_faction_vehicles(faction_id),
+        faction_repo.get_pact_ids_led_by(faction_id),
+        faction_repo.get_transfer_ids_involving(faction_id),
     )
 
-    fleet_ids = [r['id'] for r in fleet_rows]
     if fleet_ids:
-        await asyncio.gather(
-            db.execute("DELETE FROM battle_participants WHERE fleet_id = ANY($1)", fleet_ids),
-            db.execute("DELETE FROM blockade_fleets WHERE fleet_id = ANY($1)", fleet_ids),
-            db.execute("DELETE FROM vehicle_construction WHERE fleet_id = ANY($1)", fleet_ids),
-            db.execute("DELETE FROM fleet_vehicles WHERE fleet_id = ANY($1)", fleet_ids),
-        )
-    await db.execute("DELETE FROM fleets WHERE faction_id = $1", faction_id)
+        await faction_repo.delete_fleet_dependencies(fleet_ids)
+    await faction_repo.delete_faction_fleets(faction_id)
 
     vehicle_ids = [r['id'] for r in vehicle_rows]
     vehicle_map = {r['id']: r for r in vehicle_rows}
     if vehicle_ids:
-        external_usages = await db.fetch("""
-            SELECT fv.fleet_id, fv.vehicle_id, fv.amount, f.faction_id AS owner_faction_id
-            FROM fleet_vehicles fv
-            JOIN fleets f ON f.id = fv.fleet_id
-            WHERE fv.vehicle_id = ANY($1) AND f.faction_id != $2
-        """, vehicle_ids, faction_id)
-        if external_usages:
-            next_num_cache: dict = {}
+        await _reassign_external_vehicles(vehicle_ids, vehicle_map, faction_id)
+        await faction_repo.delete_vehicle_dependencies(vehicle_ids)
 
-            async def get_next_vehicle_num(f_id: int) -> int:
-                if f_id not in next_num_cache:
-                    row = await db.fetchrow(
-                        "SELECT COALESCE(MAX(faction_vehicle_number), 0) + 1 AS n FROM vehicles WHERE faction_id = $1", f_id
-                    )
-                    next_num_cache[f_id] = row['n']
-                else:
-                    next_num_cache[f_id] += 1
-                return next_num_cache[f_id]
-
-            copy_map: dict = {}
-            for usage in external_usages:
-                key = (usage['owner_faction_id'], usage['vehicle_id'])
-                if key not in copy_map:
-                    orig = vehicle_map[usage['vehicle_id']]
-                    num = await get_next_vehicle_num(usage['owner_faction_id'])
-                    new_id = await db.fetchrow("""
-                        INSERT INTO vehicles (faction_id, type, name, designation, vehicle_data, faction_vehicle_number)
-                        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
-                    """, usage['owner_faction_id'], orig['type'], orig['name'], orig['designation'], orig['vehicle_data'], num)
-                    copy_map[key] = new_id['id']
-            for usage in external_usages:
-                key = (usage['owner_faction_id'], usage['vehicle_id'])
-                await db.execute(
-                    "UPDATE fleet_vehicles SET vehicle_id = $1 WHERE fleet_id = $2 AND vehicle_id = $3",
-                    copy_map[key], usage['fleet_id'], usage['vehicle_id']
-                )
-        await asyncio.gather(
-            db.execute("DELETE FROM fleet_vehicles WHERE vehicle_id = ANY($1)", vehicle_ids),
-            db.execute("DELETE FROM vehicle_construction WHERE vehicle_id = ANY($1)", vehicle_ids),
-        )
-
-    led_pact_ids = [r['id'] for r in led_pact_rows]
-    transfer_ids = [r['id'] for r in transfer_rows]
-
-    gather_tasks = [
-        db.execute("DELETE FROM vehicles WHERE faction_id = $1", faction_id),
-        db.execute("DELETE FROM pact_members WHERE faction_id = $1", faction_id),
-        db.execute("DELETE FROM war_participants WHERE faction_id = $1", faction_id),
-        db.execute("DELETE FROM blockade_targets WHERE faction_id = $1", faction_id),
-        db.execute("DELETE FROM trade_deals WHERE sender_faction_id = $1 OR receiver_faction_id = $1", faction_id),
-        db.execute("DELETE FROM faction_world_buildings WHERE faction_id = $1", faction_id),
-        db.execute("DELETE FROM faction_treasury WHERE faction_id = $1", faction_id),
-        db.execute("DELETE FROM local_treasury WHERE faction_id = $1", faction_id),
-        db.execute("DELETE FROM world_factions WHERE faction_id = $1", faction_id),
-    ]
-    if led_pact_ids:
-        gather_tasks.append(db.execute("DELETE FROM pact_members WHERE pact_id = ANY($1)", led_pact_ids))
-        gather_tasks.append(db.execute("DELETE FROM pacts WHERE id = ANY($1)", led_pact_ids))
-    if transfer_ids:
-        gather_tasks.append(db.execute("DELETE FROM transfer_resources WHERE transfer_id = ANY($1)", transfer_ids))
-        gather_tasks.append(db.execute("DELETE FROM resource_transfers WHERE id = ANY($1)", transfer_ids))
-
-    await asyncio.gather(*gather_tasks)
-    await db.execute("DELETE FROM factions WHERE id = $1", faction_id)
+    await faction_repo.delete_faction_records(faction_id, led_pact_ids, transfer_ids)
+    await faction_repo.delete_faction(faction_id)
     cache_manager.invalidate_faction(faction_id)
 
 
 async def merge_aux(from_faction_id: int, to_faction_id: int) -> dict:
-    territories = await db.fetch("SELECT world_id, territory FROM world_factions WHERE faction_id = $1", from_faction_id)
+    territories = await faction_repo.get_faction_territories(from_faction_id)
     if not territories:
         raise ValueError("Source faction has no territories to transfer.")
-    for t in territories:
-        await db.execute("""
-            INSERT INTO world_factions (world_id, faction_id, territory)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (world_id, faction_id)
-            DO UPDATE SET territory = world_factions.territory + EXCLUDED.territory
-        """, t['world_id'], to_faction_id, t['territory'])
-    await db.execute("DELETE FROM world_factions WHERE faction_id = $1", from_faction_id)
-    await db.execute("DELETE FROM factions WHERE id = $1", from_faction_id)
+    await faction_repo.merge_territories(territories, to_faction_id)
+    await faction_repo.delete_faction_territories(from_faction_id)
+    await faction_repo.delete_faction(from_faction_id)
     cache_manager.invalidate_faction(from_faction_id)
     return {'territories_transferred': len(territories)}
 
@@ -203,95 +180,95 @@ async def merge_aux(from_faction_id: int, to_faction_id: int) -> dict:
 async def create_faction_in_db(conn, name: str, formal_name: str, color: str, leader_name: str,
                                flag: str, leader_id: int, faction_type: int, starting_world_id: Optional[int]) -> dict:
     is_company = faction_type == 1
-    faction = await conn.fetchrow("""
-        INSERT INTO factions (name, formal_name, color, leader, flag, leader_id, faction_type, capital_world_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING id, name, formal_name, color, leader, flag, leader_id, faction_type,
-                  capital_world_id, (faction_type = 1) as is_company, (faction_type = 2) as is_pirate
-    """, name, formal_name, color, leader_name, flag, leader_id, faction_type,
-         starting_world_id if faction_type == 0 else None)
+    faction = await faction_repo.insert_faction(
+        conn, name, formal_name, color, leader_name, flag, leader_id, faction_type,
+        starting_world_id if faction_type == 0 else None
+    )
     if starting_world_id and not is_company:
-        await conn.execute("INSERT INTO world_factions (world_id, faction_id, territory) VALUES ($1, $2, 50)", starting_world_id, faction['id'])
+        await faction_repo.claim_starting_territory(conn, starting_world_id, faction.id)
     if starting_world_id:
-        await _initialize_faction_assets(conn, faction['id'], starting_world_id, is_company)
-    return dict(faction)
+        await _initialize_faction_assets(conn, faction.id, starting_world_id, is_company)
+    await _set_leader_allegiance(faction.id, faction.display_name, leader_id)
+    return faction
+
+
+async def _set_leader_allegiance(faction_id: int, faction_display_name: str, leader_id: int) -> None:
+    try:
+        from repositories import allegiance_repo
+        from services.user_service import set_user_allegiance
+
+        pending = await allegiance_repo.get_pending_request_for_user(leader_id)
+        if pending is not None:
+            await allegiance_repo.resolve_request(pending.id, "approved", leader_id)
+
+        await set_user_allegiance(leader_id, faction_display_name)
+    except Exception:
+        logger.warning(
+            "Failed to set allegiance for new leader %s of faction %s",
+            leader_id, faction_id, exc_info=True
+        )
+
+
+STARTING_ER = 50000000000
+STARTING_LOCAL_RESOURCE = 100000
+STARTING_POPULATION = 40000000
+
+COMPANY_STARTING_BUILDINGS = [
+    ('U-CM Storage', 1, 1), ('U-CS Storage', 1, 1), ('U-EL Storage', 1, 1),
+    ('CM Storage', 1, 1), ('CS Storage', 1, 1), ('EL Storage', 1, 1),
+]
+FACTION_STARTING_BUILDINGS = [
+    ('City', 10, 4), ('U-CM Extractor', 1, 3), ('U-CS Extractor', 1, 3), ('U-EL Extractor', 1, 2),
+    ('CM Refinery', 1, 3), ('CS Refinery', 1, 3), ('EL Refinery', 1, 2),
+    ('U-CM Storage', 1, 1), ('U-CS Storage', 1, 1), ('U-EL Storage', 1, 1),
+    ('CM Storage', 1, 1), ('CS Storage', 1, 1), ('EL Storage', 1, 1), ('Factory', 1, 1),
+]
 
 
 async def _initialize_faction_assets(conn, faction_id: int, world_id: Optional[int], is_company: bool = False):
-    er_res = await conn.fetchrow("SELECT id FROM resources WHERE name = 'ER'")
-    if er_res:
-        await conn.execute("""
-            INSERT INTO faction_treasury (faction_id, resource_id, amount)
-            VALUES ($1, $2, 50000000000)
-            ON CONFLICT (faction_id, resource_id)
-            DO UPDATE SET amount = faction_treasury.amount + EXCLUDED.amount
-        """, faction_id, er_res['id'])
+    er_id = await faction_repo.get_resource_id_by_name(conn, 'ER')
+    if er_id:
+        await faction_repo.add_faction_treasury(conn, faction_id, er_id, STARTING_ER)
     if not world_id:
         return
     if is_company:
-        await conn.execute("""
-            INSERT INTO world_factions (world_id, faction_id, territory)
-            VALUES ($1, $2, 0)
-            ON CONFLICT (world_id, faction_id) DO NOTHING
-        """, world_id, faction_id)
-    rows = await conn.fetch("SELECT id, name FROM resources WHERE name = ANY($1)", ['CM', 'CS', 'EL', 'Population'])
-    res_map = {r['name']: r['id'] for r in rows}
+        await faction_repo.ensure_world_presence(conn, world_id, faction_id)
+    res_map = await faction_repo.get_resource_ids_by_names(conn, ['CM', 'CS', 'EL', 'Population'])
     for name in ['CM', 'CS', 'EL']:
         if name in res_map:
-            await conn.execute("""
-                INSERT INTO local_treasury (faction_id, world_id, resource_id, amount)
-                VALUES ($1, $2, $3, 100000)
-                ON CONFLICT (faction_id, world_id, resource_id)
-                DO UPDATE SET amount = local_treasury.amount + EXCLUDED.amount
-            """, faction_id, world_id, res_map[name])
+            await faction_repo.add_local_treasury(conn, faction_id, world_id, res_map[name], STARTING_LOCAL_RESOURCE)
     if not is_company and 'Population' in res_map:
-        await conn.execute("""
-            INSERT INTO local_treasury (faction_id, world_id, resource_id, amount)
-            VALUES ($1, $2, $3, 40000000)
-            ON CONFLICT (faction_id, world_id, resource_id)
-            DO UPDATE SET amount = local_treasury.amount + EXCLUDED.amount
-        """, faction_id, world_id, res_map['Population'])
-    if is_company:
-        buildings = [(9, 1, 1), (11, 1, 1), (10, 1, 1), (13, 1, 1), (15, 1, 1), (14, 1, 1)]
-    else:
-        buildings = [
-            (1, 10, 4), (2, 1, 3), (4, 1, 3), (3, 1, 2),
-            (5, 1, 3), (7, 1, 3), (6, 1, 2),
-            (9, 1, 1), (11, 1, 1), (10, 1, 1),
-            (13, 1, 1), (15, 1, 1), (14, 1, 1), (16, 1, 1),
-        ]
-    for b_id, level, amount in buildings:
-        await conn.execute("""
-            INSERT INTO faction_world_buildings (faction_id, world_id, building_id, level, amount)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (faction_id, world_id, building_id, level)
-            DO UPDATE SET amount = faction_world_buildings.amount + EXCLUDED.amount
-        """, faction_id, world_id, b_id, level, amount)
+        await faction_repo.add_local_treasury(conn, faction_id, world_id, res_map['Population'], STARTING_POPULATION)
+    starting = COMPANY_STARTING_BUILDINGS if is_company else FACTION_STARTING_BUILDINGS
+    building_map = await faction_repo.get_building_ids_by_names(conn, [name for name, _, _ in starting])
+    missing = [name for name, _, _ in starting if name not in building_map]
+    if missing:
+        logger.warning("Starting buildings not found, skipping: %s", ", ".join(missing))
+    buildings = [(building_map[name], level, amount) for name, level, amount in starting if name in building_map]
+    if buildings:
+        await faction_repo.add_starting_buildings(conn, faction_id, world_id, buildings)
 
 
 async def check_world_space(conn, world_id: int) -> bool:
-    world_check = await conn.fetchrow("SELECT hex_count FROM worlds WHERE id = $1", world_id)
-    if not world_check:
+    hex_count = await faction_repo.get_world_hex_count(conn, world_id)
+    if hex_count is None:
         return False
-    claimed = await conn.fetchrow("SELECT COALESCE(SUM(territory), 0) as claimed FROM world_factions WHERE world_id = $1", world_id)
-    return world_check['hex_count'] - (claimed['claimed'] if claimed else 0) >= 50
+    claimed = await faction_repo.get_world_claimed_territory(conn, world_id)
+    return hex_count - claimed >= 50
 
 
 async def faction_name_exists(conn, name: str) -> bool:
-    row = await conn.fetchrow("SELECT id FROM factions WHERE LOWER(name) = $1", name)
-    return row is not None
+    return await faction_repo.faction_name_exists(conn, name)
 
 
 async def user_is_registered(conn, user_id: int) -> bool:
-    row = await conn.fetchrow("SELECT id FROM users WHERE id = $1", user_id)
-    return row is not None
+    return await faction_repo.user_is_registered(conn, user_id)
 
 
 async def get_world_hex_count(conn, world_id: int) -> Optional[int]:
-    row = await conn.fetchrow("SELECT hex_count FROM worlds WHERE id = $1", world_id)
-    return row['hex_count'] if row else None
+    return await faction_repo.get_world_hex_count(conn, world_id)
 
 
 async def get_world_available_hexes(conn, world_id: int, hex_count: int) -> int:
-    claimed = await conn.fetchrow("SELECT COALESCE(SUM(territory), 0) as c FROM world_factions WHERE world_id = $1", world_id)
-    return hex_count - (claimed['c'] if claimed else 0)
+    claimed = await faction_repo.get_world_claimed_territory(conn, world_id)
+    return hex_count - claimed

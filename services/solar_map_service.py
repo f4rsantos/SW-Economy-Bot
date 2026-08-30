@@ -1,0 +1,695 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
+import io
+import math
+import os
+import sys
+from datetime import datetime, timedelta
+from typing import Optional
+
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+import services.orbital_config as config
+from services.travel_time_service import get_absolute_position_3d, get_config_key
+from services.orbital_config import IRL_SECONDS_PER_GAME_YEAR
+from utils.date_utils import get_solar_date, is_leap_year
+
+
+_APP_ROOT = getattr(sys, "_MEIPASS", os.getcwd())
+WORLDS_DIR = os.getenv("WORLDS_DIR", os.path.join(_APP_ROOT, "assets", "worlds"))
+PLACEHOLDER_ICON = os.path.join(WORLDS_DIR, "placeholder.png")
+
+SOLAR_EPOCH = datetime(2023, 5, 1)
+SOLAR_EPOCH_YEAR = 2123
+
+SUPERSAMPLE = 2
+
+BASE_SIZE = 1600
+FOCUS_SIZE = 1400
+MARGIN = 90
+
+BG_TOP = (6, 8, 20)
+BG_BOTTOM = (14, 12, 30)
+ORBIT_COLOR = (90, 100, 130, 90)
+SUN_GLOW = (255, 210, 120)
+TEXT_COLOR = (225, 228, 240)
+TEXT_SHADOW = (0, 0, 0)
+SUBTLE_TEXT = (150, 155, 175)
+
+ROUTE_COLOR = (90, 230, 210, 235)
+ROUTE_GLOW_COLOR = (90, 230, 210, 90)
+ROUTE_ORIGIN_COLOR = (120, 240, 150, 255)
+ROUTE_DEST_COLOR = (255, 150, 90, 255)
+ROUTE_WAYPOINT_COLOR = (90, 230, 210, 255)
+
+PLANET_ICON_MIN = 26
+PLANET_ICON_MAX = 64
+MOON_ICON_MIN = 30
+MOON_ICON_MAX = 60
+BELT_DOT_RADIUS = 3
+
+BODY_RADII_KM = {
+    "Mercury": 2440, "Venus": 6052, "Earth": 6371, "Mars": 3390,
+    "Jupiter": 69911, "Saturn": 58232, "Uranus": 25362, "Neptune": 24622,
+    "Pluto": 1188, "Ceres": 473,
+    "Luna": 1737,
+    "Io": 1822, "Europa": 1561, "Ganymede": 2634, "Callisto": 2410,
+    "Mimas": 198, "Enceladus": 252, "Tethys": 531, "Dione": 561,
+    "Rhea": 764, "Titan": 2575, "Iapetus": 735,
+    "Miranda": 236, "Ariel": 579, "Umbriel": 585, "Titania": 789, "Oberon": 761,
+    "Proteus": 210, "Triton": 1353, "Nereid": 170,
+    "Charon": 606,
+    "Barcas": 5800, "Deo Gloria": 4200, "Novai": 7100, "Scipios": 3100,
+    "Vesta": 263,
+}
+
+DEFAULT_BODY_RADIUS_KM = 3000
+
+FONT_CANDIDATES = [
+    os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts", "segoeui.ttf"),
+    os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts", "arial.ttf"),
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+]
+FONT_BOLD_CANDIDATES = [
+    os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts", "segoeuib.ttf"),
+    os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts", "arialbd.ttf"),
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+]
+
+_icon_cache = {}
+_font_cache = {}
+
+
+class SolarMapError(ValueError):
+    pass
+
+
+def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+    key = (size, bold)
+    if key in _font_cache:
+        return _font_cache[key]
+    candidates = FONT_BOLD_CANDIDATES if bold else FONT_CANDIDATES
+    font = None
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                font = ImageFont.truetype(path, size)
+                break
+            except Exception:
+                continue
+    if font is None:
+        font = ImageFont.load_default()
+    _font_cache[key] = font
+    return font
+
+
+def resolve_system(system_name: str) -> tuple[str, dict]:
+    for key in config.SYSTEMS_DATA:
+        if key.lower() == system_name.strip().lower():
+            return key, config.SYSTEMS_DATA[key]
+    raise SolarMapError(f"Unknown system '{system_name}'. Valid systems: {', '.join(config.SYSTEMS_DATA.keys())}")
+
+
+def resolve_body(body_name: str, system_data: dict) -> str:
+    key = get_config_key(body_name, system_data)
+    if not key:
+        raise SolarMapError(f"Unknown body '{body_name}' in this system.")
+    return key
+
+
+def parse_game_date(date_str: str) -> datetime:
+    parts = date_str.strip().split("-")
+    if len(parts) != 3:
+        raise SolarMapError(f"Invalid date '{date_str}'. Use format yyyy-mm-dd (in-game date).")
+    try:
+        year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
+    except ValueError:
+        raise SolarMapError(f"Invalid date '{date_str}'. Use format yyyy-mm-dd (in-game date).")
+    if not (1 <= month <= 12):
+        raise SolarMapError(f"Invalid month '{month}'. Must be between 1 and 12.")
+    if day < 1 or day > 31:
+        raise SolarMapError(f"Invalid day '{day}'. Must be between 1 and 31.")
+    return _solar_to_real(year, month, day)
+
+
+def _solar_to_real(year: int, month: int, day: int) -> datetime:
+    total_months = year - SOLAR_EPOCH_YEAR
+    real_month_index = (SOLAR_EPOCH.month - 1) + total_months
+    real_year = SOLAR_EPOCH.year + real_month_index // 12
+    real_month = real_month_index % 12 + 1
+
+    month_start = datetime(real_year, real_month, 1)
+    month_end = datetime(real_year + 1, 1, 1) if real_month == 12 else datetime(real_year, real_month + 1, 1)
+    year_len = (month_end - month_start).total_seconds() - 1
+
+    leap = is_leap_year(year)
+    months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    if leap:
+        months[1] = 29
+    if month > 12 or day > months[month - 1]:
+        raise SolarMapError(f"Invalid day '{day}' for month '{month}'.")
+
+    day_count = sum(months[: month - 1]) + day
+    days_in_year = 366 if leap else 365
+    fraction = min((day_count + 0.5) / days_in_year, 1.0)
+    point_seconds = fraction * year_len
+    return month_start + timedelta(seconds=point_seconds)
+
+
+def current_game_date_str(now: Optional[datetime] = None) -> str:
+    year, month, day = get_solar_date(now)
+    return f"{year:04d}-{month:02d}-{day:02d}"
+
+
+def _icon_path(body_name: str) -> str:
+    candidate = os.path.join(WORLDS_DIR, f"{body_name}.png")
+    return candidate if os.path.exists(candidate) else PLACEHOLDER_ICON
+
+
+def _load_icon(body_name: str, target_size: int) -> Image.Image:
+    key = (body_name, target_size)
+    if key in _icon_cache:
+        return _icon_cache[key]
+    path = _icon_path(body_name)
+    icon = Image.open(path).convert("RGBA")
+    icon = icon.resize((target_size, target_size), Image.LANCZOS)
+    _icon_cache[key] = icon
+    return icon
+
+
+def _is_top_level(name: str, data: dict) -> bool:
+    return data.get("parent") is None
+
+
+def _radius_scale_for_bodies(bodies: list[str], system_data: dict) -> dict:
+    if not bodies:
+        return {}
+    radii = [BODY_RADII_KM.get(b, DEFAULT_BODY_RADIUS_KM) for b in bodies]
+    min_r, max_r = min(radii), max(radii)
+    scale = {}
+    for b in bodies:
+        r = BODY_RADII_KM.get(b, DEFAULT_BODY_RADIUS_KM)
+        if max_r > min_r:
+            t = (math.log(r) - math.log(min_r)) / (math.log(max_r) - math.log(min_r))
+        else:
+            t = 0.5
+        scale[b] = t
+    return scale
+
+
+def _icon_size_for(t: float, is_moon: bool = False) -> int:
+    lo, hi = (MOON_ICON_MIN, MOON_ICON_MAX) if is_moon else (PLANET_ICON_MIN, PLANET_ICON_MAX)
+    return int(lo + (hi - lo) * t)
+
+
+def _draw_orbit_path(draw: ImageDraw.Draw, cx: float, cy: float, points: list):
+    if len(points) < 2:
+        return
+    draw.line(points + [points[0]], fill=ORBIT_COLOR, width=2, joint="curve")
+
+
+def _resolve_route_points(route: Optional[list], plots: dict) -> list[tuple[str, float, float]]:
+    if not route:
+        return []
+    resolved = []
+    for name in route:
+        key = get_config_key(str(name), plots)
+        if key is None:
+            continue
+        x, y = plots[key]
+        resolved.append((key, x, y))
+    if len(resolved) < 2:
+        return []
+    return resolved
+
+
+def _draw_route(image: Image.Image, draw: ImageDraw.Draw, resolved_route: list, supersample: int):
+    if len(resolved_route) < 2:
+        return
+
+    line_width = max(3, 3 * supersample)
+    marker_radius = 9 * supersample
+
+    glow_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    gdraw = ImageDraw.Draw(glow_layer, "RGBA")
+    points = [(x, y) for _, x, y in resolved_route]
+    gdraw.line(points, fill=ROUTE_GLOW_COLOR, width=line_width * 3, joint="curve")
+    blurred = glow_layer.filter(ImageFilter.GaussianBlur(2 * supersample))
+    image.alpha_composite(blurred)
+    draw = ImageDraw.Draw(image, "RGBA")
+
+    dash_len = 14 * supersample
+    gap_len = 10 * supersample
+    for (_, x1, y1), (_, x2, y2) in zip(resolved_route, resolved_route[1:]):
+        seg_len = math.hypot(x2 - x1, y2 - y1)
+        if seg_len <= 0:
+            continue
+        dx, dy = (x2 - x1) / seg_len, (y2 - y1) / seg_len
+        travelled = 0.0
+        draw_segment = True
+        while travelled < seg_len:
+            step = min(dash_len if draw_segment else gap_len, seg_len - travelled)
+            if draw_segment:
+                sx, sy = x1 + dx * travelled, y1 + dy * travelled
+                ex, ey = x1 + dx * (travelled + step), y1 + dy * (travelled + step)
+                draw.line([(sx, sy), (ex, ey)], fill=ROUTE_COLOR, width=line_width, joint="curve")
+            travelled += step
+            draw_segment = not draw_segment
+
+    last_index = len(resolved_route) - 1
+    for i, (_, x, y) in enumerate(resolved_route):
+        if i == 0:
+            color = ROUTE_ORIGIN_COLOR
+            r = marker_radius
+        elif i == last_index:
+            color = ROUTE_DEST_COLOR
+            r = marker_radius
+        else:
+            color = ROUTE_WAYPOINT_COLOR
+            r = marker_radius * 0.7
+        draw.ellipse([x - r, y - r, x + r, y + r], outline=(255, 255, 255, 255), width=max(1, supersample), fill=color)
+
+
+def _orbit_points(name: str, system_data: dict, when: datetime, radius_px, cx: float, cy: float, relative_to: str = None, samples: int = 360) -> list:
+    data = system_data[name]
+    period_years = data.get("period", 0) or 0
+    if period_years <= 0:
+        return []
+    period_seconds = period_years * IRL_SECONDS_PER_GAME_YEAR
+    points = []
+    for i in range(samples):
+        t = when + timedelta(seconds=period_seconds * (i / samples))
+        pos = get_absolute_position_3d(name, t, system_data)
+        px, py = pos.x, pos.y
+        if relative_to:
+            parent = get_absolute_position_3d(relative_to, t, system_data)
+            px, py = px - parent.x, py - parent.y
+        d = math.hypot(px, py)
+        angle = math.atan2(py, px)
+        r = radius_px(d)
+        points.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
+    return points
+
+
+def _draw_gradient_background(size: int) -> Image.Image:
+    img = Image.new("RGB", (1, size), BG_TOP)
+    top = BG_TOP
+    bottom = BG_BOTTOM
+    for y in range(size):
+        t = y / max(1, size - 1)
+        r = int(top[0] + (bottom[0] - top[0]) * t)
+        g = int(top[1] + (bottom[1] - top[1]) * t)
+        b = int(top[2] + (bottom[2] - top[2]) * t)
+        img.putpixel((0, y), (r, g, b))
+    return img.resize((size, size))
+
+
+def _draw_sun(image: Image.Image, cx: float, cy: float, radius: float):
+    glow_box_r = int(radius * 4)
+    glow_layer = Image.new("RGBA", (glow_box_r * 2, glow_box_r * 2), (0, 0, 0, 0))
+    gdraw = ImageDraw.Draw(glow_layer, "RGBA")
+    
+    gdraw.ellipse(
+        [glow_box_r - radius * 1.8, glow_box_r - radius * 1.8, glow_box_r + radius * 1.8, glow_box_r + radius * 1.8],
+        fill=(255, 205, 110, 120)
+    )
+    gdraw.ellipse(
+        [glow_box_r - radius * 1.1, glow_box_r - radius * 1.1, glow_box_r + radius * 1.1, glow_box_r + radius * 1.1],
+        fill=(255, 230, 140, 180)
+    )
+    blurred_glow = glow_layer.filter(ImageFilter.GaussianBlur(radius * 0.75))
+    image.alpha_composite(blurred_glow, (int(cx - glow_box_r), int(cy - glow_box_r)))
+
+    draw = ImageDraw.Draw(image, "RGBA")
+    draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=(255, 236, 180))
+    draw.ellipse([cx - radius * 0.7, cy - radius * 0.7, cx + radius * 0.7, cy + radius * 0.7], fill=(255, 250, 220))
+
+
+def _text_with_shadow(draw: ImageDraw.Draw, xy, text: str, font, fill=TEXT_COLOR, anchor="ma"):
+    x, y = xy
+    draw.text((x + 2, y + 2), text, font=font, fill=TEXT_SHADOW, anchor=anchor)
+    draw.text((x, y), text, font=font, fill=fill, anchor=anchor)
+
+
+def _place_label(placed_boxes: list, x: float, y: float, w: float, h: float, preferred_offsets: list) -> tuple[float, float]:
+    for ox, oy in preferred_offsets:
+        cand = (x + ox - w / 2, y + oy - h / 2, x + ox + w / 2, y + oy + h / 2)
+        overlap = False
+        for box in placed_boxes:
+            if not (cand[2] < box[0] or cand[0] > box[2] or cand[3] < box[1] or cand[1] > box[3]):
+                overlap = True
+                break
+        if not overlap:
+            placed_boxes.append(cand)
+            return x + ox, y + oy
+    ox, oy = preferred_offsets[-1]
+    cand = (x + ox - w / 2, y + oy - h / 2, x + ox + w / 2, y + oy + h / 2)
+    placed_boxes.append(cand)
+    return x + ox, y + oy
+
+
+def radial_pan_step(pan_x: float, pan_y: float, step: float, direction: str) -> tuple[float, float]:
+    if direction not in ("in", "out"):
+        raise ValueError("direction must be 'in' or 'out'")
+
+    magnitude = math.hypot(pan_x, pan_y)
+
+    if magnitude == 0:
+        if direction == "out":
+            return 0.0, -step
+        return 0.0, 0.0
+
+    if direction == "in":
+        new_magnitude = max(0.0, magnitude - step)
+    else:
+        new_magnitude = magnitude + step
+
+    scale = new_magnitude / magnitude
+    return pan_x * scale, pan_y * scale
+
+
+def angular_pan_step(pan_x: float, pan_y: float, step: float, direction: str) -> tuple[float, float]:
+    if direction not in ("cw", "ccw"):
+        raise ValueError("direction must be 'cw' or 'ccw'")
+
+    magnitude = math.hypot(pan_x, pan_y)
+    if magnitude == 0:
+        return pan_x, pan_y
+
+    angle_step = step / magnitude
+    if direction == "ccw":
+        angle_step = -angle_step
+
+    current_angle = math.atan2(pan_y, pan_x)
+    new_angle = current_angle + angle_step
+    return magnitude * math.cos(new_angle), magnitude * math.sin(new_angle)
+
+
+def render_solar_map(
+    system_name: str,
+    date_str: Optional[str] = None,
+    mode: str = "log",
+    zoom: float = 1.0,
+    pan_x: float = 0.0,
+    pan_y: float = 0.0,
+    focus: Optional[str] = None,
+    route: Optional[list[str]] = None,
+) -> tuple[bytes, str, str, Optional[str]]:
+    canonical_system, system_data = resolve_system(system_name)
+
+    if date_str:
+        when = parse_game_date(date_str)
+        game_date_label = date_str
+    else:
+        when = datetime.now()
+        game_date_label = current_game_date_str(when)
+
+    mode = (mode or "log").lower()
+    if mode not in ("log", "linear"):
+        raise SolarMapError("Mode must be 'log' or 'linear'.")
+
+    zoom = max(0.1, min(zoom or 1.0, 20.0))
+
+    if focus:
+        canonical_focus = resolve_body(focus, system_data)
+        image_bytes, closest_body = _render_focus(canonical_system, system_data, canonical_focus, when, zoom, pan_x, pan_y, route)
+        title = f"{canonical_focus} System"
+    else:
+        image_bytes, closest_body = _render_overview(canonical_system, system_data, when, mode, zoom, pan_x, pan_y, route)
+        title = f"{canonical_system} System"
+
+    return image_bytes, title, game_date_label, closest_body
+
+
+def _render_overview(system_name: str, system_data: dict, when: datetime, mode: str, zoom: float, pan_x: float = 0.0, pan_y: float = 0.0, route: Optional[list[str]] = None) -> tuple[bytes, Optional[str]]:
+    size = BASE_SIZE * SUPERSAMPLE
+    center = size / 2
+    cx = center + pan_x * SUPERSAMPLE
+    cy = center + pan_y * SUPERSAMPLE
+    max_radius_px = center - MARGIN * SUPERSAMPLE
+
+    bodies = [name for name, data in system_data.items() if _is_top_level(name, data)]
+    positions = {}
+    for name in bodies:
+        pos = get_absolute_position_3d(name, when, system_data)
+        positions[name] = pos
+
+    dists = {name: math.hypot(positions[name].x, positions[name].y) for name in bodies}
+
+    perihelions = []
+    aphelions = []
+    for name in bodies:
+        data = system_data[name]
+        a = data.get("a", data.get("dist", 1.0))
+        e = data.get("e", 0.0)
+        perihelions.append(a * (1.0 - e))
+        aphelions.append(a * (1.0 + e))
+
+    min_dist = (min(perihelions) * 0.75) if perihelions else 0.2
+    max_dist = (max(aphelions) * 1.05) if aphelions else 45.0
+
+    if mode == "log":
+        min_radius_px = 90 * SUPERSAMPLE
+
+        def radius_px(d):
+            d = max(d, min_dist)
+            t = (math.log(d) - math.log(min_dist)) / (math.log(max_dist) - math.log(min_dist)) if max_dist > min_dist else 0.0
+            return (min_radius_px + (max_radius_px - min_radius_px) * t) * zoom
+    else:
+        current_max = max(dists.values()) if dists else 1.0
+        px_per_au = (max_radius_px / current_max) * zoom if current_max > 0 else 1.0
+
+        def radius_px(d):
+            return d * px_per_au
+
+    size_scale = _radius_scale_for_bodies(bodies, system_data)
+
+    bg = _draw_gradient_background(size).convert("RGBA")
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    for name in bodies:
+        _draw_orbit_path(draw, cx, cy, _orbit_points(name, system_data, when, radius_px, cx, cy))
+
+    sun_radius = max(8 * SUPERSAMPLE, 24 * SUPERSAMPLE * min(zoom, 1.5))
+    _draw_sun(bg, cx, cy, sun_radius)
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    font = _load_font(15 * SUPERSAMPLE)
+    font_small = _load_font(12 * SUPERSAMPLE)
+    _text_with_shadow(draw, (cx, cy + sun_radius + 6 * SUPERSAMPLE), "Sun" if system_name == "Sol" else system_name, font, anchor="ma")
+
+    sun_box = (cx - sun_radius, cy - sun_radius, cx + sun_radius, cy + sun_radius * 2.2)
+    placed_boxes: list = [sun_box]
+    icon_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+
+    render_order = sorted(bodies, key=lambda n: -dists[n])
+    body_plots = {}
+    for name in render_order:
+        pos = positions[name]
+        angle = math.atan2(pos.y, pos.x)
+        r_px = radius_px(dists[name])
+        x = cx + r_px * math.cos(angle)
+        y = cy + r_px * math.sin(angle)
+        body_plots[name] = (x, y)
+
+        is_belt = "Asteroid Belt" in name
+        if is_belt:
+            continue
+
+        t = size_scale.get(name, 0.5)
+        icon_size = _icon_size_for(t) * SUPERSAMPLE
+        icon = _load_icon(name, icon_size)
+        icon_layer.paste(icon, (int(x - icon_size / 2), int(y - icon_size / 2)), icon)
+        placed_boxes.append((x - icon_size / 2, y - icon_size / 2, x + icon_size / 2, y + icon_size / 2))
+
+    for name in render_order:
+        x, y = body_plots[name]
+        is_belt = "Asteroid Belt" in name
+        if is_belt:
+            dot_r = BELT_DOT_RADIUS * SUPERSAMPLE
+            draw.ellipse([x - dot_r, y - dot_r, x + dot_r, y + dot_r], fill=(170, 165, 150, 220))
+            belt_label = name.replace("Asteroid Belt Area ", "Belt ")
+            bbox = font_small.getbbox(belt_label)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            belt_offsets = [
+                (0, dot_r + th / 2 + 10 * SUPERSAMPLE),
+                (0, -(dot_r + th / 2 + 10 * SUPERSAMPLE)),
+                (dot_r + tw / 2 + 10 * SUPERSAMPLE, 0),
+                (-(dot_r + tw / 2 + 10 * SUPERSAMPLE), 0),
+            ]
+            lx, ly = _place_label(placed_boxes, x, y, tw + 8 * SUPERSAMPLE, th + 8 * SUPERSAMPLE, belt_offsets)
+            _text_with_shadow(draw, (lx, ly), belt_label, font_small, fill=SUBTLE_TEXT, anchor="mm")
+            continue
+
+        t = size_scale.get(name, 0.5)
+        icon_size = _icon_size_for(t) * SUPERSAMPLE
+
+        label = name
+        bbox = font.getbbox(label)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        offsets = [
+            (0, icon_size / 2 + 14 * SUPERSAMPLE),
+            (0, -(icon_size / 2 + 14 * SUPERSAMPLE)),
+            (icon_size / 2 + tw / 2 + 10 * SUPERSAMPLE, 0),
+            (-(icon_size / 2 + tw / 2 + 10 * SUPERSAMPLE), 0),
+            (icon_size / 2 + tw / 2 + 10 * SUPERSAMPLE, icon_size / 2 + 10 * SUPERSAMPLE),
+            (-(icon_size / 2 + tw / 2 + 10 * SUPERSAMPLE), icon_size / 2 + 10 * SUPERSAMPLE),
+            (icon_size / 2 + tw / 2 + 10 * SUPERSAMPLE, -(icon_size / 2 + 10 * SUPERSAMPLE)),
+            (-(icon_size / 2 + tw / 2 + 10 * SUPERSAMPLE), -(icon_size / 2 + 10 * SUPERSAMPLE)),
+            (0, icon_size / 2 + 30 * SUPERSAMPLE),
+            (0, -(icon_size / 2 + 30 * SUPERSAMPLE)),
+        ]
+        lx, ly = _place_label(placed_boxes, x, y, tw + 8 * SUPERSAMPLE, th + 8 * SUPERSAMPLE, offsets)
+        _text_with_shadow(draw, (lx, ly), label, font, anchor="mm")
+
+    bg = Image.alpha_composite(bg, icon_layer)
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    resolved_route = _resolve_route_points(route, body_plots)
+    _draw_route(bg, draw, resolved_route, SUPERSAMPLE)
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    _text_with_shadow(draw, (24 * SUPERSAMPLE, size - 40 * SUPERSAMPLE), current_game_date_str(when), font_small, fill=SUBTLE_TEXT, anchor="lm")
+
+    closest_body = None
+    min_center_dist = float("inf")
+    for name in bodies:
+        if "Asteroid Belt" in name:
+            continue
+        bx, by = body_plots[name]
+        d_center = math.hypot(bx - center, by - center)
+        if d_center < min_center_dist:
+            min_center_dist = d_center
+            closest_body = name
+
+    final = bg.resize((BASE_SIZE, BASE_SIZE), Image.LANCZOS)
+    output = io.BytesIO()
+    final.convert("RGB").save(output, format="PNG")
+    return output.getvalue(), closest_body
+
+
+def _render_focus(system_name: str, system_data: dict, focus_name: str, when: datetime, zoom: float, pan_x: float = 0.0, pan_y: float = 0.0, route: Optional[list[str]] = None) -> tuple[bytes, Optional[str]]:
+    size = FOCUS_SIZE * SUPERSAMPLE
+    center = size / 2
+    cx = center + pan_x * SUPERSAMPLE
+    cy = center + pan_y * SUPERSAMPLE
+    max_radius_px = center - MARGIN * SUPERSAMPLE
+
+    moons = [name for name, data in system_data.items() if data.get("parent") == focus_name]
+    if not moons:
+        raise SolarMapError(f"'{focus_name}' has no moons to display.")
+
+    focus_pos = get_absolute_position_3d(focus_name, when, system_data)
+    moon_positions = {}
+    for name in moons:
+        pos = get_absolute_position_3d(name, when, system_data)
+        rel_x, rel_y = pos.x - focus_pos.x, pos.y - focus_pos.y
+        dist = math.hypot(rel_x, rel_y)
+        moon_positions[name] = (rel_x, rel_y, dist)
+
+    moon_perihelions = []
+    moon_aphelions = []
+    for name in moons:
+        data = system_data[name]
+        a = data.get("a", data.get("dist", 0.005))
+        e = data.get("e", 0.0)
+        moon_perihelions.append(a * (1.0 - e))
+        moon_aphelions.append(a * (1.0 + e))
+
+    min_dist = (min(moon_perihelions) * 0.75) if moon_perihelions else 0.0005
+    max_dist = (max(moon_aphelions) * 1.05) if moon_aphelions else 0.03
+
+    size_scale = _radius_scale_for_bodies(list(system_data.keys()), system_data)
+    planet_t = size_scale.get(focus_name, 0.6)
+    planet_icon_size = int(_icon_size_for(planet_t) * 1.6 * SUPERSAMPLE * min(zoom, 1.5))
+    inner_radius_px = max(90 * SUPERSAMPLE, planet_icon_size * 1.05)
+
+    def moon_radius_px(dist):
+        dist = max(dist, min_dist)
+        if max_dist > min_dist:
+            t = (math.log(dist) - math.log(min_dist)) / (math.log(max_dist) - math.log(min_dist))
+        else:
+            t = 1.0
+        return (inner_radius_px + (max_radius_px - inner_radius_px) * t) * zoom
+
+    bg = _draw_gradient_background(size).convert("RGBA")
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    for name in moons:
+        _draw_orbit_path(draw, cx, cy, _orbit_points(name, system_data, when, lambda d: min(moon_radius_px(d), max_radius_px), cx, cy, relative_to=focus_name))
+
+    icon_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    planet_icon = _load_icon(focus_name, planet_icon_size)
+    icon_layer.paste(planet_icon, (int(cx - planet_icon_size / 2), int(cy - planet_icon_size / 2)), planet_icon)
+
+    font = _load_font(15 * SUPERSAMPLE)
+    font_small = _load_font(12 * SUPERSAMPLE)
+    placed_boxes: list = [
+        (cx - planet_icon_size / 2, cy - planet_icon_size / 2, cx + planet_icon_size / 2, cy + planet_icon_size / 2 + 40 * SUPERSAMPLE)
+    ]
+    _text_with_shadow(draw, (cx, cy + planet_icon_size / 2 + 6 * SUPERSAMPLE), focus_name, font, anchor="ma")
+
+    render_order = sorted(moons, key=lambda n: -moon_positions[n][2])
+    moon_plots = {}
+    for name in render_order:
+        rel_x, rel_y, dist = moon_positions[name]
+        angle = math.atan2(rel_y, rel_x)
+        r_px = min(moon_radius_px(dist), max_radius_px)
+        x = cx + r_px * math.cos(angle)
+        y = cy + r_px * math.sin(angle)
+        moon_plots[name] = (x, y)
+
+        icon_size = _icon_size_for(0.5, is_moon=True) * SUPERSAMPLE
+        icon = _load_icon(name, icon_size)
+        icon_layer.paste(icon, (int(x - icon_size / 2), int(y - icon_size / 2)), icon)
+        placed_boxes.append((x - icon_size / 2, y - icon_size / 2, x + icon_size / 2, y + icon_size / 2))
+
+    for name in render_order:
+        x, y = moon_plots[name]
+        icon_size = _icon_size_for(0.5, is_moon=True) * SUPERSAMPLE
+
+        label = name
+        bbox = font_small.getbbox(label)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        offsets = [
+            (0, icon_size / 2 + 12 * SUPERSAMPLE),
+            (0, -(icon_size / 2 + 12 * SUPERSAMPLE)),
+            (icon_size / 2 + tw / 2 + 8 * SUPERSAMPLE, 0),
+            (-(icon_size / 2 + tw / 2 + 8 * SUPERSAMPLE), 0),
+            (icon_size / 2 + tw / 2 + 8 * SUPERSAMPLE, icon_size / 2 + 8 * SUPERSAMPLE),
+            (-(icon_size / 2 + tw / 2 + 8 * SUPERSAMPLE), icon_size / 2 + 8 * SUPERSAMPLE),
+            (icon_size / 2 + tw / 2 + 8 * SUPERSAMPLE, -(icon_size / 2 + 8 * SUPERSAMPLE)),
+            (-(icon_size / 2 + tw / 2 + 8 * SUPERSAMPLE), -(icon_size / 2 + 8 * SUPERSAMPLE)),
+            (0, icon_size / 2 + 26 * SUPERSAMPLE),
+            (0, -(icon_size / 2 + 26 * SUPERSAMPLE)),
+        ]
+        lx, ly = _place_label(placed_boxes, x, y, tw + 8 * SUPERSAMPLE, th + 8 * SUPERSAMPLE, offsets)
+        _text_with_shadow(draw, (lx, ly), label, font_small, anchor="mm")
+
+    bg = Image.alpha_composite(bg, icon_layer)
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    route_plots = dict(moon_plots)
+    route_plots[focus_name] = (cx, cy)
+    resolved_route = _resolve_route_points(route, route_plots)
+    _draw_route(bg, draw, resolved_route, SUPERSAMPLE)
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    _text_with_shadow(draw, (24 * SUPERSAMPLE, size - 40 * SUPERSAMPLE), current_game_date_str(when), font_small, fill=SUBTLE_TEXT, anchor="lm")
+
+    closest_body = focus_name
+    min_center_dist = math.hypot(cx - center, cy - center)
+    for name in moons:
+        mx, my = moon_plots[name]
+        d_center = math.hypot(mx - center, my - center)
+        if d_center < min_center_dist:
+            min_center_dist = d_center
+            closest_body = name
+
+    final = bg.resize((FOCUS_SIZE, FOCUS_SIZE), Image.LANCZOS)
+    output = io.BytesIO()
+    final.convert("RGB").save(output, format="PNG")
+    return output.getvalue(), closest_body

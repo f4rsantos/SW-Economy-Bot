@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Union
@@ -56,7 +61,13 @@ class OrdinalExpr:
     line: int = 0
 
 
-Expr = Union[IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr]
+@dataclass
+class ResourceExpr:
+    resource: str
+    line: int = 0
+
+
+Expr = Union[IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr, ResourceExpr]
 Literal = Union[IntLiteral, StrLiteral]
 
 
@@ -297,8 +308,13 @@ class SwitchStmt:
     line: int = 0
 
 
+@dataclass
+class StopStmt:
+    line: int = 0
+
+
 Statement = Union[
-    AssignStmt, IfStmt, ForEachStmt, RepeatStmt, SwitchStmt, Action,
+    AssignStmt, IfStmt, ForEachStmt, RepeatStmt, SwitchStmt, StopStmt, Action,
 ]
 
 

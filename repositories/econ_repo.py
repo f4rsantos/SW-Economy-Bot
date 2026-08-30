@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncpg
 import json
 from datetime import datetime
@@ -199,7 +204,7 @@ async def get_max_population_capacity(faction_id: int, world_id: Optional[int] =
                 + COALESCE((
                     SELECT SUM(500000 * fwb.amount * fwb.level)
                     FROM faction_world_buildings fwb
-                    WHERE fwb.faction_id = $1 AND fwb.world_id = $2 AND fwb.building_id = 1
+                    WHERE fwb.faction_id = $1 AND fwb.world_id = $2 AND fwb.building_id = (SELECT id FROM buildings WHERE name = 'City')
                 ), 0) AS max_pop
             FROM world_factions wf
             JOIN worlds w ON w.id = wf.world_id
@@ -216,7 +221,7 @@ async def get_max_population_capacity(faction_id: int, world_id: Optional[int] =
                 + COALESCE((
                     SELECT SUM(500000 * fwb.amount * fwb.level)
                     FROM faction_world_buildings fwb
-                    WHERE fwb.faction_id = $1 AND fwb.building_id = 1
+                    WHERE fwb.faction_id = $1 AND fwb.building_id = (SELECT id FROM buildings WHERE name = 'City')
                 ), 0) AS max_pop
             FROM world_factions wf
             JOIN worlds w ON w.id = wf.world_id

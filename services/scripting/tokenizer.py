@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -55,6 +60,7 @@ class TT(Enum):
     KW_BUILDINGS = auto()
     KW_FACTORY = auto()
     KW_SPACE = auto()
+    KW_STOP = auto()
     RESOURCE_NAME = auto()
     DAY_NAME = auto()
     STATUS_NAME = auto()
@@ -133,6 +139,7 @@ KEYWORDS: dict[str, TT] = {
     "BUILDINGS": TT.KW_BUILDINGS,
     "FACTORY": TT.KW_FACTORY,
     "SPACE": TT.KW_SPACE,
+    "STOP": TT.KW_STOP,
     "RANDI": TT.KW_RANDI,
     "ORDINAL": TT.KW_ORDINAL,
 }

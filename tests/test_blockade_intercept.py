@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import pytest
 from services.blockade_service import get_blockading_fleet_for_world
 from services.background_tasks import handle_transfer_arrival
@@ -46,8 +51,8 @@ async def test_arrival_noop_when_transfer_missing(fake_db):
 @pytest.mark.asyncio
 async def test_intercept_transfer_passes_world_id(fake_db):
     await intercept_transfer(transfer_id=1, fleet_id=5, world_id=9)
-    call = fake_db.executed[0]
-    assert call[0] == "execute"
+    call = next(c for c in fake_db.executed if c[0] == "execute")
+    assert "sp_intercept_transfer" in call[1]
     assert call[2] == (1, 5, 9)
 
 

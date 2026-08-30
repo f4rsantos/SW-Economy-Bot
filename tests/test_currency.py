@@ -1,5 +1,46 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import pytest
-from utils.currency import parse_currency, split_currency, handle_return
+from utils.currency import parse_currency, split_currency, handle_return, parse_single_amount
+
+
+def test_parse_single_amount_inline_resource():
+    assert parse_single_amount("10k CM") == (10_000, "CM")
+
+
+def test_parse_single_amount_uses_fallback_resource():
+    assert parse_single_amount("500", fallback_resource="EL") == (500, "EL")
+
+
+def test_parse_single_amount_inline_beats_fallback():
+    assert parse_single_amount("2.5mil CS", fallback_resource="EL") == (2_500_000, "CS")
+
+
+def test_parse_single_amount_suffixes():
+    assert parse_single_amount("10 bil ER") == (10_000_000_000, "ER")
+    assert parse_single_amount("5t CS") == (5_000_000_000_000, "CS")
+
+
+def test_parse_single_amount_rejects_multiple_resources():
+    with pytest.raises(ValueError):
+        parse_single_amount("10k CM, 5k EL")
+
+
+def test_parse_single_amount_rejects_unparsable():
+    with pytest.raises(ValueError):
+        parse_single_amount("abc")
+
+
+def test_parse_single_amount_requires_a_resource():
+    with pytest.raises(ValueError):
+        parse_single_amount("500")
+
+
+def test_parse_single_amount_uppercases_resource():
+    assert parse_single_amount("100 cm") == (100, "CM")
 
 
 def test_parse_currency_simple():

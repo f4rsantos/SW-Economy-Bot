@@ -1,34 +1,41 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncpg
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Optional, List
-from database.db_manager import db
+from dtos.transfer import Transfer, TransferResource, PendingTransfer
+from repositories import transfer_repo
+from services import spend_service
 from services.travel_time_service import calculate_travel_time, format_travel_time
 from services.treasury_service import find_best_worlds_for_multiple_resources
+
+logger = logging.getLogger(__name__)
 
 
 def _resources_to_array(resources: dict) -> str:
     return json.dumps([{"name": k, "amount": v} for k, v in resources.items()])
 
 
-async def deduct_resources(faction_id: int, world_id: Optional[int], resources: dict):
+async def deduct_resources(faction_id: int, world_id: Optional[int], resources: dict, conn=None):
     try:
-        await db.execute(
-            "SELECT sp_deduct_resources($1, $2, $3::jsonb)",
-            faction_id, world_id, _resources_to_array(resources)
-        )
+        await transfer_repo.call_deduct_resources(faction_id, world_id, _resources_to_array(resources), conn)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
+    await spend_service.record_spend(faction_id, resources, spend_service.SPEND)
 
 
-async def add_resources(faction_id: int, world_id: Optional[int], resources: dict):
+async def add_resources(faction_id: int, world_id: Optional[int], resources: dict, is_refund: bool = False):
     try:
-        await db.execute(
-            "SELECT sp_add_resources($1, $2, $3::jsonb)",
-            faction_id, world_id, _resources_to_array(resources)
-        )
+        await transfer_repo.call_add_resources(faction_id, world_id, _resources_to_array(resources))
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
+    if is_refund:
+        await spend_service.record_spend(faction_id, resources, spend_service.REFUND)
 
 
 async def upgrade_buildings(
@@ -41,13 +48,13 @@ async def upgrade_buildings(
     costs: dict,
 ):
     try:
-        await db.execute(
-            "SELECT sp_upgrade_buildings($1, $2, $3, $4, $5, $6, $7::jsonb)",
+        await transfer_repo.call_upgrade_buildings(
             faction_id, world_id, building_id, amount, source_level, target_level,
             json.dumps(costs)
         )
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
+    await spend_service.record_spend(faction_id, costs, spend_service.SPEND)
 
 
 async def create_transfer(
@@ -60,9 +67,7 @@ async def create_transfer(
     arrival_time: datetime,
     escort_fleet_id: Optional[int] = None,
 ) -> int:
-    resource_rows = await db.fetch(
-        "SELECT id, name FROM resources WHERE name = ANY($1)", list(resources.keys())
-    )
+    resource_rows = await transfer_repo.get_resource_ids_by_names(list(resources.keys()))
     name_to_id = {r['name']: r['id'] for r in resource_rows}
     resources_array = json.dumps([
         {"resource_id": name_to_id[name], "amount": amount}
@@ -70,8 +75,7 @@ async def create_transfer(
         if name in name_to_id
     ])
     try:
-        row = await db.fetchrow(
-            "SELECT sp_create_transfer($1, $2, $3, $4, $5::jsonb, $6, $7, $8) as transfer_id",
+        row = await transfer_repo.call_create_transfer(
             from_faction_id, to_faction_id, from_world_id, to_world_id,
             resources_array, start_time, arrival_time, escort_fleet_id
         )
@@ -87,104 +91,71 @@ async def create_transfer(
 
 async def deposit_transfer(transfer_id: int):
     try:
-        await db.execute("SELECT sp_deposit_transfer($1)", transfer_id)
+        await transfer_repo.call_deposit_transfer(transfer_id)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
 
 
 async def intercept_transfer(transfer_id: int, fleet_id: int, world_id: int):
+    transfer = await transfer_repo.get_transfer_row(transfer_id)
     try:
-        await db.execute("SELECT sp_intercept_transfer($1, $2, $3)", transfer_id, fleet_id, world_id)
+        await transfer_repo.call_intercept_transfer(transfer_id, fleet_id, world_id)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
+
+    if transfer is None:
+        return
+    try:
+        from services import notification_service
+        await notification_service.notify_transfer_intercepted(
+            transfer.from_faction_id,
+            transfer_id,
+            transfer.from_world_name,
+            transfer.to_world_name,
+        )
+    except Exception:
+        logger.exception(f"Transfer {transfer_id} interception notification failed")
 
 
 async def seize_transfer(transfer_id: int, faction_id: int, world_id: int):
     try:
-        await db.execute("SELECT sp_seize_transfer($1, $2, $3)", transfer_id, faction_id, world_id)
+        await transfer_repo.call_seize_transfer(transfer_id, faction_id, world_id)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
 
 
 async def destroy_transfer(transfer_id: int):
     try:
-        await db.execute("SELECT sp_destroy_transfer($1)", transfer_id)
+        await transfer_repo.call_destroy_transfer(transfer_id)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
 
 
 async def release_transfer(transfer_id: int, new_arrival: datetime):
     try:
-        await db.execute("SELECT sp_release_transfer($1, $2)", transfer_id, new_arrival)
+        await transfer_repo.call_release_transfer(transfer_id, new_arrival)
     except asyncpg.exceptions.RaiseError as e:
         raise ValueError(str(e)) from e
 
 
-async def get_transfer(transfer_id: int, status: str = None) -> Optional[dict]:
-    condition = "AND ts.name = $2" if status else ""
-    params = [transfer_id]
-    if status:
-        params.append(status)
-    row = await db.fetchrow(f"""
-        SELECT rt.*, ts.name as status,
-               ff.name as from_faction_name,
-               tf.name as to_faction_name,
-               fw.name as from_world_name,
-               tw.name as to_world_name
-        FROM resource_transfers rt
-        JOIN transfer_statuses ts ON rt.status_id = ts.id
-        JOIN factions ff ON rt.from_faction_id = ff.id
-        JOIN factions tf ON rt.to_faction_id = tf.id
-        JOIN worlds fw ON rt.from_world_id = fw.id
-        JOIN worlds tw ON rt.to_world_id = tw.id
-        WHERE rt.id = $1 {condition}
-    """, *params)
-    return dict(row) if row else None
+async def get_transfer(transfer_id: int, status: str = None) -> Optional[Transfer]:
+    return await transfer_repo.get_transfer_row(transfer_id, status)
 
 
-async def get_intercepted_transfer(transfer_id: int, intercepting_faction_id: int) -> Optional[dict]:
-    row = await db.fetchrow("""
-        SELECT rt.*, ts.name as status,
-               ff.name as from_faction_name,
-               tf.name as to_faction_name,
-               fw.name as from_world_name,
-               tw.name as to_world_name
-        FROM resource_transfers rt
-        JOIN transfer_statuses ts ON rt.status_id = ts.id
-        JOIN factions ff ON rt.from_faction_id = ff.id
-        JOIN factions tf ON rt.to_faction_id = tf.id
-        JOIN worlds fw ON rt.from_world_id = fw.id
-        JOIN worlds tw ON rt.to_world_id = tw.id
-        WHERE rt.id = $1 AND ts.name = 'intercepted' AND rt.intercepting_faction_id = $2
-    """, transfer_id, intercepting_faction_id)
-    return dict(row) if row else None
+async def get_intercepted_transfer(transfer_id: int, intercepting_faction_id: int) -> Optional[Transfer]:
+    return await transfer_repo.get_intercepted_transfer_row(transfer_id, intercepting_faction_id)
 
 
-async def get_transfer_resources(transfer_id: int) -> List[dict]:
-    return await db.fetch("""
-        SELECT tr.resource_id, tr.amount, r.name
-        FROM transfer_resources tr
-        JOIN resources r ON tr.resource_id = r.id
-        WHERE tr.transfer_id = $1
-    """, transfer_id)
+async def get_transfer_resources(transfer_id: int) -> List[TransferResource]:
+    return await transfer_repo.get_transfer_resources_rows(transfer_id)
 
 
 async def get_fleets_at_world(faction_id: int, world_id: int) -> List[dict]:
-    return await db.fetch("""
-        SELECT f.id, f.name, f.faction_fleet_number, fs.name as status
-        FROM fleets f
-        JOIN fleet_status fs ON f.status_id = fs.id
-        WHERE f.faction_id = $1 AND f.position = $2
-        ORDER BY f.faction_fleet_number
-    """, faction_id, world_id)
+    return await transfer_repo.get_fleets_at_world_rows(faction_id, world_id)
 
 
 async def check_blockade(world_id: int, faction_id: int) -> bool:
-    row = await db.fetchrow("""
-        SELECT b.id FROM blockades b
-        JOIN blockade_targets bt ON b.id = bt.blockade_id
-        WHERE b.world_id = $1 AND bt.faction_id = $2
-    """, world_id, faction_id)
+    row = await transfer_repo.get_blockade_row(world_id, faction_id)
     return row is not None
 
 
@@ -197,16 +168,8 @@ async def execute_er_transfer(
     amount: int,
     current_time: datetime,
 ):
-    await db.execute(
-        "UPDATE faction_treasury SET amount = amount - $1 WHERE faction_id = $2 AND resource_id = $3",
-        amount, from_faction_id, er_id
-    )
-    await db.execute("""
-        INSERT INTO faction_treasury (faction_id, resource_id, amount)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (faction_id, resource_id)
-        DO UPDATE SET amount = faction_treasury.amount + $3
-    """, to_faction_id, er_id, amount)
+    await transfer_repo.debit_faction_treasury(from_faction_id, er_id, amount)
+    await transfer_repo.credit_faction_treasury(to_faction_id, er_id, amount)
     return None
 
 
@@ -221,8 +184,19 @@ async def execute_physical_transfer(
     resource_map: dict,
     current_time: datetime,
     escort_fleet_id: Optional[int] = None,
+    escort_fleet_name: Optional[str] = None,
+    use_lanes: bool = False,
 ) -> dict:
-    travel_time = await calculate_travel_time(from_world_name, to_world_name, current_time)
+    route_info = None
+    if use_lanes:
+        from services import port_service
+        route_info = await port_service.calculate_best_route(
+            from_world_id, from_world_name, to_world_id, to_world_name,
+            from_faction_id, port_service.TRAFFIC_TRANSFERS,
+        )
+        travel_time = route_info['duration']
+    else:
+        travel_time = await calculate_travel_time(from_world_name, to_world_name, current_time)
     arrival_time = current_time + travel_time
     travel_str = await format_travel_time(travel_time)
 
@@ -236,57 +210,49 @@ async def execute_physical_transfer(
     if escort_fleet_id is not None:
         from services.fleet_service import move_fleet
         from services.event_queue import event_queue
-        await move_fleet(escort_fleet_id, to_world_id, current_time)
+        await move_fleet(escort_fleet_id, to_world_id, current_time, notify=False)
         await event_queue.push(arrival_time, 'fleet_arrival', {'fleet_id': escort_fleet_id, 'to_world_id': to_world_id})
+
+    from utils.currency import handle_return
+    from services import notification_service
+    cargo_lines = [f"{handle_return(t['amount'])} {t['resource']}" for t in transfers]
+    try:
+        await notification_service.notify_transfer_departure(
+            from_faction_id, from_world_name, to_world_name,
+            from_world_id, to_world_id, cargo_lines, escort_fleet_name,
+            transfer_id=transfer_id
+        )
+    except Exception:
+        logger.exception(f"Transfer {transfer_id} departure notification failed")
 
     return {
         'transfer_id': transfer_id,
         'arrival_time': arrival_time,
         'travel_str': travel_str,
+        'route_info': route_info,
     }
 
 
 async def get_resource_name_to_id(resource_names: list[str]) -> dict:
-    rows = await db.fetch("SELECT id, name FROM resources WHERE name = ANY($1)", resource_names)
+    rows = await transfer_repo.get_resource_name_to_id_rows(resource_names)
     return {r['name']: r['id'] for r in rows}
 
 
 async def get_world_for_faction(faction_id: int) -> Optional[dict]:
-    row = await db.fetchrow(
-        """
-        SELECT w.id, w.name FROM worlds w
-        JOIN world_factions wf ON w.id = wf.world_id
-        WHERE wf.faction_id = $1 LIMIT 1
-        """,
-        faction_id,
-    )
-    return dict(row) if row else None
+    return await transfer_repo.get_world_for_faction_row(faction_id)
 
 
 async def ensure_world_presence(world_id: int, faction_id: int):
-    await db.execute(
-        "INSERT INTO world_factions (world_id, faction_id, territory) VALUES ($1, $2, 0) ON CONFLICT DO NOTHING",
-        world_id,
-        faction_id,
-    )
+    await transfer_repo.ensure_world_presence(world_id, faction_id)
 
 
 async def has_world_presence(world_id: int, faction_id: int) -> bool:
-    row = await db.fetchrow(
-        "SELECT faction_id FROM world_factions WHERE world_id = $1 AND faction_id = $2",
-        world_id,
-        faction_id,
-    )
+    row = await transfer_repo.get_world_presence_row(world_id, faction_id)
     return row is not None
 
 
 async def get_local_resource_amount(world_id: int, faction_id: int, resource_id: int) -> int:
-    row = await db.fetchrow(
-        "SELECT amount FROM local_treasury WHERE world_id = $1 AND faction_id = $2 AND resource_id = $3",
-        world_id,
-        faction_id,
-        resource_id,
-    )
+    row = await transfer_repo.get_local_resource_amount_row(world_id, faction_id, resource_id)
     return row['amount'] if row else 0
 
 
@@ -294,7 +260,7 @@ async def list_pending_transfers(
     faction_id: Optional[int] = None,
     world_id: Optional[int] = None,
     filter_type: str = 'all',
-) -> list[dict]:
+) -> list[PendingTransfer]:
     params = []
     where_parts = []
 
@@ -317,44 +283,10 @@ async def list_pending_transfers(
         return []
 
     where_clause = " AND ".join(where_parts)
-    rows = await db.fetch(
-        f"""
-        SELECT rt.id, ts.name as status, rt.arrival_time,
-               COALESCE(ff.formal_name, ff.name) as from_faction_name,
-               COALESCE(tf.formal_name, tf.name) as to_faction_name,
-               fw.name as from_world_name, tw.name as to_world_name,
-               iw.name as interception_world_name,
-               COALESCE(if_fac.formal_name, if_fac.name) as intercepting_faction_name,
-               CASE WHEN rt.escort_fleet_id IS NOT NULL
-                    THEN COALESCE(ef.name, 'Fleet #' || ef.faction_fleet_number)
-                    END as escort_name
-        FROM resource_transfers rt
-        JOIN transfer_statuses ts ON rt.status_id = ts.id
-        JOIN factions ff ON rt.from_faction_id = ff.id
-        JOIN factions tf ON rt.to_faction_id = tf.id
-        JOIN worlds fw ON rt.from_world_id = fw.id
-        JOIN worlds tw ON rt.to_world_id = tw.id
-        LEFT JOIN worlds iw ON rt.interception_world_id = iw.id
-        LEFT JOIN factions if_fac ON rt.intercepting_faction_id = if_fac.id
-        LEFT JOIN fleets ef ON rt.escort_fleet_id = ef.id
-        WHERE {where_clause} AND ts.name IN ('in_transit', 'intercepted')
-        ORDER BY rt.arrival_time ASC
-        """,
-        *params,
-    )
-    return [dict(r) for r in rows]
+    return await transfer_repo.get_pending_transfers_rows(where_clause, params)
 
 
-async def get_transfer_resource_rows(transfer_ids: list[int]) -> list[dict]:
+async def get_transfer_resource_rows(transfer_ids: list[int]) -> list:
     if not transfer_ids:
         return []
-    rows = await db.fetch(
-        """
-        SELECT tr.transfer_id, tr.amount, r.name
-        FROM transfer_resources tr
-        JOIN resources r ON tr.resource_id = r.id
-        WHERE tr.transfer_id = ANY($1)
-        """,
-        transfer_ids,
-    )
-    return [dict(r) for r in rows]
+    return await transfer_repo.get_transfer_resource_rows_bulk(transfer_ids)

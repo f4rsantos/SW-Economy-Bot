@@ -1,3 +1,10 @@
+<!--
+Copyright (c) 2026 f4rsantos. All rights reserved.
+Unauthorized copying, modification, or distribution of this file,
+via any medium, is strictly prohibited without explicit written
+permission from the copyright holder. Contact: f4rsantos@gmail.com
+-->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -342,6 +349,25 @@
     </table>
   </div>
 
+  <!-- Run mode -->
+  <div class="section" style="margin-bottom:18px;">
+    <div class="section-header"><h2>Run Mode</h2></div>
+    <div style="padding:16px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+      <span style="font-size:13px;color:var(--muted);">Current:</span>
+      <span id="mode-current" style="font-size:13px;font-weight:600;">&mdash;</span>
+      <button id="mode-btn" onclick="toggleServiceMode()"
+        style="padding:6px 16px;background:var(--accent);color:#fff;border:none;border-radius:6px;
+               font-size:13px;font-weight:600;cursor:pointer;">Switch</button>
+      <span style="width:1px;height:22px;background:var(--border);"></span>
+      <span style="font-size:13px;color:var(--muted);">Start with Windows:</span>
+      <span id="autostart-current" style="font-size:13px;font-weight:600;">&mdash;</span>
+      <button id="autostart-btn" onclick="toggleAutostart()"
+        style="padding:6px 16px;background:var(--surface);color:var(--text);border:1px solid var(--border);
+               border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Toggle</button>
+      <span id="service-msg" style="font-size:12px;color:var(--muted);flex-basis:100%;"></span>
+    </div>
+  </div>
+
   <!-- Uptime editor -->
   <div class="section" style="margin-bottom:18px;">
     <div class="section-header"><h2>Edit Uptime</h2></div>
@@ -409,6 +435,7 @@
     } catch(e) { return; }
 
     if (m.started_at) _startedAt = m.started_at;
+    if (m.service) renderService(m.service);
 
     const total = m.commands_total || 0;
     const ok    = m.commands_success || 0;
@@ -489,6 +516,68 @@
     const el = document.getElementById('m-uptime');
     if (el && _startedAt) el.textContent = fmtUptime(_startedAt);
   }, 1000);
+
+  // ── Run mode ──
+  let _service = {};
+
+  function renderService(svc) {
+    _service = svc || {};
+    const modeEl = document.getElementById('mode-current');
+    const modeBtn = document.getElementById('mode-btn');
+    const autoEl = document.getElementById('autostart-current');
+    const autoBtn = document.getElementById('autostart-btn');
+    if (!modeEl) return;
+    const bg = !!_service.background_mode;
+    modeEl.textContent = bg ? 'Background service' : 'Terminal window';
+    modeEl.style.color = bg ? 'var(--accent)' : 'var(--text)';
+    modeBtn.textContent = bg ? 'Switch to terminal' : 'Switch to background';
+    const auto = !!_service.autostart;
+    autoEl.textContent = auto ? 'Enabled' : 'Disabled';
+    autoEl.style.color = auto ? 'var(--green)' : 'var(--muted)';
+    autoBtn.textContent = auto ? 'Disable' : 'Enable';
+    autoBtn.disabled = !auto && !_service.has_credentials;
+    autoBtn.style.opacity = autoBtn.disabled ? '.5' : '1';
+    autoBtn.style.cursor = autoBtn.disabled ? 'not-allowed' : 'pointer';
+    autoBtn.title = autoBtn.disabled ? "Run 'login save' in the terminal first." : '';
+  }
+
+  function serviceMsg(text, color) {
+    const msg = document.getElementById('service-msg');
+    if (!msg) return;
+    msg.textContent = text;
+    msg.style.color = color || 'var(--muted)';
+  }
+
+  async function toggleServiceMode() {
+    const bg = !!_service.background_mode;
+    const target = !bg;
+    const label = target ? 'a background service (no terminal window)' : 'a normal terminal window';
+    if (!confirm(`Restart the bot as ${label}?
+
+The bot will go offline briefly while it restarts.`)) return;
+    serviceMsg('Restarting...');
+    try {
+      const r = await fetch('/service-mode', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({background: target}) });
+      const d = await r.json();
+      if (d.ok) {
+        serviceMsg('Restarting in the new mode. This page will stop updating until the bot is back.', 'var(--green)');
+      } else {
+        serviceMsg(d.error || 'Failed to switch mode.', 'var(--red)');
+      }
+    } catch(e) { serviceMsg('Request failed.', 'var(--red)'); }
+  }
+
+  async function toggleAutostart() {
+    const target = !_service.autostart;
+    serviceMsg('Working...');
+    try {
+      const r = await fetch('/autostart', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({enabled: target}) });
+      const d = await r.json();
+      serviceMsg(d.message || (d.ok ? 'Done.' : 'Failed.'), d.ok ? 'var(--green)' : 'var(--red)');
+      if (d.ok) { _service.autostart = target; renderService(_service); }
+    } catch(e) { serviceMsg('Request failed.', 'var(--red)'); }
+    setTimeout(() => serviceMsg(''), 6000);
+  }
 
   // ── Uptime editor ──
   async function submitUptime() {

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from typing import Optional
 
@@ -6,9 +11,6 @@ Please read the Terms of Service for use of this bot, as displayed in the approp
 
 If you accept the Terms of Service, please click Accept below. You must be 13 or older to use this bot.
 """
-
-
-
 
 
 async def send_tos_prompt(interaction: discord.Interaction) -> discord.Message:

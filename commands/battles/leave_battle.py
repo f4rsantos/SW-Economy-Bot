@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -17,14 +22,14 @@ async def leave_battle_cmd(interaction: discord.Interaction, battle_id: int, fac
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
     if not await get_battle(battle_id):
         await interaction.followup.send(embed=error_embed("Error", "Battle not found."))
         return
 
     try:
-        result = await leave_battle(battle_id, faction_data['id'])
+        result = await leave_battle(battle_id, faction_data.id)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
@@ -33,12 +38,12 @@ async def leave_battle_cmd(interaction: discord.Interaction, battle_id: int, fac
     if result['battle_ended']:
         embed = success_embed(
             title="Withdrew & Battle Ended",
-            description=f"**{faction_data['display_name']}** withdrew {result['fleet_count']} fleet(s) from Battle #{battle_id}.\n**Fleets:** {', '.join(fleet_names)}\n\nAs the last participant, the battle has been automatically ended and deleted."
+            description=f"**{faction_data.display_name}** withdrew {result['fleet_count']} fleet(s) from Battle #{battle_id}.\n**Fleets:** {', '.join(fleet_names)}\n\nAs the last participant, the battle has been automatically ended and deleted."
         )
     else:
         embed = success_embed(
             title="Withdrew from Battle",
-            description=f"**{faction_data['display_name']}** withdrew {result['fleet_count']} fleet(s) from Battle #{battle_id}.\n**Fleets:** {', '.join(fleet_names)}\n\n**Remaining Fleets:** {result['remaining']}"
+            description=f"**{faction_data.display_name}** withdrew {result['fleet_count']} fleet(s) from Battle #{battle_id}.\n**Fleets:** {', '.join(fleet_names)}\n\n**Remaining Fleets:** {result['remaining']}"
         )
 
     embed.color = faction_color

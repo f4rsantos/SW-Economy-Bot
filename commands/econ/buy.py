@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -34,8 +39,8 @@ async def buy(
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_id = faction_data['id']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    faction_color = hex_to_int(faction_data.color)
 
     if quantity is not None and quantity < 1:
         await interaction.followup.send(embed=error_embed("Error", "Quantity must be at least 1."))
@@ -84,7 +89,7 @@ async def buy(
     cost_str = ", ".join([f"{handle_return(c['amount'])} {c['resource']}" for c in costs])
     embed = success_embed(
         title="Purchase Complete",
-        description=f"**{faction_data['display_name']}** has bought {items} for {cost_str}"
+        description=f"**{faction_data.display_name}** has bought {items} for {cost_str}"
     )
     embed.color = faction_color
     await interaction.followup.send(embed=embed)

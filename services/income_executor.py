@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import json
 import math
 import asyncio
@@ -6,13 +11,12 @@ from typing import Dict, List
 
 import logging
 
-from database.db_manager import db
-from services.building_efficiency_service import calculate_efficiency, detect_specialization
+from services.building_efficiency_service import calculate_efficiency, detect_specialization, get_infantry_allocation_by_world
 from services.national_spirit_service import get_active_efficiency_bonus
 
 logger = logging.getLogger(__name__)
 from services.travel_time_service import calculate_travel_time
-from services.income_queries import (
+from repositories.income_repo import (
     fetch_pact_types_for_faction,
     fetch_fleet_cs_by_status,
     fetch_status_ids,
@@ -20,7 +24,7 @@ from services.income_queries import (
     fetch_blockaded_world_ids,
     fetch_all_trade_deals,
     fetch_all_world_names,
-    fetch_best_destination_world,
+    fetch_best_destination_worlds,
     fetch_unrefined_production_data,
     fetch_refined_capacity_data,
     fetch_local_stock,
@@ -38,7 +42,16 @@ from services.income_queries import (
     fetch_world_data_for_income,
     fetch_resource_map,
     fetch_all_population_by_world,
+    fetch_population_rows_by_world,
+    fetch_city_levels_by_world,
+    fetch_level_10_building_count,
+    fetch_debris_status_id,
+    fetch_faction_population_limit,
+    apply_fleet_damage,
+    mark_fleets_as_debris,
+    apply_income_cycle,
 )
+from repositories.econ_repo import get_max_population_capacity
 from services.income_calculator import (
     POPULATION_PER_CS,
     STORABLE_RESOURCES,
@@ -53,6 +66,7 @@ from services.income_calculator import (
     calculate_er_income,
     calculate_influence_income,
     calculate_population_growth,
+    apply_faction_population_limit,
     build_efficiency_cache,
     compute_world_production,
     plan_cs_withdrawals,
@@ -79,20 +93,18 @@ async def calculate_fleet_cs_usage(faction_id: int, cached_status_ids: dict = No
 async def process_fleet_cs_damage(faction_id: int, cs_deficit: int):
     if cs_deficit <= 0:
         return
-    debris_row = await db.fetchrow("SELECT id FROM fleet_status WHERE LOWER(name) = 'debris'")
-    if not debris_row:
+    debris_id = await fetch_debris_status_id()
+    if debris_id is None:
         logger.warning("debris status not found in database")
         return
-    debris_id = debris_row['id']
     fleets = await fetch_non_debris_fleets(faction_id, debris_id)
     if not fleets:
         return
     updates_damage, updates_debris = plan_fleet_cs_damage(fleets, cs_deficit)
     if updates_damage:
-        await db.executemany("UPDATE fleets SET health = $1 WHERE id = $2", updates_damage)
+        await apply_fleet_damage(updates_damage)
     if updates_debris:
-        await db.executemany("UPDATE fleets SET health = 0, status_id = $1 WHERE id = $2",
-                             [(debris_id, fleet_id) for _, fleet_id in updates_debris])
+        await mark_fleets_as_debris(debris_id, [fleet_id for _, fleet_id in updates_debris])
 
 
 async def _process_trade_deals(
@@ -104,7 +116,10 @@ async def _process_trade_deals(
     trades = await fetch_all_trade_deals(faction_id)
     world_names = await fetch_all_world_names()
     current_time = datetime.now(timezone.utc)
-    destination_cache = {}
+    receivers_needing_lookup = list({
+        trade['receiver_faction_id'] for trade in trades if not trade['receiver_world_id']
+    })
+    destination_cache = await fetch_best_destination_worlds(receivers_needing_lookup)
     pending_transfers = []
 
     for trade in trades:
@@ -119,9 +134,7 @@ async def _process_trade_deals(
         if receiver_world_fixed:
             dest_world_id = receiver_world_fixed
         else:
-            if receiver_id not in destination_cache:
-                destination_cache[receiver_id] = await fetch_best_destination_world(receiver_id)
-            dest_world_id = destination_cache[receiver_id]
+            dest_world_id = destination_cache.get(receiver_id)
 
         if not dest_world_id:
             logger.warning(f"  [Trade #{trade['id']}] No destination world for receiver {receiver_id} — skipped")
@@ -191,8 +204,6 @@ async def _process_trade_deals(
         travel_times = await asyncio.gather(*travel_tasks)
         for i, transfer in enumerate(pending_transfers):
             transfer['arrival_time'] = current_time + travel_times[i]
-            del transfer['from_world_name']
-            del transfer['to_world_name']
             transfers_to_create.append(transfer)
 
     return world_resources, transfers_to_create
@@ -222,19 +233,15 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
     pact_rows = await fetch_pact_types_for_faction(faction_id)
     preview['usages']['influence_pacts'] = calculate_influence_cost_from_pacts(pact_rows)
 
-    pop_rows = await db.fetch("""
-        SELECT lt.world_id, COALESCE(lt.amount, 0) as population
-        FROM local_treasury lt JOIN resources r ON lt.resource_id = r.id
-        WHERE lt.faction_id = $1 AND r.name = 'Population'
-    """, faction_id)
+    pop_rows = await fetch_population_rows_by_world(faction_id)
     preview['usages']['population_cs'] = population_cs_map(pop_rows)
 
-    from services.income_queries import fetch_outgoing_trades, fetch_external_incoming_trades
+    from repositories.income_repo import fetch_outgoing_trades, fetch_external_incoming_trades
     preview['usages']['trade_deals'] = await fetch_outgoing_trades(faction_id)
     preview['usages']['external_incoming_trades'] = await fetch_external_incoming_trades(faction_id)
 
-    faction_data = await fetch_faction_flags(faction_id)
-    is_company = faction_data['is_company'] if faction_data else False
+    faction_flags = await fetch_faction_flags(faction_id)
+    is_company = faction_flags['is_company'] if faction_flags else False
 
     world_data = await fetch_world_data_for_income(faction_id, is_company)
     worlds = [{'world_id': wid, 'population': d['population'], 'army': d['army'], 'pop_cap': d['pop_cap']}
@@ -244,6 +251,13 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
     is_spec, spec_type, bonus = await detect_specialization(faction_id)
     spirit_bonus = await get_active_efficiency_bonus(faction_id)
     efficiency_cache = build_efficiency_cache(base_eff, is_spec, spec_type, bonus, spirit_bonus)
+
+    from services import megaproject_service
+    self_refining = await megaproject_service.has_active_extractors_upgrade(faction_id)
+    self_refine_production_scale = (
+        megaproject_service.EXTRACTOR_SELF_REFINE_PRODUCTION / megaproject_service.EXTRACTOR_BASE_PRODUCTION
+        if self_refining else 1.0
+    )
 
     unrefined_rows = await fetch_unrefined_production_data(faction_id)
     refined_rows = await fetch_refined_capacity_data(faction_id)
@@ -280,6 +294,8 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
             wid, unrefined_data_map, refined_capacity_map,
             stock_map, refined_stock_map, storage_capacity_map,
             outgoing_trade_map, efficiency_cache,
+            self_refining=self_refining,
+            self_refine_production_scale=self_refine_production_scale,
         )
         world_resources[wid] = wr
         preview['worlds'][wid] = {
@@ -342,13 +358,18 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
     current_influence = await fetch_current_influence(faction_id)
     influence_cost = preview['usages']['influence_pacts']
     total_cs_upkeep = preview['usages']['fleet_cs'] + sum(preview['usages']['population_cs'].values())
-    preview['global']['influence'] = calculate_influence_income(hex_count, influence_cost, current_influence, total_cs_upkeep)
+    level_10_building_count = await fetch_level_10_building_count(faction_id)
+    preview['global']['influence'] = calculate_influence_income(
+        hex_count, influence_cost, current_influence, total_cs_upkeep, level_10_building_count
+    )
 
     if 'resource_map' in shared_cache:
         resource_map = shared_cache['resource_map']
     else:
         resource_map = await fetch_resource_map()
     world_populations = await fetch_all_population_by_world(faction_id)
+    infantry_allocation = await get_infantry_allocation_by_world(faction_id)
+    city_levels_by_world = await fetch_city_levels_by_world(faction_id)
 
     world_cs_info = {}
     total_cs_available = 0
@@ -401,12 +422,26 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
             global_population=global_population,
             local_cs_production=local_cs_gross,
             is_blockaded=info['is_blockaded'],
+            city_levels=city_levels_by_world.get(wid, []),
         )
         pop_cap = info['pop_cap']
+        allocated_infantry = infantry_allocation.get(wid, 0)
         if pop_cap > 0:
-            pop_growth = min(pop_growth, max(0, pop_cap - info['population'])) if pop_growth > 0 else max(pop_growth, -info['population'])
+            pop_growth = min(pop_growth, max(0, pop_cap - info['population'] - allocated_infantry)) if pop_growth > 0 else max(pop_growth, -info['population'])
         preview['worlds'].setdefault(wid, {})
         preview['worlds'][wid]['population_growth'] = int(pop_growth)
+
+    faction_population_limit = await fetch_faction_population_limit(faction_id)
+    if faction_population_limit is not None:
+        faction_physical_capacity = await get_max_population_capacity(faction_id)
+        effective_limit = min(faction_population_limit, faction_physical_capacity)
+        current_total_population = sum(info['population'] for info in world_cs_info.values())
+        pop_growth_by_world = {
+            wid: preview['worlds'][wid]['population_growth'] for wid in world_cs_info.keys()
+        }
+        capped_growth = apply_faction_population_limit(pop_growth_by_world, current_total_population, effective_limit)
+        for wid, growth in capped_growth.items():
+            preview['worlds'][wid]['population_growth'] = int(growth)
 
     preview['_world_cs_info'] = world_cs_info
     preview['_global_cs_after_fleets'] = global_cs_after_fleets
@@ -426,13 +461,14 @@ SCOPE_LEVELS = {
 }
 
 
-async def execute_income(faction_id: int, shared_cache: dict = None, scope: str = 'full'):
+async def execute_income(faction_id: int, shared_cache: dict = None, scope: str = 'full', preview: Dict = None):
     if shared_cache is None:
         shared_cache = {}
 
     scope_level = SCOPE_LEVELS.get(scope, 5)
 
-    preview = await preview_income(faction_id, shared_cache)
+    if preview is None:
+        preview = await preview_income(faction_id, shared_cache)
 
     if 'resource_map' in shared_cache:
         resource_map = shared_cache['resource_map']
@@ -445,8 +481,26 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
         if cs_deficit_for_fleets > 0 and stored_cs_total < cs_deficit_for_fleets:
             await process_fleet_cs_damage(faction_id, cs_deficit_for_fleets - stored_cs_total)
 
+    if scope_level >= SCOPE_LEVELS['extractors_refineries_trade']:
+        from services import megaproject_service
+        if await megaproject_service.has_active_recycling_center(faction_id):
+            from repositories.megaproject_repo import get_last_cycle_refined_spend
+            from repositories.income_repo import fetch_best_destination_world
+            last_cycle_spend = await get_last_cycle_refined_spend(faction_id)
+            refund = megaproject_service.calculate_recycling_refund(last_cycle_spend)
+            if refund:
+                target_world_id = await fetch_best_destination_world(faction_id)
+                if target_world_id is not None:
+                    preview['worlds'].setdefault(target_world_id, {})
+                    preview['worlds'][target_world_id].setdefault('final', {})
+                    for resource_name, amount in refund.items():
+                        preview['worlds'][target_world_id]['final'][resource_name] = (
+                            preview['worlds'][target_world_id]['final'].get(resource_name, 0) + amount
+                        )
+
     storage_capacity_map = preview.get('_storage_capacity_map', {})
     local_deltas = []
+    resources_earned = {}
     for wid, data in preview['worlds'].items():
         if scope_level == SCOPE_LEVELS['extractors']:
             resources_to_apply = data.get('unrefined_production', {})
@@ -469,8 +523,10 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
                 'capacity': int(cap),
                 'storable': storable,
             })
+            resources_earned[resource_name] = resources_earned.get(resource_name, 0) + int(amount)
 
     population_deltas = []
+    population_change_total = 0
     if scope_level >= SCOPE_LEVELS['full']:
         for wid, info in preview.get('_world_cs_info', {}).items():
             pop_growth = preview['worlds'].get(wid, {}).get('population_growth', 0)
@@ -480,6 +536,7 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
                     'amount': int(pop_growth),
                     'pop_cap': int(info['pop_cap']),
                 })
+                population_change_total += int(pop_growth)
 
     er_delta = int(preview['global']['er']) if scope_level >= SCOPE_LEVELS['full'] else 0
     influence_delta = int(preview['global']['influence']) if scope_level >= SCOPE_LEVELS['full'] else 0
@@ -499,8 +556,7 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
                 'escort_fleet_id': transfer.get('escort_fleet_id'),
             })
 
-    await db.execute(
-        "SELECT sp_apply_income_cycle($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb)",
+    await apply_income_cycle(
         faction_id,
         er_delta,
         influence_delta,
@@ -508,3 +564,35 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
         json.dumps(population_deltas),
         json.dumps(transfers_payload),
     )
+
+    if transfers_payload:
+        try:
+            from services import notification_service
+            from utils.currency import handle_return
+            for transfer in preview.get('transfers', []):
+                from_name = transfer.get('from_world_name')
+                to_name = transfer.get('to_world_name')
+                if not from_name or not to_name:
+                    continue
+                cargo = [f"{handle_return(transfer['amount'])} {transfer.get('resource_name', '')}".strip()]
+                await notification_service.notify_transfer_departure(
+                    transfer['from_faction_id'], from_name, to_name,
+                    transfer['from_world_id'], transfer['to_world_id'],
+                    cargo, None,
+                )
+        except Exception:
+            logger.exception(f"Trade transfer departure notifications failed for faction {faction_id}")
+
+    if er_delta:
+        resources_earned['ER'] = resources_earned.get('ER', 0) + er_delta
+    if influence_delta:
+        resources_earned['Influence'] = resources_earned.get('Influence', 0) + influence_delta
+
+    if scope_level >= SCOPE_LEVELS['full']:
+        from services import megaproject_service
+        await megaproject_service.charge_megaproject_maintenance(faction_id)
+
+    return {
+        'resources_earned': resources_earned,
+        'population_change': population_change_total,
+    }

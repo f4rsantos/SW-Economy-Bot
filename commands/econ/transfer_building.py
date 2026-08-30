@@ -1,7 +1,12 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import success_embed, error_embed
 from utils.faction_utils import hex_to_int
 from services.building_service import transfer_building as transfer_building_service
@@ -18,6 +23,7 @@ from services.validation_service import require_faction, require_world
     level="Building level (1-10)"
 )
 @require_access_level(4)
+@ephemeral_capable('from_faction')
 async def transfer_building(
     interaction: discord.Interaction,
     from_faction: str,
@@ -27,7 +33,7 @@ async def transfer_building(
     amount: int = 1,
     level: int = 1
 ):
-    await interaction.response.defer()
+    await defer_response(interaction)
 
     if amount < 1:
         await interaction.followup.send(embed=error_embed("Error", "Amount must be at least 1."))

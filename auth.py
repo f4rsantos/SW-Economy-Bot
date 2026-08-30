@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import os
 import sys
 import time
@@ -80,8 +85,21 @@ operator_id: int | None = None
 operator_jwt_issued_at: float | None = None
 operator_jwt_expires_in: int = 3600
 operator_discord_id: int | None = None
+operator_license_key: str | None = None
 
 _bundle_dir: Path = None
+
+
+def _console_attached() -> bool:
+    try:
+        return sys.stdin is not None and sys.stdin.isatty()
+    except Exception:
+        return False
+
+
+def wait_for_exit():
+    if _console_attached():
+        wait_for_exit()
 
 
 def _get_bundle_dir() -> Path:
@@ -226,7 +244,7 @@ def run_oauth(logger) -> bool:
     except Exception:
         print("ERROR: Authentication failed.")
         print()
-        input("Press Enter to exit...")
+        wait_for_exit()
         sys.exit(1)
 
     return True
@@ -244,23 +262,23 @@ def _decode_jwt_claim(token: str, claim: str):
     return payload.get(claim)
 
 
-def login_with_license_key() -> bool:
-    global operator_jwt, operator_refresh_token, operator_id, operator_jwt_issued_at, operator_jwt_expires_in
+def login_with_license_key(license_key: str = None) -> bool:
+    global operator_jwt, operator_refresh_token, operator_id, operator_jwt_issued_at, operator_jwt_expires_in, operator_license_key
 
     print()
     print("STEP 3: License Validation")
     print("-" * 70)
-    license_input = input("Enter License Key: ").strip()
+    license_input = license_key.strip() if license_key else input("Enter License Key: ").strip()
     if not license_input:
         print("ERROR: License key cannot be empty.")
         print()
-        input("Press Enter to exit...")
+        wait_for_exit()
         sys.exit(1)
 
     if not operator_discord_id:
         print("ERROR: No Discord identity available from OAuth session.")
         print()
-        input("Press Enter to exit...")
+        wait_for_exit()
         sys.exit(1)
 
     print("Verifying license key...")
@@ -285,7 +303,7 @@ def login_with_license_key() -> bool:
             print(f"This bot version is outdated. Minimum required version: {min_version}")
             print("Please update before continuing.")
             print()
-            input("Press Enter to exit...")
+            wait_for_exit()
             sys.exit(1)
         if resp.status_code != 200:
             print()
@@ -295,7 +313,7 @@ def login_with_license_key() -> bool:
             print("Invalid license key.")
             print("Please contact the administrator for support.")
             print()
-            input("Press Enter to exit...")
+            wait_for_exit()
             sys.exit(1)
 
         data = resp.json()
@@ -304,6 +322,7 @@ def login_with_license_key() -> bool:
         operator_jwt_expires_in = data.get("expires_in", 3600)
         operator_jwt_issued_at = time.monotonic()
         operator_id = _decode_jwt_claim(operator_jwt, "operator_id")
+        operator_license_key = license_input
 
         print()
         print("=" * 70)
@@ -319,8 +338,47 @@ def login_with_license_key() -> bool:
         print()
         print("Unable to verify license at this time.")
         print()
-        input("Press Enter to exit...")
+        wait_for_exit()
         sys.exit(1)
+
+
+def login_with_saved_credentials() -> bool:
+    global operator_jwt, operator_refresh_token, operator_id, operator_jwt_issued_at, operator_jwt_expires_in, operator_discord_id, operator_license_key
+
+    import services.credential_store as credential_store
+
+    creds = credential_store.load_credentials()
+    if not creds:
+        return False
+
+    anon_key = os.getenv("SUPABASE_ANON_KEY")
+    try:
+        resp = httpx.post(
+            f"{_edge_function_base()}/login",
+            json={
+                "license_key": creds["license_key"],
+                "oauth_discord_id": creds["discord_id"],
+                "bot_version": os.getenv("BOT_VERSION", ""),
+            },
+            headers={"Authorization": f"Bearer {anon_key}", "apikey": anon_key},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            credential_store.clear_credentials()
+            return False
+
+        data = resp.json()
+        operator_jwt = data["access_token"]
+        operator_refresh_token = data["refresh_token"]
+        operator_jwt_expires_in = data.get("expires_in", 3600)
+        operator_jwt_issued_at = time.monotonic()
+        operator_id = _decode_jwt_claim(operator_jwt, "operator_id")
+        operator_discord_id = creds["discord_id"]
+        operator_license_key = creds["license_key"]
+        return True
+    except Exception:
+        credential_store.clear_credentials()
+        return False
 
 
 async def fetch_operator_assets() -> dict | None:

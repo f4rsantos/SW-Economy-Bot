@@ -1,16 +1,24 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
+import logging
 import discord
 from discord import app_commands
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from utils.checks import require_access_level
-from utils.embeds import success_embed, error_embed
+from utils.embeds import create_embed, error_embed, panel, route_bar, meta_line, stamp, PANEL_W
 from utils.currency import handle_return, parse_currency
 from utils.faction_utils import hex_to_int
 from services.treasury_service import find_best_worlds_for_multiple_resources
-from services.map_service import get_world, get_world_by_id
-from services.econ_query_service import get_resource_ids_by_names, get_global_resource_amount
+from services.map_service import get_world, get_world_by_id, get_worlds_by_ids
+from services.travel_time_service import format_travel_time
+from repositories.econ_repo import get_resource_ids_by_names, get_global_resource_amount
 from services.validation_service import require_faction, require_world
+from utils.route_map import build_route_map_file, ROUTE_MAP_URL
 from services.transfer_service import (
     execute_er_transfer,
     execute_physical_transfer,
@@ -20,8 +28,10 @@ from services.transfer_service import (
     get_local_resource_amount,
     intercept_transfer,
 )
-from services.blockade_service import get_blockading_fleet_for_world
+from services.blockade_service import get_blockading_fleet_for_world, get_interception_details
 from services.fleet_service import get_fleet_by_identifier
+
+logger = logging.getLogger(__name__)
 
 
 @app_commands.command(name="transfer", description="Transfer resources between factions")
@@ -31,7 +41,8 @@ from services.fleet_service import get_fleet_by_identifier
     amount="Amount in format: 1000 ER, 500 CM, etc. (comma separated)",
     to_world="Destination world name (optional for ER transfers)",
     from_world="Source world name (optional)",
-    escort_fleet="Fleet (faction fleet number) escorting this transfer"
+    escort_fleet="Fleet (faction fleet number) escorting this transfer",
+    use_lanes="Route through faction lanes when faster than the direct route"
 )
 @require_access_level(0)
 async def transfer(
@@ -41,7 +52,8 @@ async def transfer(
     amount: str,
     to_world: Optional[str] = None,
     from_world: Optional[str] = None,
-    escort_fleet: Optional[str] = None
+    escort_fleet: Optional[str] = None,
+    use_lanes: Optional[bool] = False
 ):
     await interaction.response.defer()
 
@@ -54,9 +66,9 @@ async def transfer(
     if not r_to_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_to_faction_data.error))
     to_faction_data = r_to_faction_data.data
 
-    from_faction_id = from_faction_data['id']
-    to_faction_id = to_faction_data['id']
-    from_faction_color = hex_to_int(from_faction_data['color'])
+    from_faction_id = from_faction_data.id
+    to_faction_id = to_faction_data.id
+    from_faction_color = hex_to_int(from_faction_data.color)
 
     try:
         transfers = parse_currency(amount)
@@ -105,7 +117,7 @@ async def transfer(
         if from_faction_id == to_faction_id:
             await ensure_world_presence(to_world_id, to_faction_id)
         else:
-            await interaction.followup.send(embed=error_embed("Error", f"{to_faction_data['display_name']} has no presence on {to_world_data['name']}."))
+            await interaction.followup.send(embed=error_embed("Error", f"{to_faction_data.display_name} has no presence on {to_world_data['name']}."))
             return
 
     current_time = datetime.now(timezone.utc)
@@ -128,14 +140,21 @@ async def transfer(
 
         await execute_er_transfer(from_faction_id, to_faction_id, from_world_id, to_world_id, er_id, total_amount, current_time)
 
-        embed = success_embed(
-            title="Global Transfer Complete",
-            description=f"**{from_faction_data['display_name']}** transferred **{handle_return(total_amount)} ER** to **{to_faction_data['display_name']}**.\n\n"
-                        f"**Source:** Global Treasury\n"
-                        f"**Destination:** Global Treasury (ref: {to_world_data['name']})\n"
-                        f"**Status:** Instant Transfer"
+        embed = create_embed(
+            title="Transfer Complete",
+            description=panel([
+                "=" * PANEL_W,
+                "  " + route_bar(from_faction_data.name[:9], to_faction_data.name[:9], PANEL_W - 2),
+                meta_line(f"{handle_return(total_amount)} ER"),
+                "=" * PANEL_W,
+            ]),
+            color=from_faction_color,
+            fields=[
+                {'name': "From", 'value': from_faction_data.display_name, 'inline': True},
+                {'name': "To", 'value': to_faction_data.display_name, 'inline': True},
+                {'name': "Amount", 'value': f"{handle_return(total_amount)} ER", 'inline': True},
+            ],
         )
-        embed.color = from_faction_color
         await interaction.followup.send(embed=embed)
         return
 
@@ -155,7 +174,7 @@ async def transfer(
         from_world_data = await get_world_by_id(from_world_id)
 
     if not await has_world_presence(from_world_id, from_faction_id):
-        await interaction.followup.send(embed=error_embed("Error", f"{from_faction_data['display_name']} has no presence on {from_world_data['name']}."))
+        await interaction.followup.send(embed=error_embed("Error", f"{from_faction_data.display_name} has no presence on {from_world_data['name']}."))
         return
 
     for t in transfers:
@@ -165,26 +184,28 @@ async def transfer(
             return
 
     escort_fleet_id = None
+    escort_fleet_name = None
     if escort_fleet:
         fleet_data = await get_fleet_by_identifier(escort_fleet, from_faction_id)
         if not fleet_data:
             await interaction.followup.send(embed=error_embed("Error", f"Fleet '{escort_fleet}' not found."))
             return
-        if fleet_data['position'] != from_world_id:
+        if fleet_data.position != from_world_id:
             await interaction.followup.send(embed=error_embed("Error", f"Escort fleet must be at {from_world_data['name']} to escort this transfer."))
             return
-        if fleet_data['status_name'].lower() not in ('idle', 'defence', 'defence', 'patrol', 'blockading', 'ftl supply'):
-            await interaction.followup.send(embed=error_embed("Error", f"Escort fleet cannot travel while status is {fleet_data['status_name']}."))
+        if fleet_data.status_name.lower() not in ('idle', 'defence', 'defence', 'patrol', 'blockading', 'ftl supply'):
+            await interaction.followup.send(embed=error_embed("Error", f"Escort fleet cannot travel while status is {fleet_data.status_name}."))
             return
-        escort_fleet_name = fleet_data['name']
-        escort_fleet_id = fleet_data['id']
+        escort_fleet_name = fleet_data.name
+        escort_fleet_id = fleet_data.id
 
     try:
         result = await execute_physical_transfer(
             from_faction_id, to_faction_id,
             from_world_id, to_world_id,
             from_world_data['name'], to_world_data['name'],
-            transfers, resource_map, current_time, escort_fleet_id
+            transfers, resource_map, current_time, escort_fleet_id, escort_fleet_name,
+            use_lanes
         )
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
@@ -203,25 +224,85 @@ async def transfer(
             except ValueError:
                 intercepting_fleet_id = None
 
-    transfer_str = ", ".join(f"{handle_return(t['amount'])} {t['resource']}" for t in transfers)
+    cargo = "\n".join(f"{handle_return(t['amount'])} {t['resource']}" for t in transfers)
+    transfer_id = result['transfer_id']
+    map_file = None
+
     if intercepting_fleet_id is not None:
-        embed = success_embed(
-            title="Transfer Intercepted",
-            description=f"**{from_faction_data['display_name']}** attempted to transfer {transfer_str} from **{from_world_data['name']}** to **{to_faction_data['display_name']}** at **{to_world_data['name']}**, but it was intercepted by a blockade.\n\n"
-                        f"**Transfer ID:** {result['transfer_id']}"
+        stop_world_name = from_world_data['name'] if interception_world_id == from_world_id else to_world_data['name']
+        stop_point = "origin" if interception_world_id == from_world_id else "destination"
+        blocker = await get_interception_details(intercepting_fleet_id)
+
+        fields = [
+            {'name': "From", 'value': f"{from_faction_data.display_name}\nat {from_world_data['name']}", 'inline': True},
+            {'name': "To", 'value': f"{to_faction_data.display_name}\nat {to_world_data['name']}", 'inline': True},
+            {'name': "Cargo", 'value': cargo, 'inline': True},
+        ]
+        if blocker:
+            fields.append({
+                'name': "Stopped by",
+                'value': f"{blocker.faction_name}\nunit {blocker.unit_name}",
+                'inline': True,
+            })
+        fields.append({'name': "Stopped at", 'value': f"{stop_world_name}\n({stop_point})", 'inline': True})
+        fields.append({'name': "ID", 'value': str(transfer_id), 'inline': True})
+
+        embed = create_embed(
+            title="Transfer Stopped",
+            description=panel([
+                "=" * PANEL_W,
+                "  " + route_bar(from_world_data['name'][:9], to_world_data['name'][:9], PANEL_W - 2, broken=True),
+                meta_line(f"Held at {stop_world_name}"),
+                "=" * PANEL_W,
+            ]),
+            color=from_faction_color,
+            fields=fields,
         )
     else:
-        escort_line = f"**Escort:** {escort_fleet_name}\n" if escort_fleet_id is not None else ""
-        embed = success_embed(
-            title="Transfer In Transit",
-            description=f"**{from_faction_data['display_name']}** is transferring {transfer_str} from **{from_world_data['name']}** to **{to_faction_data['display_name']}** at **{to_world_data['name']}**\n\n"
-                        f"**Travel Time:** {result['travel_str']}\n"
-                        f"**Arrival:** <t:{int(result['arrival_time'].timestamp())}:F>\n"
-                        f"{escort_line}"
-                        f"**Transfer ID:** {result['transfer_id']}"
+        fields = [
+            {'name': "From", 'value': f"{from_faction_data.display_name}\nat {from_world_data['name']}", 'inline': True},
+            {'name': "To", 'value': f"{to_faction_data.display_name}\nat {to_world_data['name']}", 'inline': True},
+        ]
+        if escort_fleet_id is not None:
+            fields.append({'name': "Escort", 'value': escort_fleet_name, 'inline': True})
+        fields.append({'name': "Cargo", 'value': cargo, 'inline': True})
+        fields.append({'name': "Arrives", 'value': stamp(result['arrival_time'], "R"), 'inline': True})
+        fields.append({'name': "Duration", 'value': result['travel_str'], 'inline': True})
+        fields.append({'name': "ID", 'value': str(transfer_id), 'inline': True})
+
+        route_info = result.get('route_info')
+        route_world_names = [from_world_data['name'], to_world_data['name']]
+        if route_info and route_info['used_lanes']:
+            path_worlds = await get_worlds_by_ids(route_info['world_path'])
+            path_names_by_id = {w['id']: w['name'] for w in path_worlds}
+            path_names = [path_names_by_id.get(wid, str(wid)) for wid in route_info['world_path']]
+            saving_str = await format_travel_time(timedelta(seconds=route_info['saving_seconds']))
+            fields.append({
+                'name': "Route",
+                'value': f"Via lanes through {' then '.join(path_names)}, saving {saving_str}",
+                'inline': False,
+            })
+            route_world_names = path_names
+
+        embed = create_embed(
+            title="Transfer in Transit",
+            description=panel([
+                "=" * PANEL_W,
+                "  " + route_bar(from_world_data['name'][:9], to_world_data['name'][:9], PANEL_W - 2),
+                "=" * PANEL_W,
+            ]),
+            color=from_faction_color,
+            fields=fields,
         )
-    embed.color = from_faction_color
-    await interaction.followup.send(embed=embed)
+
+        map_file = await build_route_map_file(from_world_data['name'], to_world_data['name'], route_world_names)
+        if map_file is not None:
+            embed.set_image(url=ROUTE_MAP_URL)
+
+    if map_file is not None:
+        await interaction.followup.send(embed=embed, file=map_file)
+    else:
+        await interaction.followup.send(embed=embed)
 
 
 async def setup(bot):

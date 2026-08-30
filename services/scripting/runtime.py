@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from __future__ import annotations
 import random
 from dataclasses import dataclass, field
@@ -30,6 +35,7 @@ class ExecutionResult:
     actions_taken: int = 0
     skipped: bool = False
     aborted: bool = False
+    stopped: bool = False
     dry_run: bool = False
     errors: list = field(default_factory=list)
     warnings: list = field(default_factory=list)

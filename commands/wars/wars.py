@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import json
 import discord
 from discord import app_commands
@@ -22,11 +27,11 @@ async def wars(interaction: discord.Interaction, faction: Optional[str] = None):
         r_faction_data = await require_faction(faction)
         if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         faction_data = r_faction_data.data
-        faction_color = hex_to_int(faction_data['color'])
+        faction_color = hex_to_int(faction_data.color)
 
     if faction_data:
-        wars_data = await get_wars(faction_data['id'])
-        title = f"Wars involving {faction_data['display_name']}"
+        wars_data = await get_wars(faction_data.id)
+        title = f"Wars involving {faction_data.display_name}"
     else:
         wars_data = await get_wars()
         title = "All Active Wars"
@@ -38,7 +43,7 @@ async def wars(interaction: discord.Interaction, faction: Optional[str] = None):
     embed = discord.Embed(title=title, description=f"{len(wars_data)} active war(s)", color=faction_color)
 
     for war in wars_data:
-        sides_data = war['sides']
+        sides_data = war.sides
         if isinstance(sides_data, str):
             try:
                 sides_data = json.loads(sides_data)
@@ -68,8 +73,8 @@ async def wars(interaction: discord.Interaction, faction: Optional[str] = None):
 
         sides_text = "\n".join(f"**Side {s}:** {f}" for s, f in sorted(sides_info.items())) if sides_info else "No participants yet"
         embed.add_field(
-            name=f"War #{war['id']} - {war['name']}",
-            value=f"{sides_text}\n**Battles:** {war['active_battles']}\n**Started:** <t:{int(war['date_start'].timestamp())}:R>",
+            name=f"War #{war.id} - {war.name}",
+            value=f"{sides_text}\n**Battles:** {war.active_battles}\n**Started:** <t:{int(war.date_start.timestamp())}:R>\n​",
             inline=False
         )
 

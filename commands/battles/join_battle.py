@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -23,28 +28,28 @@ async def join_battle_cmd(interaction: discord.Interaction, battle_id: int, flee
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
     battle_data = await get_battle(battle_id)
     if not battle_data:
         await interaction.followup.send(embed=error_embed("Error", "Battle not found."))
         return
 
-    fleet_data = await get_fleet_for_battle(fleet, faction_data['id'])
+    fleet_data = await get_fleet_for_battle(fleet, faction_data.id)
     if not fleet_data:
         await interaction.followup.send(embed=error_embed("Error", "Fleet not found or you don't own this fleet."))
         return
 
-    if fleet_data['position'] != battle_data['world_id']:
-        await interaction.followup.send(embed=error_embed("Error", f"Fleet must be at **{battle_data['world_name']}** to join this battle. Currently at **{fleet_data['position_name']}**."))
+    if fleet_data['position'] != battle_data.world_id:
+        await interaction.followup.send(embed=error_embed("Error", f"Fleet must be at **{battle_data.world_name}** to join this battle. Currently at **{fleet_data['position_name']}**."))
         return
 
     if fleet_data['status_name'].lower() not in ['idle', 'in combat']:
         await interaction.followup.send(embed=error_embed("Error", f"Fleet must be idle or in combat to join battles. Current status: **{fleet_data['status_name']}**."))
         return
 
-    if battle_data['war_id']:
-        participant = await get_participant(battle_data['war_id'], faction_data['id'])
+    if battle_data.war_id:
+        participant = await get_participant(battle_data.war_id, faction_data.id)
         if participant and participant['side'] != side:
             await interaction.followup.send(embed=error_embed("Warning", f"Your faction is on side **{participant['side']}** in this war, but you're joining on side **{side}**. Proceeding anyway..."))
 
@@ -54,11 +59,11 @@ async def join_battle_cmd(interaction: discord.Interaction, battle_id: int, flee
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
-    stats_text = "\n".join(f"**Side {s['side']}:** {s['fleet_count']} fleet(s), {s['total_cs']} CS" for s in result['stats'])
+    stats_text = "\n".join(f"**Side {s.side}:** {s.fleet_count} fleet(s), {s.total_cs} CS" for s in result['stats'])
     fleet_name = fleet_data['name'] or f"Fleet #{fleet_data['id']}"
     embed = success_embed(
         "Joined Battle",
-        f"**{fleet_name}** has joined Battle #{battle_id} at **{battle_data['world_name']}**!\n**Side:** {side}\n\n**Current Battle Status:**\n{stats_text}"
+        f"**{fleet_name}** has joined Battle #{battle_id} at **{battle_data.world_name}**!\n**Side:** {side}\n\n**Current Battle Status:**\n{stats_text}"
     )
     embed.color = faction_color
     await interaction.followup.send(embed=embed)

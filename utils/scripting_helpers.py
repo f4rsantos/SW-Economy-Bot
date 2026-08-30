@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from __future__ import annotations
 import discord
 from utils.faction_utils import get_faction_by_name
@@ -15,13 +20,13 @@ async def resolve_faction_with_access(
         return None, f"Faction '{faction_name}' not found."
 
     user_level = await get_user_access_level(interaction.user.id)
-    is_leader = faction["leader_id"] == interaction.user.id
+    is_leader = faction.leader_id == interaction.user.id
     is_admin = user_level >= ADMIN_LEVEL
 
     if not is_leader and not is_admin:
         return None, "You must be the faction's leader or an administrator to manage scripts."
 
-    return dict(faction), None
+    return faction, None
 
 
 def trigger_day_from_ast(ast) -> str | None:

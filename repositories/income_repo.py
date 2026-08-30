@@ -1,15 +1,39 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from database.db_manager import db
-from typing import Dict, List
+from database.static_cache import static_cache
+from typing import Dict, List, Optional
+
+
+INTELLIGENCE_SHARING_PACT_TYPE = 'Intelligence Sharing'
+INTELLIGENCE_SHARING_INFLUENCE_SINGLE_MODE = 10
+INTELLIGENCE_SHARING_INFLUENCE_BOTH_MODES = 15
 
 
 async def fetch_pact_types_for_faction(faction_id: int) -> List[Dict]:
     return await db.fetch("""
-        SELECT pt.name as pact_type, pt.influence_cost
+        SELECT pt.name as pact_type,
+            CASE WHEN pt.name = $2::text THEN
+                (CASE WHEN pis.domestic AND pis.foreign_alerts THEN $4::bigint ELSE $3::bigint END)
+                * COALESCE(pw.world_count, 0)
+                * GREATEST(COALESCE(pmc.member_count, 1) - 1, 0)
+            ELSE pt.influence_cost END as influence_cost
         FROM pact_members pm
         JOIN pacts p ON pm.pact_id = p.id
         JOIN pact_types pt ON p.pact_type_id = pt.id
+        LEFT JOIN pact_intelligence_sharing pis ON pis.pact_id = p.id
+        LEFT JOIN (
+            SELECT pact_id, COUNT(*) as world_count FROM pact_worlds GROUP BY pact_id
+        ) pw ON pw.pact_id = p.id
+        LEFT JOIN (
+            SELECT pact_id, COUNT(*) as member_count FROM pact_members GROUP BY pact_id
+        ) pmc ON pmc.pact_id = p.id
         WHERE pm.faction_id = $1
-    """, faction_id)
+    """, faction_id, INTELLIGENCE_SHARING_PACT_TYPE,
+         INTELLIGENCE_SHARING_INFLUENCE_SINGLE_MODE, INTELLIGENCE_SHARING_INFLUENCE_BOTH_MODES)
 
 
 async def fetch_fleet_cs_by_status(faction_id: int, status_ids: dict) -> Dict:
@@ -183,6 +207,11 @@ async def fetch_total_population(faction_id: int) -> int:
     return int(result['total_population'] or 0)
 
 
+async def fetch_faction_population_limit(faction_id: int) -> Optional[int]:
+    result = await db.fetchrow("SELECT population_limit FROM factions WHERE id = $1", faction_id)
+    return result['population_limit'] if result and result['population_limit'] is not None else None
+
+
 async def fetch_total_army(faction_id: int) -> int:
     result = await db.fetchrow("""
         SELECT COALESCE(SUM(lt.amount), 0) as total_army
@@ -289,7 +318,7 @@ async def fetch_world_data_for_income(faction_id: int, is_company: bool) -> Dict
             + COALESCE((
                 SELECT SUM(500000 * fwb2.amount * fwb2.level)
                 FROM faction_world_buildings fwb2
-                WHERE fwb2.faction_id = $1 AND fwb2.world_id = wf.world_id AND fwb2.building_id = 1
+                WHERE fwb2.faction_id = $1 AND fwb2.world_id = wf.world_id AND fwb2.building_id = (SELECT id FROM buildings WHERE name = 'City')
             ), 0) AS pop_cap
         FROM world_factions wf
         JOIN worlds w ON w.id = wf.world_id
@@ -331,6 +360,39 @@ async def fetch_all_world_names() -> Dict[int, str]:
     return {r['id']: r['name'] for r in rows}
 
 
+async def fetch_best_destination_worlds(faction_ids: list) -> Dict[int, int]:
+    if not faction_ids:
+        return {}
+
+    population_rows = await db.fetch("""
+        SELECT DISTINCT ON (lt.faction_id) lt.faction_id, lt.world_id
+        FROM local_treasury lt
+        JOIN resources r ON lt.resource_id = r.id
+        WHERE lt.faction_id = ANY($1) AND r.name = 'Population'
+        ORDER BY lt.faction_id, lt.amount DESC
+    """, faction_ids)
+    destinations = {r['faction_id']: r['world_id'] for r in population_rows}
+
+    remaining = [fid for fid in faction_ids if fid not in destinations]
+    if not remaining:
+        return destinations
+
+    building_rows = await db.fetch("""
+        SELECT DISTINCT ON (faction_id) faction_id, world_id
+        FROM (
+            SELECT faction_id, world_id, COUNT(*) as building_count
+            FROM faction_world_buildings
+            WHERE faction_id = ANY($1)
+            GROUP BY faction_id, world_id
+        ) counts
+        ORDER BY faction_id, building_count DESC
+    """, remaining)
+    for row in building_rows:
+        destinations[row['faction_id']] = row['world_id']
+
+    return destinations
+
+
 async def fetch_best_destination_world(faction_id: int):
     result = await db.fetchrow("""
         SELECT lt.world_id FROM local_treasury lt
@@ -356,8 +418,71 @@ async def fetch_best_destination_world(faction_id: int):
 
 
 async def fetch_resource_map() -> Dict[str, int]:
+    if static_cache.loaded:
+        return {r['name']: r['id'] for r in static_cache.resources_by_id.values()}
     rows = await db.fetch("SELECT id, name FROM resources")
     return {r['name']: r['id'] for r in rows}
+
+
+async def fetch_population_rows_by_world(faction_id: int) -> List[Dict]:
+    return await db.fetch("""
+        SELECT lt.world_id, COALESCE(lt.amount, 0) as population
+        FROM local_treasury lt JOIN resources r ON lt.resource_id = r.id
+        WHERE lt.faction_id = $1 AND r.name = 'Population'
+    """, faction_id)
+
+
+async def fetch_city_levels_by_world(faction_id: int) -> Dict[int, List[int]]:
+    rows = await db.fetch("""
+        SELECT fwb.world_id, fwb.level, fwb.amount
+        FROM faction_world_buildings fwb
+        JOIN buildings b ON b.id = fwb.building_id
+        WHERE fwb.faction_id = $1 AND b.name = 'City'
+    """, faction_id)
+    result: Dict[int, List[int]] = {}
+    for row in rows:
+        levels = result.setdefault(row['world_id'], [])
+        levels.extend([row['level']] * row['amount'])
+    return result
+
+
+async def fetch_level_10_building_count(faction_id: int) -> int:
+    result = await db.fetchrow("""
+        SELECT COALESCE(SUM(amount), 0) as total_count
+        FROM faction_world_buildings
+        WHERE faction_id = $1 AND level = 10
+    """, faction_id)
+    return int(result['total_count'] or 0)
+
+
+async def fetch_debris_status_id() -> Optional[int]:
+    row = await db.fetchrow("SELECT id FROM fleet_status WHERE LOWER(name) = 'debris'")
+    return row['id'] if row else None
+
+
+async def apply_fleet_damage(updates: list) -> None:
+    await db.executemany("UPDATE fleets SET health = $1 WHERE id = $2", updates)
+
+
+async def mark_fleets_as_debris(debris_status_id: int, fleet_ids: list) -> None:
+    await db.executemany(
+        "UPDATE fleets SET health = 0, status_id = $1 WHERE id = $2",
+        [(debris_status_id, fleet_id) for fleet_id in fleet_ids],
+    )
+
+
+async def apply_income_cycle(faction_id: int, er_delta, influence_delta,
+                             local_deltas: str, population_deltas: str,
+                             transfers_payload: str) -> None:
+    await db.execute(
+        "SELECT sp_apply_income_cycle($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb)",
+        faction_id,
+        er_delta,
+        influence_delta,
+        local_deltas,
+        population_deltas,
+        transfers_payload,
+    )
 
 
 async def fetch_all_population_by_world(faction_id: int) -> Dict[int, int]:

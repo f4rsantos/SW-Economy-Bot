@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -17,10 +22,10 @@ async def leave_war(interaction: discord.Interaction, war_id: int, faction: str)
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
     try:
-        result = await leave_war_service(war_id, faction_data['id'])
+        result = await leave_war_service(war_id, faction_data.id)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
@@ -30,12 +35,12 @@ async def leave_war(interaction: discord.Interaction, war_id: int, faction: str)
     if result['war_ended']:
         embed = success_embed(
             title="Left War & War Ended",
-            description=f"**{faction_data['display_name']}** has left **{war_data['name']}**.\nAs the last participant, the war has been automatically ended and deleted."
+            description=f"**{faction_data.display_name}** has left **{war_data.name}**.\nAs the last participant, the war has been automatically ended and deleted."
         )
     else:
         embed = success_embed(
             title="Left War",
-            description=f"**{faction_data['display_name']}** has left **{war_data['name']}** (War #{war_id}).\nRemaining participants: {result['remaining']}"
+            description=f"**{faction_data.display_name}** has left **{war_data.name}** (War #{war_id}).\nRemaining participants: {result['remaining']}"
         )
 
     embed.color = faction_color

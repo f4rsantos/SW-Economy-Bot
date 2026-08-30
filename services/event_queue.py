@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import heapq
 import logging
@@ -32,8 +37,8 @@ class EventQueue:
             heapq.heappush(self._heap, (due_at.timestamp(), self._counter, event_type, payload))
 
     async def push_income_event(self):
-        from database.db_manager import db
-        settings = await db.fetchrow("SELECT last_income, income_day FROM settings LIMIT 1")
+        from repositories import event_queue_repo
+        settings = await event_queue_repo.get_settings()
         if not settings:
             return
         last_income = settings['last_income']
@@ -50,55 +55,33 @@ class EventQueue:
                 return
 
     async def load_window(self):
-        from database.db_manager import db
+        from repositories import event_queue_repo
         from services.travel_time_service import calculate_travel_time
 
         now = datetime.now(timezone.utc)
         horizon = now + LOOKAHEAD
 
-        transfers = await db.fetch(
-            """
-            SELECT rt.id, rt.to_faction_id, rt.to_world_id
-            FROM resource_transfers rt
-            JOIN transfer_statuses ts ON rt.status_id = ts.id
-            WHERE ts.name = 'in_transit' AND rt.arrival_time <= $1
-            """,
-            horizon
-        )
-        constructions = await db.fetch(
-            "SELECT id, fleet_id, vehicle_id, quantity FROM vehicle_construction WHERE completion_date <= $1",
-            horizon
-        )
-        recruitments = await db.fetch(
-            "SELECT id, faction_id, amount, role_name, fleet_id FROM military_recruitment WHERE status = 'training' AND completion_time <= $1",
-            horizon
-        )
-        moving_fleets = await db.fetch(
-            """
-            SELECT f.id, f.moving_since, f.moving_to, w1.name as from_world, w2.name as to_world
-            FROM fleets f
-            JOIN worlds w1 ON f.position = w1.id
-            JOIN worlds w2 ON f.moving_to = w2.id
-            WHERE f.moving_to IS NOT NULL AND f.moving_since IS NOT NULL
-            """
-        )
+        transfers = await event_queue_repo.get_due_transfers(horizon)
+        constructions = await event_queue_repo.get_due_constructions(horizon)
+        recruitments = await event_queue_repo.get_due_recruitments(horizon)
+        moving_fleets = await event_queue_repo.get_moving_fleets()
 
         async with self._lock:
             self._heap = [e for e in self._heap if e[2] not in DB_BACKED_EVENTS]
             heapq.heapify(self._heap)
 
         for t in transfers:
-            arrival = await db.fetchval("SELECT arrival_time FROM resource_transfers WHERE id = $1", t['id'])
+            arrival = await event_queue_repo.get_transfer_arrival_time(t['id'])
             if arrival:
                 await self.push(arrival, 'transfer_arrival', {'transfer_id': t['id'], 'to_faction_id': t['to_faction_id'], 'to_world_id': t['to_world_id']})
 
         for c in constructions:
-            due = await db.fetchval("SELECT completion_date FROM vehicle_construction WHERE id = $1", c['id'])
+            due = await event_queue_repo.get_construction_completion_date(c['id'])
             if due:
                 await self.push(max(due, now), 'construction_complete', {'order_id': c['id'], 'fleet_id': c['fleet_id'], 'vehicle_id': c['vehicle_id'], 'quantity': c['quantity']})
 
         for r in recruitments:
-            due = await db.fetchval("SELECT completion_time FROM military_recruitment WHERE id = $1", r['id'])
+            due = await event_queue_repo.get_recruitment_completion_time(r['id'])
             if due:
                 await self.push(max(due, now), 'recruitment_complete', {'recruitment_id': r['id'], 'fleet_id': r['fleet_id'], 'amount': r['amount']})
 

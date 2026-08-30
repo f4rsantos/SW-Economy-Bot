@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -17,19 +22,19 @@ async def remove_member(interaction: discord.Interaction, pact_id: int, member_f
     if not r_user_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_user_faction.error))
     user_faction = r_user_faction.data
 
-    faction_color = hex_to_int(user_faction['color'])
+    faction_color = hex_to_int(user_faction.color)
 
     r_faction_data = await require_faction(member_faction)
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
     try:
-        result = await remove_pact_member(pact_id, user_faction['id'], faction_data['id'])
+        result = await remove_pact_member(pact_id, user_faction.id, faction_data.id)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
-    embed = success_embed(title="Member Removed", description=f"**{faction_data['display_name']}** has been removed from **{result['name']}** ({result['pact_type']}).")
+    embed = success_embed(title="Member Removed", description=f"**{faction_data.display_name}** has been removed from **{result['name']}** ({result['pact_type']}).")
     embed.color = faction_color
     await interaction.followup.send(embed=embed)
 

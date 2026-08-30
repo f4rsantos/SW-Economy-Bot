@@ -1,7 +1,12 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import asyncio
 import discord
 from discord import app_commands
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import success_embed, error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
@@ -18,6 +23,7 @@ from services.validation_service import require_faction, require_world
     level="Building level (1-10)"
 )
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def buy_building(
     interaction: discord.Interaction,
     faction: str,
@@ -26,7 +32,7 @@ async def buy_building(
     amount: int = 1,
     level: int = 1
 ):
-    await interaction.response.defer()
+    await defer_response(interaction)
 
     if amount < 1:
         await interaction.followup.send(embed=error_embed("Error", "Amount must be at least 1."))
@@ -42,9 +48,9 @@ async def buy_building(
     faction_data = r_faction_data.data
     world_data = r_world.data
 
-    faction_id = faction_data['id']
-    is_company = faction_data['is_company']
-    faction_color = hex_to_int(faction_data['color'])
+    faction_id = faction_data.id
+    is_company = faction_data.is_company
+    faction_color = hex_to_int(faction_data.color)
 
     world_id = world_data['id']
 
@@ -57,7 +63,7 @@ async def buy_building(
     cost_str = ", ".join(f"{handle_return(cost)} {res}" for res, cost in result['costs'].items())
     embed = success_embed(
         "Buildings Constructed",
-        f"**{faction_data['display_name']}** has built {amount} level {level} {result['building_name']} on **{world_data['name']}** for {cost_str}"
+        f"**{faction_data.display_name}** has built {amount} level {level} {result['building_name']} on **{world_data['name']}** for {cost_str}"
     )
     embed.color = faction_color
     await interaction.followup.send(embed=embed)

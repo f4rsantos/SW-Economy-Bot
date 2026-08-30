@@ -1,21 +1,17 @@
-from database.db_manager import db
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
+from repositories import treasury_repo
 
 
 async def find_best_world_for_withdrawal(faction_id: int, resource_id: int, amount: int):
-    result = await db.fetchrow("""
-        SELECT world_id FROM local_treasury
-        WHERE faction_id = $1 AND resource_id = $2 AND amount >= $3
-        ORDER BY amount DESC LIMIT 1
-    """, faction_id, resource_id, amount)
-    return result['world_id'] if result else None
+    return await treasury_repo.find_world_with_resource(faction_id, resource_id, amount)
 
 
 async def get_world_resources(faction_id: int, world_id: int, resource_ids: list):
-    results = await db.fetch("""
-        SELECT resource_id, amount FROM local_treasury
-        WHERE faction_id = $1 AND world_id = $2 AND resource_id = ANY($3)
-    """, faction_id, world_id, resource_ids)
-    return {r['resource_id']: r['amount'] for r in results}
+    return await treasury_repo.get_world_resources(faction_id, world_id, resource_ids)
 
 
 async def find_best_worlds_for_multiple_resources(faction_id: int, resources: list):
@@ -23,13 +19,10 @@ async def find_best_worlds_for_multiple_resources(faction_id: int, resources: li
         return None
     resource_ids = [r['resource_id'] for r in resources]
     resource_amounts = {r['resource_id']: r['amount'] for r in resources}
-    results = await db.fetch("""
-        SELECT world_id, resource_id, amount FROM local_treasury
-        WHERE faction_id = $1 AND resource_id = ANY($2)
-    """, faction_id, resource_ids)
+    rows = await treasury_repo.get_local_amounts_for_resources(faction_id, resource_ids)
     worlds: dict = {}
-    for row in results:
-        worlds.setdefault(row['world_id'], {})[row['resource_id']] = row['amount']
+    for row in rows:
+        worlds.setdefault(row.world_id, {})[row.resource_id] = row.amount
     valid = []
     for world_id, world_res in worlds.items():
         if all(world_res.get(rid, 0) >= amt for rid, amt in resource_amounts.items()):
@@ -38,38 +31,19 @@ async def find_best_worlds_for_multiple_resources(faction_id: int, resources: li
 
 
 async def withdraw_from_world(faction_id: int, world_id: int, resource_id: int, amount: int):
-    current = await db.fetchrow(
-        "SELECT amount FROM local_treasury WHERE faction_id = $1 AND world_id = $2 AND resource_id = $3",
-        faction_id, world_id, resource_id
-    )
-    if not current or current['amount'] < amount:
+    current = await treasury_repo.get_local_amount(faction_id, world_id, resource_id)
+    if current is None or current < amount:
         return False
-    await db.execute(
-        "UPDATE local_treasury SET amount = amount - $1 WHERE faction_id = $2 AND world_id = $3 AND resource_id = $4",
-        amount, faction_id, world_id, resource_id
-    )
+    await treasury_repo.subtract_from_world(faction_id, world_id, resource_id, amount)
     return True
 
 
 async def set_resource(faction_id: int, resource_id: int, amount: int, world_id=None):
     if world_id:
-        await db.execute("""
-            INSERT INTO local_treasury (world_id, faction_id, resource_id, amount)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (world_id, faction_id, resource_id) DO UPDATE SET amount = $4
-        """, world_id, faction_id, resource_id, amount)
+        await treasury_repo.set_local_resource(faction_id, world_id, resource_id, amount)
     else:
-        await db.execute("""
-            INSERT INTO faction_treasury (faction_id, resource_id, amount)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (faction_id, resource_id) DO UPDATE SET amount = $3
-        """, faction_id, resource_id, amount)
+        await treasury_repo.set_faction_resource(faction_id, resource_id, amount)
 
 
 async def deposit_to_world(faction_id: int, world_id: int, resource_id: int, amount: int):
-    await db.execute("""
-        INSERT INTO local_treasury (faction_id, world_id, resource_id, amount)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (faction_id, world_id, resource_id)
-        DO UPDATE SET amount = local_treasury.amount + $4
-    """, faction_id, world_id, resource_id, amount)
+    await treasury_repo.deposit_to_world(faction_id, world_id, resource_id, amount)

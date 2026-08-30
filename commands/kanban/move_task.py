@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
@@ -29,14 +34,14 @@ async def move_task_cmd(
         await interaction.followup.send(embed=error_embed("Error", f"Board `{board}` not found."))
         return
 
-    if board_data['id'] == task['board_id']:
-        await interaction.followup.send(embed=error_embed("Error", f"Task #{task_id} is already on **{board_data['name']}**."))
+    if board_data.id == task.board_id:
+        await interaction.followup.send(embed=error_embed("Error", f"Task #{task_id} is already on **{board_data.name}**."))
         return
 
-    await move_task_to_board(task_id, board_data['id'])
+    await move_task_to_board(task_id, board_data.id)
 
     embed = success_embed(
         title=f"Task #{task_id} Moved",
-        description=f"**{task['title']}**\n{task['board_name']} → **{board_data['name']}**"
+        description=f"**{task.title}**\n{task.board_name} → **{board_data.name}**"
     )
     await interaction.followup.send(embed=embed)

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from datetime import datetime, timezone, timedelta
@@ -60,7 +65,7 @@ async def _execute_interception(interaction, transfer_id, faction_color, faction
         )
         return
 
-    interception_world_id = transfer['from_world_id'] if transfer['from_world_name'] == interception_world_name else transfer['to_world_id']
+    interception_world_id = transfer.from_world_id if transfer.from_world_name == interception_world_name else transfer.to_world_id
     try:
         await intercept_transfer(transfer_id, fleet_id, interception_world_id)
     except ValueError as e:
@@ -68,15 +73,15 @@ async def _execute_interception(interaction, transfer_id, faction_color, faction
         return
 
     resources = await get_transfer_resources(transfer_id)
-    resource_str = ", ".join([f"{handle_return(r['amount'])} {r['name']}" for r in resources])
+    resource_str = ", ".join([f"{handle_return(r.amount)} {r.name}" for r in resources])
 
-    escort_note = " This transfer has an escort fleet, so the outcome should be decided by the engagement result before seizing or destroying it." if transfer['escort_fleet_id'] else ""
+    escort_note = " This transfer has an escort fleet, so the outcome should be decided by the engagement result before seizing or destroying it." if transfer.escort_fleet_id else ""
 
     embed = discord.Embed(
         title="Transfer Intercepted!",
         description=f"**{faction_name}** has intercepted a transfer at **{interception_world_name}** using **{fleet_name}**!\n\n"
-                    f"**From:** {transfer['from_faction_name']} ({transfer['from_world_name']})\n"
-                    f"**To:** {transfer['to_faction_name']} ({transfer['to_world_name']})\n"
+                    f"**From:** {transfer.from_faction_name} ({transfer.from_world_name})\n"
+                    f"**To:** {transfer.to_faction_name} ({transfer.to_world_name})\n"
                     f"**Resources:** {resource_str}\n\n"
                     f"Use `/interception seize {transfer_id}` to seize the resources, `/interception destroy {transfer_id}` to destroy them, "
                     f"or `/interception release {transfer_id}` to let it through.{escort_note}",
@@ -85,7 +90,7 @@ async def _execute_interception(interaction, transfer_id, faction_color, faction
     await interaction.edit_original_response(embed=embed, view=None)
 
     try:
-        leader_role_id = await get_faction_leader_role_id(transfer['from_faction_id'])
+        leader_role_id = await get_faction_leader_role_id(transfer.from_faction_id)
         if leader_role_id:
             role = interaction.guild.get_role(leader_role_id)
             if role:
@@ -120,9 +125,9 @@ class ConfirmEngagementView(OwnerOnlyView):
 
 
 async def _do_seize(interaction, transfer_id: int, faction_data: dict):
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
-    transfer = await get_intercepted_transfer(transfer_id, faction_data['id'])
+    transfer = await get_intercepted_transfer(transfer_id, faction_data.id)
     if not transfer:
         await interaction.edit_original_response(embed=error_embed("Error", "Transfer not found, not intercepted, or you are not the intercepting faction."), view=None)
         return
@@ -130,43 +135,43 @@ async def _do_seize(interaction, transfer_id: int, faction_data: dict):
     resources = await get_transfer_resources(transfer_id)
 
     try:
-        await seize_transfer(transfer_id, faction_data['id'], transfer['interception_world_id'])
+        await seize_transfer(transfer_id, faction_data.id, transfer.interception_world_id)
     except ValueError as e:
         await interaction.edit_original_response(embed=error_embed("Error", str(e)), view=None)
         return
 
-    resource_str = ", ".join([f"{handle_return(r['amount'])} {r['name']}" for r in resources])
+    resource_str = ", ".join([f"{handle_return(r.amount)} {r.name}" for r in resources])
 
     try:
-        leader_role_id = await get_faction_leader_role_id(transfer['from_faction_id'])
+        leader_role_id = await get_faction_leader_role_id(transfer.from_faction_id)
         if leader_role_id:
             role = interaction.guild.get_role(leader_role_id)
             if role:
                 await interaction.channel.send(
                     f"{role.mention}",
-                    embed=error_embed("Transfer Seized!", f"Your transfer (#{transfer_id}) of {resource_str} has been seized by **{faction_data['display_name']}**!")
+                    embed=error_embed("Transfer Seized!", f"Your transfer (#{transfer_id}) of {resource_str} has been seized by **{faction_data.display_name}**!")
                 )
     except Exception:
         pass
 
     embed = success_embed(
         title="Resources Seized",
-        description=f"**{faction_data['display_name']}** has seized {resource_str} from transfer #{transfer_id}."
+        description=f"**{faction_data.display_name}** has seized {resource_str} from transfer #{transfer_id}."
     )
     embed.color = faction_color
     await interaction.edit_original_response(embed=embed, view=None)
 
 
 async def _do_destroy(interaction, transfer_id: int, faction_data: dict):
-    faction_color = hex_to_int(faction_data['color'])
+    faction_color = hex_to_int(faction_data.color)
 
-    transfer = await get_intercepted_transfer(transfer_id, faction_data['id'])
+    transfer = await get_intercepted_transfer(transfer_id, faction_data.id)
     if not transfer:
         await interaction.edit_original_response(embed=error_embed("Error", "Transfer not found, not intercepted, or you are not the intercepting faction."), view=None)
         return
 
     resources = await get_transfer_resources(transfer_id)
-    resource_str = ", ".join([f"{handle_return(r['amount'])} {r['name']}" for r in resources])
+    resource_str = ", ".join([f"{handle_return(r.amount)} {r.name}" for r in resources])
 
     try:
         await destroy_transfer(transfer_id)
@@ -175,27 +180,27 @@ async def _do_destroy(interaction, transfer_id: int, faction_data: dict):
         return
 
     try:
-        leader_role_id = await get_faction_leader_role_id(transfer['from_faction_id'])
+        leader_role_id = await get_faction_leader_role_id(transfer.from_faction_id)
         if leader_role_id:
             role = interaction.guild.get_role(leader_role_id)
             if role:
                 await interaction.channel.send(
                     f"{role.mention}",
-                    embed=error_embed("Transfer Destroyed!", f"Your transfer (#{transfer_id}) of {resource_str} has been destroyed by **{faction_data['display_name']}**!")
+                    embed=error_embed("Transfer Destroyed!", f"Your transfer (#{transfer_id}) of {resource_str} has been destroyed by **{faction_data.display_name}**!")
                 )
     except Exception:
         pass
 
     embed = success_embed(
         title="Resources Destroyed",
-        description=f"**{faction_data['display_name']}** has destroyed {resource_str} from transfer #{transfer_id}."
+        description=f"**{faction_data.display_name}** has destroyed {resource_str} from transfer #{transfer_id}."
     )
     embed.color = faction_color
     await interaction.edit_original_response(embed=embed, view=None)
 
 
-async def _confirm_engagement(interaction: discord.Interaction, action: str, transfer_id: int, faction_data: dict, transfer: dict):
-    faction_color = hex_to_int(faction_data['color'])
+async def _confirm_engagement(interaction: discord.Interaction, action: str, transfer_id: int, faction_data: dict, transfer):
+    faction_color = hex_to_int(faction_data.color)
     verb = "seize" if action == 'seize' else "destroy"
     embed = discord.Embed(
         title=f"Confirm {verb.title()}",
@@ -230,8 +235,8 @@ class InterceptionGroup(app_commands.Group):
         if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         faction_data = r_faction_data.data
 
-        intercepting_faction_id = faction_data['id']
-        faction_color = hex_to_int(faction_data['color'])
+        intercepting_faction_id = faction_data.id
+        faction_color = hex_to_int(faction_data.color)
 
         transfer = await get_transfer(transfer_id, status='in_transit')
         if not transfer:
@@ -239,18 +244,18 @@ class InterceptionGroup(app_commands.Group):
             return
 
         current_time = datetime.now(timezone.utc)
-        start_time = transfer['start_time']
-        arrival_time = transfer['arrival_time']
+        start_time = transfer.start_time
+        arrival_time = transfer.arrival_time
         total_duration = (arrival_time - start_time).total_seconds()
         elapsed = (current_time - start_time).total_seconds()
         progress = elapsed / total_duration if total_duration > 0 else 1
 
         if progress < 0.5:
-            interception_world_id = transfer['from_world_id']
-            interception_world_name = transfer['from_world_name']
+            interception_world_id = transfer.from_world_id
+            interception_world_name = transfer.from_world_name
         else:
-            interception_world_id = transfer['to_world_id']
-            interception_world_name = transfer['to_world_name']
+            interception_world_id = transfer.to_world_id
+            interception_world_name = transfer.to_world_name
 
         fleets = await get_fleets_at_world(intercepting_faction_id, interception_world_id)
         if not fleets:
@@ -263,12 +268,12 @@ class InterceptionGroup(app_commands.Group):
             fleet = fleets[0]
             fleet_name = fleet['name'] if fleet['name'] else f"Fleet #{fleet['faction_fleet_number']}"
             await _execute_interception(interaction, transfer_id, faction_color,
-                                        faction_data['display_name'], interception_world_name,
+                                        faction_data.display_name, interception_world_name,
                                         fleet['id'], fleet_name)
         else:
             view = InterceptFleetView(
                 interaction.user.id, list(fleets), transfer_id,
-                intercepting_faction_id, faction_color, faction_data['display_name'],
+                intercepting_faction_id, faction_color, faction_data.display_name,
                 interception_world_name, interception_world_id
             )
             await interaction.followup.send(
@@ -294,12 +299,12 @@ class InterceptionGroup(app_commands.Group):
         if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         faction_data = r_faction_data.data
 
-        transfer = await get_intercepted_transfer(transfer_id, faction_data['id'])
+        transfer = await get_intercepted_transfer(transfer_id, faction_data.id)
         if not transfer:
             await interaction.followup.send(embed=error_embed("Error", "Transfer not found, not intercepted, or you are not the intercepting faction."))
             return
 
-        if transfer['escort_fleet_id']:
+        if transfer.escort_fleet_id:
             await _confirm_engagement(interaction, 'seize', transfer_id, faction_data, transfer)
             return
 
@@ -323,12 +328,12 @@ class InterceptionGroup(app_commands.Group):
         if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         faction_data = r_faction_data.data
 
-        transfer = await get_intercepted_transfer(transfer_id, faction_data['id'])
+        transfer = await get_intercepted_transfer(transfer_id, faction_data.id)
         if not transfer:
             await interaction.followup.send(embed=error_embed("Error", "Transfer not found, not intercepted, or you are not the intercepting faction."))
             return
 
-        if transfer['escort_fleet_id']:
+        if transfer.escort_fleet_id:
             await _confirm_engagement(interaction, 'destroy', transfer_id, faction_data, transfer)
             return
 
@@ -352,9 +357,9 @@ class InterceptionGroup(app_commands.Group):
         if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
         faction_data = r_faction_data.data
 
-        faction_color = hex_to_int(faction_data['color'])
+        faction_color = hex_to_int(faction_data.color)
 
-        transfer = await get_intercepted_transfer(transfer_id, faction_data['id'])
+        transfer = await get_intercepted_transfer(transfer_id, faction_data.id)
         if not transfer:
             await interaction.followup.send(embed=error_embed("Error", "Transfer not found, not intercepted, or you are not the intercepting faction."))
             return
@@ -368,20 +373,20 @@ class InterceptionGroup(app_commands.Group):
             return
 
         try:
-            leader_role_id = await get_faction_leader_role_id(transfer['from_faction_id'])
+            leader_role_id = await get_faction_leader_role_id(transfer.from_faction_id)
             if leader_role_id:
                 role = interaction.guild.get_role(leader_role_id)
                 if role:
                     await interaction.channel.send(
                         f"{role.mention}",
-                        embed=success_embed("Transfer Released", f"**{faction_data['display_name']}** has released your transfer (#{transfer_id}) to **{transfer['to_faction_name']}**.")
+                        embed=success_embed("Transfer Released", f"**{faction_data.display_name}** has released your transfer (#{transfer_id}) to **{transfer.to_faction_name}**.")
                     )
         except Exception:
             pass
 
         embed = success_embed(
             title="Transfer Released",
-            description=f"**{faction_data['display_name']}** has released transfer #{transfer_id} to continue to **{transfer['to_faction_name']}**."
+            description=f"**{faction_data.display_name}** has released transfer #{transfer_id} to continue to **{transfer.to_faction_name}**."
         )
         embed.color = faction_color
         await interaction.followup.send(embed=embed)

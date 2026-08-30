@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from datetime import datetime, timezone
 from typing import Optional
@@ -17,8 +22,8 @@ def create_embed(
 ) -> discord.Embed:
     if faction_id and not color:
         faction = cache.get_faction(faction_id)
-        if faction and 'color' in faction:
-            color = faction['color']
+        if faction:
+            color = faction.color
     
     if not color:
         color = 0x2B2D31
@@ -63,8 +68,8 @@ async def create_embed_async(
 ) -> discord.Embed:
     if faction_id and not color:
         faction = cache.get_faction(faction_id)
-        if faction and 'color' in faction:
-            color = faction['color']
+        if faction:
+            color = faction.color
     
     if not color:
         color = 0x2B2D31
@@ -109,10 +114,135 @@ async def create_embed_async(
     
     return embed
 
-def error_embed(message: str = None, title: str = "Error", description: str = None) -> discord.Embed:
+LOG_RULE = "─" * 30
+BAR_FILLED = "█"
+BAR_EMPTY = "░"
+FIELD_LIMIT = 1024
+PANEL_W = 30
+
+
+def rule(width: int = 30) -> str:
+    return "─" * width
+
+
+def banner(title: str, width: int = PANEL_W) -> str:
+    return f"**{title}**"
+
+
+def route_bar(src: str, dst: str, width: int = PANEL_W, broken: bool = False) -> str:
+    arrow = "to (intercepted)" if broken else "to"
+    return f"**{src}** {arrow} **{dst}**"
+
+
+def meta_line(left: str, right: str = "", width: int = PANEL_W) -> str:
+    if right:
+        return f"{left} {right}"
+    return left
+
+
+def panel(lines: list) -> str:
+    cleaned = []
+    for line in lines:
+        text = " ".join(str(line).split())
+        if not text or not text.strip("=-_─ "):
+            continue
+        cleaned.append(text)
+    return "\n".join(cleaned)
+
+
+def terminal_panel(title: str, meta: list = None, body: list = None, width: int = PANEL_W) -> str:
+    parts = [f"**{title}**"] if title else []
+    for line in (meta or []):
+        text = " ".join(str(line).split())
+        if text:
+            parts.append(text)
+    for line in (body or []):
+        text = " ".join(str(line).split())
+        if text:
+            parts.append(text)
+    return "\n".join(parts)
+
+
+def progress_bar(current: float, target: float, width: int = 10) -> str:
+    if target <= 0:
+        filled = 0
+    else:
+        filled = int(min(max(current / target, 0), 1) * width)
+    return BAR_FILLED * filled + BAR_EMPTY * (width - filled)
+
+
+def stamp(dt: datetime = None, style: str = "f") -> str:
+    dt = dt or datetime.now(timezone.utc)
+    return f"<t:{int(dt.timestamp())}:{style}>"
+
+
+def manifest_block(rows: list, headers: list = None, align: list = None) -> str:
+    rows = [[str(c) if c is not None else "" for c in row] for row in rows]
+    if not rows:
+        return ""
+
+    lines = []
+    for row in rows:
+        cells = [c for c in row if c != ""]
+        if not cells:
+            continue
+        if len(cells) == 1:
+            lines.append(cells[0])
+        else:
+            lines.append(f"**{cells[0]}** " + " · ".join(cells[1:]))
+
+    text = "\n".join(lines)
+    if len(text) <= FIELD_LIMIT:
+        return text
+
+    trimmed = []
+    size = 0
+    for line in lines:
+        if size + len(line) + 1 > FIELD_LIMIT - 16:
+            trimmed.append("... truncated")
+            break
+        trimmed.append(line)
+        size += len(line) + 1
+    return "\n".join(trimmed)
+
+
+def kv_field(name: str, pairs, inline: bool = True) -> dict:
+    if isinstance(pairs, dict):
+        pairs = list(pairs.items())
+    value = "\n".join(f"**{k}** {v}" for k, v in pairs)
+    return {"name": name, "value": value, "inline": inline}
+
+
+def log_embed(
+    title: str,
+    subtitle: str = None,
+    color: int = None,
+    faction_id: int = None,
+    fields: list = None,
+    footer: str = None,
+    description: str = None,
+) -> discord.Embed:
+    parts = []
+    if subtitle:
+        parts.append(subtitle)
+        parts.append(LOG_RULE)
+    if description:
+        parts.append(description)
+    return create_embed(
+        title=title,
+        description="\n".join(parts) if parts else None,
+        color=color,
+        faction_id=faction_id,
+        fields=fields,
+        footer=footer,
+    )
+
+
+def error_embed(title: str = "Error", message: str = None, description: str = None) -> discord.Embed:
     text = description if description is not None else message
     if text is None:
-        text = "An error occurred"
+        text = title
+        title = "Error"
     
     return discord.Embed(
         title=title,
@@ -121,10 +251,11 @@ def error_embed(message: str = None, title: str = "Error", description: str = No
         timestamp=datetime.now(timezone.utc)
     )
 
-def success_embed(message: str = None, title: str = "Success", description: str = None) -> discord.Embed:
+def success_embed(title: str = "Success", message: str = None, description: str = None) -> discord.Embed:
     text = description if description is not None else message
     if text is None:
-        text = "Operation completed successfully"
+        text = title
+        title = "Success"
     
     return discord.Embed(
         title=title,

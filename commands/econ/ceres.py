@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import discord
 from discord import app_commands
 from typing import Optional
@@ -9,13 +14,33 @@ from services.trade_service import get_trade_delivery_world, execute_ceres_trade
 from services.blockade_service import check_belt_station_blockade
 from services.validation_service import require_faction
 
+STATION_NAME = "Ceres Station"
+WELCOME = (
+    "Welcome to Ceres!\n\n"
+    "We have the best prices in the system...\n"
+    "Buy any resource for 4 other resources!"
+)
+
+
+def _info_embed() -> discord.Embed:
+    embed = discord.Embed(
+        title=STATION_NAME,
+        description=WELCOME,
+    )
+    embed.add_field(name="Rate", value="4 : 1", inline=True)
+    embed.add_field(name="Accepts", value="CM, CS, EL", inline=True)
+    embed.add_field(name="Delivery", value="Any world you hold. Defaults to your capital.", inline=False)
+    embed.add_field(name="Usage", value="`/ceres faction: choice: payment: world:`", inline=False)
+    return embed
+
 
 @app_commands.command(name="ceres", description="Access the Ceres trading market")
 @app_commands.describe(
     faction="Faction name",
     choice="Type of resource to receive (CM, CS, or EL)",
     payment="Amount of funds to trade (e.g., '1000 CM, 500 CS')",
-    world="World to receive the traded resources (optional)"
+    world="World to receive the traded resources (optional)",
+    info="Show how the station works instead of trading"
 )
 @app_commands.choices(choice=[
     app_commands.Choice(name="CM", value="CM"),
@@ -23,8 +48,27 @@ from services.validation_service import require_faction
     app_commands.Choice(name="EL", value="EL")
 ])
 @require_access_level(0)
-async def ceres(interaction: discord.Interaction, faction: str, choice: str, payment: str, world: Optional[str] = None):
+async def ceres(
+    interaction: discord.Interaction,
+    faction: Optional[str] = None,
+    choice: Optional[str] = None,
+    payment: Optional[str] = None,
+    world: Optional[str] = None,
+    info: bool = False
+):
     await interaction.response.defer()
+
+    if info:
+        await interaction.followup.send(embed=_info_embed())
+        return
+
+    missing = [n for n, v in (("faction", faction), ("choice", choice), ("payment", payment)) if not v]
+    if missing:
+        await interaction.followup.send(embed=error_embed(
+            "Error",
+            f"Missing {', '.join(missing)}. Use `/ceres info:true` to see how the station works."
+        ))
+        return
 
     gain = choice.upper()
 
@@ -32,12 +76,12 @@ async def ceres(interaction: discord.Interaction, faction: str, choice: str, pay
     if not r_faction_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
     faction_data = r_faction_data.data
 
-    if await check_belt_station_blockade(faction_data['id']):
+    if await check_belt_station_blockade(faction_data.id):
         await interaction.followup.send(embed=error_embed("Blockaded", "Your faction is blockaded at Ceres or Vesta and cannot use belt station markets."))
         return
 
     try:
-        world_data = await get_trade_delivery_world(faction_data['id'], world)
+        world_data = await get_trade_delivery_world(faction_data.id, world)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
@@ -51,20 +95,20 @@ async def ceres(interaction: discord.Interaction, faction: str, choice: str, pay
     gain_amount = sum(amt for amt, _ in costs) // 4
 
     try:
-        await execute_ceres_trade(faction_data['id'], world_data['id'], gain, costs)
+        await execute_ceres_trade(faction_data.id, world_data['id'], gain, costs)
     except ValueError as e:
         await interaction.followup.send(embed=error_embed("Error", str(e)))
         return
 
     embed = discord.Embed(
-        title="Ceres Station",
-        description=f"Welcome to Ceres, **{faction_data['display_name']}**!\n\n"
+        title=STATION_NAME,
+        description=f"Welcome to Ceres, **{faction_data.display_name}**!\n\n"
                     f"We have the best prices in the system...\n"
                     f"Buy any resource for 4 other resources!\n\n"
                     f"You've bought **{handle_return(gain_amount)} {gain}**\n"
                     f"for {handle_return_multiple(resource_array_to_object(costs))}.\n\n"
                     f"Delivered to **{world_data['name']}**.",
-        color=hex_to_int(faction_data['color'])
+        color=hex_to_int(faction_data.color)
     )
     embed.set_footer(text="Trade complete")
     embed.timestamp = discord.utils.utcnow()

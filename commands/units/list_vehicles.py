@@ -1,8 +1,13 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 import json
 import discord
 from discord import app_commands
 from discord.ui import View, Select, Button
-from utils.checks import require_access_level
+from utils.checks import require_access_level, ephemeral_capable, resolve_ephemeral
 from utils.embeds import error_embed
 from utils.currency import handle_return
 from utils.faction_utils import hex_to_int
@@ -169,29 +174,29 @@ class VehiclePaginationView(OwnerOnlyView):
         vehicle_id = int(self.vehicle_select.values[0])
         full_vehicle, costs, units_with_vehicle = await get_vehicle_details(vehicle_id)
 
-        display_name = full_vehicle['name']
-        if full_vehicle['designation']:
-            display_name += f" {full_vehicle['designation']}"
+        display_name = full_vehicle.name
+        if full_vehicle.designation:
+            display_name += f" {full_vehicle.designation}"
 
-        faction_color = hex_to_int(self.faction_data['color'])
+        faction_color = hex_to_int(self.faction_data.color)
         embed_data = {
             'title': display_name,
-            'description': f"**Faction Vehicle Number:** #{full_vehicle['faction_vehicle_number']}",
+            'description': f"**Faction Vehicle Number:** #{full_vehicle.faction_vehicle_number}",
             'color': faction_color,
             'fields': [
-                {'name': 'Type',    'value': full_vehicle['type_name'] or "Unclassified", 'inline': True},
-                {'name': 'Faction', 'value': self.faction_data['display_name'],           'inline': True},
+                {'name': 'Type',    'value': full_vehicle.type_name or "Unclassified", 'inline': True},
+                {'name': 'Faction', 'value': self.faction_data.display_name,           'inline': True},
             ]
         }
 
         if costs:
             embed_data['fields'].append({
                 'name': 'Cost (per unit)',
-                'value': "\n".join(f"**{c['name']}:** {handle_return(c['amount'])}" for c in costs),
+                'value': "\n".join(f"**{c.name}:** {handle_return(c.amount)}" for c in costs),
                 'inline': False
             })
 
-        spec_lines = _parse_specs(full_vehicle['vehicle_data'])
+        spec_lines = _parse_specs(full_vehicle.vehicle_data)
         if spec_lines:
             embed_data['fields'].append({'name': 'Specifications', 'value': " | ".join(spec_lines), 'inline': False})
 
@@ -209,11 +214,10 @@ class VehiclePaginationView(OwnerOnlyView):
     def get_embed(self) -> discord.Embed:
         start = self.page * VEHICLES_PER_PAGE
         page_vehicles = self.vehicles[start:start + VEHICLES_PER_PAGE]
-        faction_color = hex_to_int(self.faction_data['color'])
         embed = discord.Embed(
-            title=f"Vehicles: {self.faction_data['display_name']}",
+            title=f"Vehicles: {self.faction_data.display_name}",
             description=f"Page {self.page + 1}/{self.total_pages} • {len(self.vehicles)} total vehicles",
-            color=faction_color
+            color=hex_to_int(self.faction_data.color)
         )
 
         if self.hidden:
@@ -228,7 +232,7 @@ class VehiclePaginationView(OwnerOnlyView):
             type_name = vehicle['type_name'] or "Unknown Type"
             embed.add_field(
                 name=f"#{vehicle['faction_vehicle_number']}: {vehicle['name']}{designation}",
-                value=f"**Type:** {type_name}\n**Cost:** {cost_str}",
+                value=f"**Type:** {type_name}\n**Cost:** {cost_str}\n​",
                 inline=False
             )
         embed.set_footer(text="Select a vehicle from the dropdown to view details")
@@ -261,6 +265,7 @@ class VehiclePaginationView(OwnerOnlyView):
 @app_commands.command(name="list", description="List all vehicles for a faction")
 @app_commands.describe(faction="Faction name")
 @require_access_level(0)
+@ephemeral_capable('faction')
 async def list_vehicles(interaction: discord.Interaction, faction: str):
     r_faction_data = await require_faction(faction)
     if not r_faction_data.ok:
@@ -268,14 +273,16 @@ async def list_vehicles(interaction: discord.Interaction, faction: str):
         return
     faction_data = r_faction_data.data
 
-    vehicles = await list_vehicles_service(faction_data['id'])
+    vehicles = await list_vehicles_service(faction_data.id)
 
     if not vehicles:
-        await interaction.response.send_message(embed=error_embed("Error", f"No vehicles found for {faction_data['display_name']}."))
+        await interaction.response.send_message(embed=error_embed("Error", f"No vehicles found for {faction_data.display_name}."))
         return
 
-    view = VehiclePaginationView(interaction.user.id, list(vehicles), dict(faction_data))
-    await interaction.response.send_message(embed=view.get_embed(), view=view)
+    view = VehiclePaginationView(interaction.user.id, list(vehicles), faction_data)
+    await interaction.response.send_message(
+        embed=view.get_embed(), view=view, ephemeral=await resolve_ephemeral(interaction)
+    )
 
 
 async def setup(bot):

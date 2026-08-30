@@ -1,3 +1,8 @@
+# Copyright (c) 2026 f4rsantos. All rights reserved.
+# Unauthorized copying, modification, or distribution of this file,
+# via any medium, is strictly prohibited without explicit written
+# permission from the copyright holder. Contact: f4rsantos@gmail.com
+
 from __future__ import annotations
 from typing import List, Optional
 from .errors import FALSyntaxError
@@ -7,10 +12,11 @@ from .ast_nodes import (
     AssignStmt, IfStmt, IfBranch, ForEachStmt, RepeatStmt, SwitchStmt, SwitchCase,
     TransferAction, BuyBuildingAction, UpgradeBuildingAction,
     MoveFleetAction, FleetStatusAction, RenameFleetAction, BuyVehiclesAction, RecruitAction,
+    StopStmt,
     ResourceCond, FleetHealthCond, FleetStatusCond, FleetAtWorldCond, FleetVehiclesCond,
     BuildingCountCond, WorldResourceCond,
     AtWarCond, BlockadedCond, TodayIsCond, FactorySpaceCond, ExprComparison, BinaryCond, NotCond,
-    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr,
+    IntLiteral, StrLiteral, VarRef, BinOp, UnaryOp, FleetsAtExpr, RandiExpr, OrdinalExpr, ResourceExpr,
     Expr, Cond, Statement, Literal,
 )
 
@@ -124,6 +130,8 @@ class Parser:
             return self.parse_repeat()
         if tok.type == TT.KW_SWITCH:
             return self.parse_switch()
+        if tok.type == TT.KW_STOP:
+            return self.parse_stop()
         return self.parse_action()
 
     def parse_stmt_block(self) -> List[Statement]:
@@ -223,6 +231,10 @@ class Parser:
         self.match(TT.DEDENT)
         return SwitchStmt(expr=expr, cases=cases, default=default, line=tok.line)
 
+
+    def parse_stop(self) -> StopStmt:
+        tok = self.advance()
+        return StopStmt(line=tok.line)
 
     def parse_action(self) -> Statement:
         tok = self.peek()
@@ -509,6 +521,10 @@ class Parser:
         if tok.type == TT.IDENTIFIER:
             self.advance()
             return VarRef(name=tok.value, line=tok.line)
+
+        if tok.type == TT.RESOURCE_NAME:
+            self.advance()
+            return ResourceExpr(resource=tok.value, line=tok.line)
 
         if tok.type == TT.KW_FLEETS:
             self.advance()
