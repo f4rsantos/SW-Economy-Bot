@@ -8,6 +8,7 @@ ADMIN/
 api/
 graphify-out/
 map-backgrounds/
+worlds/
 
 .venv/
 venv/
@@ -37,3 +38,7 @@ bot.log
 *~
 
 node_modules/
+
+# Database
+database/*
+!database/db_manager.py
