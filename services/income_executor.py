@@ -16,9 +16,11 @@ from services.national_spirit_service import get_active_efficiency_bonus
 
 logger = logging.getLogger(__name__)
 from services.travel_time_service import calculate_travel_time
+from database.static_cache import static_cache
 from repositories.income_repo import (
     fetch_pact_types_for_faction,
     fetch_fleet_cs_by_status,
+    fetch_fleet_cs_rows,
     fetch_status_ids,
     fetch_non_debris_fleets,
     fetch_blockaded_world_ids,
@@ -57,7 +59,10 @@ from services.income_calculator import (
     STORABLE_RESOURCES,
     calculate_influence_cost_from_pacts,
     calculate_fleet_cs_cost,
+    calculate_fleet_cs_cost_by_system,
     plan_fleet_cs_damage,
+    plan_cs_withdrawals_by_system,
+    calculate_cs_deficit_by_system,
     population_cs_map,
     build_unrefined_production_map,
     build_refined_capacity_map,
@@ -90,8 +95,24 @@ async def calculate_fleet_cs_usage(faction_id: int, cached_status_ids: dict = No
     return calculate_fleet_cs_cost(row)
 
 
-async def process_fleet_cs_damage(faction_id: int, cs_deficit: int):
-    if cs_deficit <= 0:
+async def calculate_fleet_cs_usage_by_system(faction_id: int) -> Dict[int, int]:
+    debris_id = await fetch_debris_status_id()
+    if debris_id is None:
+        logger.warning("debris status not found in database")
+        return {}
+    fleet_rows = await fetch_fleet_cs_rows(faction_id, debris_id)
+    if not fleet_rows:
+        return {}
+    return calculate_fleet_cs_cost_by_system(
+        fleet_rows,
+        static_cache.get_system_id,
+        static_cache.get_fleet_status_name,
+    )
+
+
+async def process_fleet_cs_damage_by_system(faction_id: int, deficits_by_system: Dict[int, int]):
+    deficits_by_system = {sid: deficit for sid, deficit in deficits_by_system.items() if deficit > 0}
+    if not deficits_by_system:
         return
     debris_id = await fetch_debris_status_id()
     if debris_id is None:
@@ -100,11 +121,23 @@ async def process_fleet_cs_damage(faction_id: int, cs_deficit: int):
     fleets = await fetch_non_debris_fleets(faction_id, debris_id)
     if not fleets:
         return
-    updates_damage, updates_debris = plan_fleet_cs_damage(fleets, cs_deficit)
-    if updates_damage:
-        await apply_fleet_damage(updates_damage)
-    if updates_debris:
-        await mark_fleets_as_debris(debris_id, [fleet_id for _, fleet_id in updates_debris])
+
+    fleets_by_system: Dict[int, list] = {}
+    for fleet in fleets:
+        system_id = static_cache.get_system_id(fleet['position'])
+        fleets_by_system.setdefault(system_id, []).append(fleet)
+
+    for system_id, deficit in deficits_by_system.items():
+        system_fleets = fleets_by_system.get(system_id)
+        if not system_fleets:
+            continue
+        updates_damage, updates_debris = plan_fleet_cs_damage(system_fleets, deficit)
+        if updates_damage:
+            await apply_fleet_damage(updates_damage)
+        if updates_debris:
+            await mark_fleets_as_debris(debris_id, [fleet_id for _, fleet_id in updates_debris])
+
+
 
 
 async def _process_trade_deals(
@@ -229,6 +262,7 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
     status_ids = await _get_status_ids(shared_cache)
     fleet_row = await fetch_fleet_cs_by_status(faction_id, status_ids)
     preview['usages']['fleet_cs'] = calculate_fleet_cs_cost(fleet_row)
+    fleet_cs_needed_by_system = await calculate_fleet_cs_usage_by_system(faction_id)
 
     pact_rows = await fetch_pact_types_for_faction(faction_id)
     preview['usages']['influence_pacts'] = calculate_influence_cost_from_pacts(pact_rows)
@@ -317,26 +351,47 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
         preview['worlds'][wid]['net_cs_pre_upkeep'] = resources.get('CS', 0)
 
     fleet_cs_needed = preview['usages']['fleet_cs']
-    remaining_fleet_cs = fleet_cs_needed
 
-    for wid in list(world_resources.keys()):
-        if remaining_fleet_cs <= 0:
-            break
-        available = max(0, world_resources[wid].get('CS', 0))
-        drawn = min(available, remaining_fleet_cs)
-        if drawn > 0:
-            world_resources[wid]['CS'] = world_resources[wid].get('CS', 0) - drawn
-            remaining_fleet_cs -= drawn
+    remaining_by_system: Dict[int, int] = dict(fleet_cs_needed_by_system)
+    worlds_by_system: Dict[int, list] = {}
+    for wid in world_resources.keys():
+        worlds_by_system.setdefault(static_cache.get_system_id(wid), []).append(wid)
 
-    if remaining_fleet_cs > 0:
+    for system_id, remaining in remaining_by_system.items():
+        if remaining <= 0:
+            continue
+        for wid in worlds_by_system.get(system_id, []):
+            if remaining <= 0:
+                break
+            available = max(0, world_resources[wid].get('CS', 0))
+            drawn = min(available, remaining)
+            if drawn > 0:
+                world_resources[wid]['CS'] = world_resources[wid].get('CS', 0) - drawn
+                remaining -= drawn
+        remaining_by_system[system_id] = remaining
+
+    total_remaining_fleet_cs = sum(max(0, r) for r in remaining_by_system.values())
+    total_withdrawn_from_stock = 0
+
+    if total_remaining_fleet_cs > 0:
         worlds_cs_rows = await fetch_worlds_with_cs(faction_id)
-        cs_withdrawals = plan_cs_withdrawals(worlds_cs_rows, remaining_fleet_cs)
-        for wid, withdrawn in cs_withdrawals.items():
-            world_resources.setdefault(wid, {})
-            world_resources[wid]['CS'] = world_resources[wid].get('CS', 0) - withdrawn
-        preview['usages']['fleet_cs_paid'] = (fleet_cs_needed - remaining_fleet_cs) + sum(cs_withdrawals.values())
-    else:
-        preview['usages']['fleet_cs_paid'] = fleet_cs_needed
+        worlds_cs_by_system: Dict[int, list] = {}
+        for row in worlds_cs_rows:
+            system_id = static_cache.get_system_id(row['world_id'])
+            worlds_cs_by_system.setdefault(system_id, []).append(row)
+
+        needed_for_stock_withdrawal = {sid: r for sid, r in remaining_by_system.items() if r > 0}
+        cs_withdrawals_by_system = plan_cs_withdrawals_by_system(needed_for_stock_withdrawal, worlds_cs_by_system)
+
+        for system_id, withdrawals in cs_withdrawals_by_system.items():
+            for wid, withdrawn in withdrawals.items():
+                world_resources.setdefault(wid, {})
+                world_resources[wid]['CS'] = world_resources[wid].get('CS', 0) - withdrawn
+                total_withdrawn_from_stock += withdrawn
+            remaining_by_system[system_id] = remaining_by_system.get(system_id, 0) - sum(withdrawals.values())
+
+    preview['usages']['fleet_cs_paid'] = fleet_cs_needed - sum(max(0, r) for r in remaining_by_system.values())
+    preview['_cs_deficit_by_system'] = {sid: r for sid, r in remaining_by_system.items() if r > 0}
 
     for wid, resources in world_resources.items():
         if wid not in preview['worlds']:
@@ -476,10 +531,9 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
         resource_map = await fetch_resource_map()
 
     if scope_level >= SCOPE_LEVELS['extractors_refineries_trade_upkeep']:
-        cs_deficit_for_fleets = preview.get('_cs_deficit_for_fleets', 0)
-        stored_cs_total = preview.get('_stored_cs_total', 0)
-        if cs_deficit_for_fleets > 0 and stored_cs_total < cs_deficit_for_fleets:
-            await process_fleet_cs_damage(faction_id, cs_deficit_for_fleets - stored_cs_total)
+        cs_deficit_by_system = preview.get('_cs_deficit_by_system', {})
+        if cs_deficit_by_system:
+            await process_fleet_cs_damage_by_system(faction_id, cs_deficit_by_system)
 
     if scope_level >= SCOPE_LEVELS['extractors_refineries_trade']:
         from services import megaproject_service

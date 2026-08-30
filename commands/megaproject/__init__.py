@@ -12,13 +12,15 @@ class MegaprojectGroup(app_commands.Group):
 
 
 async def setup(bot):
-    from commands.megaproject import build, list_megaprojects, view, lane, port_access
+    from commands.megaproject import build, contribute, list_megaprojects, view, lane, port_access
     from utils.autocomplete import faction_autocomplete, port_world_autocomplete
 
     megaproject_group = MegaprojectGroup()
     megaproject_group.add_command(build.build_megaproject)
+    megaproject_group.add_command(contribute.contribute_megaproject)
     megaproject_group.add_command(list_megaprojects.list_megaprojects)
     megaproject_group.add_command(view.view_megaproject)
+    megaproject_group.add_command(view.view_megaproject_progress)
     megaproject_group.add_command(lane.build_lane)
     megaproject_group.add_command(lane.list_lanes)
     megaproject_group.add_command(port_access.port_access_set)

@@ -353,3 +353,36 @@ def plan_cs_withdrawals(worlds_with_cs, total_needed: int) -> Dict[int, int]:
         withdrawals[world['world_id']] = withdraw
         remaining -= withdraw
     return withdrawals
+
+
+def calculate_fleet_cs_cost_by_system(fleet_rows, get_system_id, get_status_name) -> Dict[int, int]:
+    needs: Dict[int, int] = {}
+    for row in fleet_rows:
+        system_id = get_system_id(row['position'])
+        status_name = get_status_name(row['status_id'])
+        fleet = {'status_name': status_name or '', 'total_cs': row['total_cs'] or 0}
+        cost = calculate_fleet_cs_cost_for_fleet(fleet)
+        needs[system_id] = needs.get(system_id, 0) + cost
+    return needs
+
+
+def plan_cs_withdrawals_by_system(needed_by_system: Dict[int, int], worlds_by_system: Dict[int, list]) -> Dict[int, Dict[int, int]]:
+    withdrawals_by_system: Dict[int, Dict[int, int]] = {}
+    for system_id, needed in needed_by_system.items():
+        if needed <= 0:
+            continue
+        worlds_with_cs = worlds_by_system.get(system_id, [])
+        withdrawals_by_system[system_id] = plan_cs_withdrawals(worlds_with_cs, needed)
+    return withdrawals_by_system
+
+
+def calculate_cs_deficit_by_system(needed_by_system: Dict[int, int], withdrawals_by_system: Dict[int, Dict[int, int]]) -> Dict[int, int]:
+    deficits: Dict[int, int] = {}
+    for system_id, needed in needed_by_system.items():
+        if needed <= 0:
+            continue
+        withdrawn = sum(withdrawals_by_system.get(system_id, {}).values())
+        deficit = needed - withdrawn
+        if deficit > 0:
+            deficits[system_id] = deficit
+    return deficits

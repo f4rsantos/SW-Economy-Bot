@@ -67,3 +67,20 @@ class FactionMegaproject:
     @classmethod
     def from_rows(cls, rows) -> List["FactionMegaproject"]:
         return [cls.from_row(row) for row in rows]
+
+
+@dataclass(frozen=True, slots=True)
+class MegaprojectProgressRow:
+    resource_name: str
+    current_amount: int
+
+    @classmethod
+    def from_row(cls, row) -> "MegaprojectProgressRow":
+        return cls(
+            resource_name=row["resource_name"],
+            current_amount=row["current_amount"],
+        )
+
+    @classmethod
+    def from_rows(cls, rows) -> List["MegaprojectProgressRow"]:
+        return [cls.from_row(row) for row in rows]

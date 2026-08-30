@@ -184,6 +184,134 @@ def _is_top_level(name: str, data: dict) -> bool:
     return data.get("parent") is None
 
 
+def list_pageable_bodies(system_name: str) -> list[str]:
+    canonical_system, system_data = resolve_system(system_name)
+    bodies = [name for name, data in system_data.items() if _is_top_level(name, data)]
+    bodies = [name for name in bodies if "Asteroid Belt" not in name]
+    bodies.sort(key=lambda name: (system_data[name].get("a", system_data[name].get("dist", 0)), name))
+    return bodies
+
+
+def list_focus_bodies(system_name: str, focus_name: str) -> list[str]:
+    canonical_system, system_data = resolve_system(system_name)
+    canonical_focus = resolve_body(focus_name, system_data)
+    moons = [name for name, data in system_data.items() if data.get("parent") == canonical_focus]
+    moons.sort(key=lambda name: system_data[name].get("a", system_data[name].get("dist", 0)))
+    return [canonical_focus] + moons
+
+
+def _overview_radius_fn(system_data: dict, bodies: list[str], mode: str, zoom: float, dists: dict, max_radius_px: float):
+    perihelions = []
+    aphelions = []
+    for name in bodies:
+        data = system_data[name]
+        a = data.get("a", data.get("dist", 1.0))
+        e = data.get("e", 0.0)
+        perihelions.append(a * (1.0 - e))
+        aphelions.append(a * (1.0 + e))
+
+    min_dist = (min(perihelions) * 0.75) if perihelions else 0.2
+    max_dist = (max(aphelions) * 1.05) if aphelions else 45.0
+
+    if mode == "log":
+        min_radius_px = 90 * SUPERSAMPLE
+
+        def radius_px(d):
+            d = max(d, min_dist)
+            t = (math.log(d) - math.log(min_dist)) / (math.log(max_dist) - math.log(min_dist)) if max_dist > min_dist else 0.0
+            return (min_radius_px + (max_radius_px - min_radius_px) * t) * zoom
+    else:
+        current_max = max(dists.values()) if dists else 1.0
+        px_per_au = (max_radius_px / current_max) * zoom if current_max > 0 else 1.0
+
+        def radius_px(d):
+            return d * px_per_au
+
+    return radius_px
+
+
+def _focus_radius_fn(system_data: dict, moons: list[str], focus_name: str, zoom: float, max_radius_px: float):
+    moon_perihelions = []
+    moon_aphelions = []
+    for name in moons:
+        data = system_data[name]
+        a = data.get("a", data.get("dist", 0.005))
+        e = data.get("e", 0.0)
+        moon_perihelions.append(a * (1.0 - e))
+        moon_aphelions.append(a * (1.0 + e))
+
+    min_dist = (min(moon_perihelions) * 0.75) if moon_perihelions else 0.0005
+    max_dist = (max(moon_aphelions) * 1.05) if moon_aphelions else 0.03
+
+    size_scale = _radius_scale_for_bodies(list(system_data.keys()), system_data)
+    planet_t = size_scale.get(focus_name, 0.6)
+    planet_icon_size = int(_icon_size_for(planet_t) * 1.6 * SUPERSAMPLE * min(zoom, 1.5))
+    inner_radius_px = max(90 * SUPERSAMPLE, planet_icon_size * 1.05)
+
+    def moon_radius_px(dist):
+        dist = max(dist, min_dist)
+        if max_dist > min_dist:
+            t = (math.log(dist) - math.log(min_dist)) / (math.log(max_dist) - math.log(min_dist))
+        else:
+            t = 1.0
+        return (inner_radius_px + (max_radius_px - inner_radius_px) * t) * zoom
+
+    return moon_radius_px
+
+
+def center_pan_for_body(
+    system_name: str,
+    body_name: str,
+    date_str: Optional[str] = None,
+    mode: str = "log",
+    zoom: float = 1.0,
+    focus: Optional[str] = None,
+) -> tuple[float, float]:
+    canonical_system, system_data = resolve_system(system_name)
+
+    if date_str:
+        when = parse_game_date(date_str)
+    else:
+        when = datetime.now()
+
+    mode = (mode or "log").lower()
+    zoom = max(0.1, min(zoom or 1.0, 20.0))
+
+    if focus:
+        canonical_focus = resolve_body(focus, system_data)
+        canonical_body = resolve_body(body_name, system_data)
+        if canonical_body == canonical_focus:
+            return 0.0, 0.0
+
+        size = FOCUS_SIZE * SUPERSAMPLE
+        max_radius_px = size / 2 - MARGIN * SUPERSAMPLE
+
+        moons = [name for name, data in system_data.items() if data.get("parent") == canonical_focus]
+        focus_pos = get_absolute_position_3d(canonical_focus, when, system_data)
+        pos = get_absolute_position_3d(canonical_body, when, system_data)
+        rel_x, rel_y = pos.x - focus_pos.x, pos.y - focus_pos.y
+        dist = math.hypot(rel_x, rel_y)
+        angle = math.atan2(rel_y, rel_x)
+
+        moon_radius_px = _focus_radius_fn(system_data, moons, canonical_focus, zoom, max_radius_px)
+        r_px = min(moon_radius_px(dist), max_radius_px)
+    else:
+        canonical_body = resolve_body(body_name, system_data)
+        bodies = [name for name, data in system_data.items() if _is_top_level(name, data)]
+        positions = {name: get_absolute_position_3d(name, when, system_data) for name in bodies}
+        dists = {name: math.hypot(positions[name].x, positions[name].y) for name in bodies}
+
+        pos = positions[canonical_body]
+        angle = math.atan2(pos.y, pos.x)
+        overview_max_radius_px = BASE_SIZE * SUPERSAMPLE / 2 - MARGIN * SUPERSAMPLE
+        radius_px = _overview_radius_fn(system_data, bodies, mode, zoom, dists, overview_max_radius_px)
+        r_px = radius_px(dists[canonical_body])
+
+    pan_x = -r_px * math.cos(angle) / SUPERSAMPLE
+    pan_y = -r_px * math.sin(angle) / SUPERSAMPLE
+    return pan_x, pan_y
+
+
 def _radius_scale_for_bodies(bodies: list[str], system_data: dict) -> dict:
     if not bodies:
         return {}
@@ -224,6 +352,51 @@ def _resolve_route_points(route: Optional[list], plots: dict) -> list[tuple[str,
     if len(resolved) < 2:
         return []
     return resolved
+
+
+def _route_body_keys(route: Optional[list], system_data: dict) -> list[str]:
+    if not route:
+        return []
+    keys = []
+    for name in route:
+        key = get_config_key(str(name), system_data)
+        if key is None:
+            continue
+        keys.append(key)
+    return keys
+
+
+def _route_common_parent(route: Optional[list], system_data: dict) -> Optional[str]:
+    keys = _route_body_keys(route, system_data)
+    if len(keys) < 2:
+        return None
+    candidate_parents = set()
+    has_moon = False
+    for key in keys:
+        parent = system_data.get(key, {}).get("parent")
+        if parent is not None:
+            has_moon = True
+            candidate_parents.add(parent)
+        else:
+            candidate_parents.add(key)
+    if not has_moon:
+        return None
+    if len(candidate_parents) == 1:
+        return next(iter(candidate_parents))
+    return None
+
+
+def _substitute_moons_for_overview(route: Optional[list], system_data: dict) -> list[str]:
+    keys = _route_body_keys(route, system_data)
+    substituted = []
+    for key in keys:
+        parent = system_data.get(key, {}).get("parent")
+        substituted.append(parent if parent is not None else key)
+    collapsed = []
+    for name in substituted:
+        if not collapsed or collapsed[-1] != name:
+            collapsed.append(name)
+    return collapsed
 
 
 def _draw_route(image: Image.Image, draw: ImageDraw.Draw, resolved_route: list, supersample: int):
@@ -418,8 +591,14 @@ def render_solar_map(
         image_bytes, closest_body = _render_focus(canonical_system, system_data, canonical_focus, when, zoom, pan_x, pan_y, route)
         title = f"{canonical_focus} System"
     else:
-        image_bytes, closest_body = _render_overview(canonical_system, system_data, when, mode, zoom, pan_x, pan_y, route)
-        title = f"{canonical_system} System"
+        common_parent = _route_common_parent(route, system_data) if route else None
+        if common_parent:
+            image_bytes, closest_body = _render_focus(canonical_system, system_data, common_parent, when, zoom, pan_x, pan_y, route)
+            title = f"{common_parent} System"
+        else:
+            overview_route = _substitute_moons_for_overview(route, system_data) if route else route
+            image_bytes, closest_body = _render_overview(canonical_system, system_data, when, mode, zoom, pan_x, pan_y, overview_route)
+            title = f"{canonical_system} System"
 
     return image_bytes, title, game_date_label, closest_body
 
@@ -439,31 +618,7 @@ def _render_overview(system_name: str, system_data: dict, when: datetime, mode: 
 
     dists = {name: math.hypot(positions[name].x, positions[name].y) for name in bodies}
 
-    perihelions = []
-    aphelions = []
-    for name in bodies:
-        data = system_data[name]
-        a = data.get("a", data.get("dist", 1.0))
-        e = data.get("e", 0.0)
-        perihelions.append(a * (1.0 - e))
-        aphelions.append(a * (1.0 + e))
-
-    min_dist = (min(perihelions) * 0.75) if perihelions else 0.2
-    max_dist = (max(aphelions) * 1.05) if aphelions else 45.0
-
-    if mode == "log":
-        min_radius_px = 90 * SUPERSAMPLE
-
-        def radius_px(d):
-            d = max(d, min_dist)
-            t = (math.log(d) - math.log(min_dist)) / (math.log(max_dist) - math.log(min_dist)) if max_dist > min_dist else 0.0
-            return (min_radius_px + (max_radius_px - min_radius_px) * t) * zoom
-    else:
-        current_max = max(dists.values()) if dists else 1.0
-        px_per_au = (max_radius_px / current_max) * zoom if current_max > 0 else 1.0
-
-        def radius_px(d):
-            return d * px_per_au
+    radius_px = _overview_radius_fn(system_data, bodies, mode, zoom, dists, max_radius_px)
 
     size_scale = _radius_scale_for_bodies(bodies, system_data)
 
@@ -579,8 +734,6 @@ def _render_focus(system_name: str, system_data: dict, focus_name: str, when: da
     max_radius_px = center - MARGIN * SUPERSAMPLE
 
     moons = [name for name, data in system_data.items() if data.get("parent") == focus_name]
-    if not moons:
-        raise SolarMapError(f"'{focus_name}' has no moons to display.")
 
     focus_pos = get_absolute_position_3d(focus_name, when, system_data)
     moon_positions = {}
@@ -590,30 +743,11 @@ def _render_focus(system_name: str, system_data: dict, focus_name: str, when: da
         dist = math.hypot(rel_x, rel_y)
         moon_positions[name] = (rel_x, rel_y, dist)
 
-    moon_perihelions = []
-    moon_aphelions = []
-    for name in moons:
-        data = system_data[name]
-        a = data.get("a", data.get("dist", 0.005))
-        e = data.get("e", 0.0)
-        moon_perihelions.append(a * (1.0 - e))
-        moon_aphelions.append(a * (1.0 + e))
-
-    min_dist = (min(moon_perihelions) * 0.75) if moon_perihelions else 0.0005
-    max_dist = (max(moon_aphelions) * 1.05) if moon_aphelions else 0.03
-
     size_scale = _radius_scale_for_bodies(list(system_data.keys()), system_data)
     planet_t = size_scale.get(focus_name, 0.6)
     planet_icon_size = int(_icon_size_for(planet_t) * 1.6 * SUPERSAMPLE * min(zoom, 1.5))
-    inner_radius_px = max(90 * SUPERSAMPLE, planet_icon_size * 1.05)
 
-    def moon_radius_px(dist):
-        dist = max(dist, min_dist)
-        if max_dist > min_dist:
-            t = (math.log(dist) - math.log(min_dist)) / (math.log(max_dist) - math.log(min_dist))
-        else:
-            t = 1.0
-        return (inner_radius_px + (max_radius_px - inner_radius_px) * t) * zoom
+    moon_radius_px = _focus_radius_fn(system_data, moons, focus_name, zoom, max_radius_px)
 
     bg = _draw_gradient_background(size).convert("RGBA")
     draw = ImageDraw.Draw(bg, "RGBA")
@@ -693,3 +827,41 @@ def _render_focus(system_name: str, system_data: dict, focus_name: str, when: da
     output = io.BytesIO()
     final.convert("RGB").save(output, format="PNG")
     return output.getvalue(), closest_body
+
+
+def render_intersystem_route(from_system: str, to_system: str, from_world: str, to_world: str) -> bytes:
+    size = BASE_SIZE * SUPERSAMPLE
+    center_y = size / 2
+    star_radius = 34 * SUPERSAMPLE
+    left_x = size * 0.28
+    right_x = size * 0.72
+
+    bg = _draw_gradient_background(size).convert("RGBA")
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    resolved_route = [
+        (from_system, left_x, center_y),
+        (to_system, right_x, center_y),
+    ]
+    _draw_route(bg, draw, resolved_route, SUPERSAMPLE)
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    _draw_sun(bg, left_x, center_y, star_radius)
+    _draw_sun(bg, right_x, center_y, star_radius)
+    draw = ImageDraw.Draw(bg, "RGBA")
+
+    font = _load_font(20 * SUPERSAMPLE, bold=True)
+    font_small = _load_font(15 * SUPERSAMPLE)
+
+    _text_with_shadow(draw, (left_x, center_y + star_radius + 10 * SUPERSAMPLE), from_system, font, anchor="ma")
+    _text_with_shadow(draw, (left_x, center_y + star_radius + 10 * SUPERSAMPLE + 30 * SUPERSAMPLE), from_world, font_small, fill=SUBTLE_TEXT, anchor="ma")
+
+    _text_with_shadow(draw, (right_x, center_y + star_radius + 10 * SUPERSAMPLE), to_system, font, anchor="ma")
+    _text_with_shadow(draw, (right_x, center_y + star_radius + 10 * SUPERSAMPLE + 30 * SUPERSAMPLE), to_world, font_small, fill=SUBTLE_TEXT, anchor="ma")
+
+    _text_with_shadow(draw, (24 * SUPERSAMPLE, size - 40 * SUPERSAMPLE), "Interstellar Route", font_small, fill=SUBTLE_TEXT, anchor="lm")
+
+    final = bg.resize((BASE_SIZE, BASE_SIZE), Image.LANCZOS)
+    output = io.BytesIO()
+    final.convert("RGB").save(output, format="PNG")
+    return output.getvalue()

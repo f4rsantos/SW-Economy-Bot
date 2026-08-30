@@ -96,6 +96,10 @@ class TransferResourceBulk:
 @dataclass(frozen=True, slots=True)
 class PendingTransfer:
     id: int
+    from_faction_id: int
+    to_faction_id: int
+    from_world_id: int
+    to_world_id: int
     status: str
     arrival_time: datetime
     from_faction_name: str
@@ -111,6 +115,10 @@ class PendingTransfer:
     def from_row(cls, row) -> "PendingTransfer":
         return cls(
             id=row["id"],
+            from_faction_id=row["from_faction_id"],
+            to_faction_id=row["to_faction_id"],
+            from_world_id=row["from_world_id"],
+            to_world_id=row["to_world_id"],
             status=row["status"],
             arrival_time=row["arrival_time"],
             from_faction_name=row["from_faction_name"],

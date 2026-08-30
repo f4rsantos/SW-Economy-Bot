@@ -18,12 +18,20 @@ ROUTE_MAP_URL = f"attachment://{ROUTE_MAP_FILENAME}"
 async def build_route_map_file(from_world_name: str, to_world_name: str, route_world_names: list) -> Optional[discord.File]:
     try:
         from services.travel_time_service import get_world_system
-        from services.solar_map_service import render_solar_map, SolarMapError
+        from services.solar_map_service import render_solar_map, render_intersystem_route, SolarMapError
 
         from_system = await get_world_system(from_world_name)
         to_system = await get_world_system(to_world_name)
-        if not from_system or not to_system or from_system != to_system:
+        if not from_system or not to_system:
             return None
+
+        if from_system != to_system:
+            try:
+                image_bytes = render_intersystem_route(from_system, to_system, from_world_name, to_world_name)
+            except SolarMapError as e:
+                logger.warning(f"Route map render failed: {e}")
+                return None
+            return discord.File(fp=io.BytesIO(image_bytes), filename=ROUTE_MAP_FILENAME)
 
         try:
             image_bytes, _title, _game_date_label, _closest_body = render_solar_map(

@@ -8,7 +8,8 @@ from services.income_executor import (
     execute_income,
     calculate_influence_usage,
     calculate_fleet_cs_usage,
-    process_fleet_cs_damage,
+    calculate_fleet_cs_usage_by_system,
+    process_fleet_cs_damage_by_system,
 )
 from services.income_calculator import (
     POPULATION_PER_CS,
