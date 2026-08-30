@@ -15,15 +15,16 @@ from services import megaproject_service
 @app_commands.describe(faction="Faction name")
 @require_access_level(0)
 async def list_megaprojects(interaction: discord.Interaction, faction: str):
+    await interaction.response.defer()
     faction_data = await get_faction_by_name(faction)
     if not faction_data:
-        await interaction.response.send_message(embed=error_embed("Error", f"Faction '{faction}' not found."))
+        await interaction.followup.send(embed=error_embed("Error", f"Faction '{faction}' not found."))
         return
 
     projects = await megaproject_service.list_faction_megaprojects(faction_data.id)
 
     if not projects:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=success_embed("Megaprojects", f"**{faction_data.display_name}** has not built any megaprojects yet.")
         )
         return
@@ -39,7 +40,7 @@ async def list_megaprojects(interaction: discord.Interaction, faction: str):
         description="\n".join(lines),
         color=hex_to_int(faction_data.color),
     )
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 async def setup(bot):

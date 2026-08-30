@@ -9,7 +9,7 @@ import discord
 from typing import Optional
 from discord import app_commands
 from discord.ui import View, Select
-from utils.checks import require_access_level, ephemeral_capable, resolve_ephemeral
+from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import error_embed, progress_bar
 from utils.faction_utils import hex_to_int
 from services.fleet_service import get_fleets, get_fleet, get_fleet_vehicles, get_unit_vehicle_resource_totals
@@ -324,16 +324,21 @@ REF_ACCESS_LEVEL = 4
 @require_access_level(0)
 @ephemeral_capable('faction')
 async def list_units(interaction: discord.Interaction, faction: str = None, world: str = None, ref: bool = False):
+    if ref:
+        interaction.extras['ephemeral'] = False
+        await interaction.response.defer()
+    else:
+        await defer_response(interaction)
+
     if not faction and not world:
-        await interaction.response.send_message(embed=error_embed("Error", "You must provide at least a Faction OR a World."))
+        await interaction.followup.send(embed=error_embed("Error", "You must provide at least a Faction OR a World."))
         return
 
     if ref:
         viewer_level = await get_user_access_level(interaction.user.id)
         if viewer_level < REF_ACCESS_LEVEL:
-            await interaction.response.send_message(embed=error_embed("Error", "Referee mode requires elevated access."))
+            await interaction.followup.send(embed=error_embed("Error", "Referee mode requires elevated access."))
             return
-        interaction.extras['ephemeral'] = False
 
     viewer_faction_id = None if ref else await get_user_faction_id(interaction.user.id)
 
@@ -342,23 +347,23 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
     if faction and world:
         r_faction_data, r_world = await asyncio.gather(require_faction(faction), require_world(world))
         if not r_faction_data.ok:
-            await interaction.response.send_message(embed=error_embed("Error", r_faction_data.error))
+            await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
             return
         if not r_world.ok:
-            await interaction.response.send_message(embed=error_embed("Error", r_world.error))
+            await interaction.followup.send(embed=error_embed("Error", r_world.error))
             return
         faction_data = r_faction_data.data
         world_data = r_world.data
     elif faction:
         r_faction_data = await require_faction(faction)
         if not r_faction_data.ok:
-            await interaction.response.send_message(embed=error_embed("Error", r_faction_data.error))
+            await interaction.followup.send(embed=error_embed("Error", r_faction_data.error))
             return
         faction_data = r_faction_data.data
     elif world:
         r_world = await require_world(world)
         if not r_world.ok:
-            await interaction.response.send_message(embed=error_embed("Error", r_world.error))
+            await interaction.followup.send(embed=error_embed("Error", r_world.error))
             return
         world_data = r_world.data
 
@@ -367,21 +372,21 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
 
     if not ref:
         if viewer_faction_id is None:
-            await interaction.response.send_message(embed=error_embed(
+            await interaction.followup.send(embed=error_embed(
                 "Intelligence insufficient",
                 "You do not lead a faction. Use `ref:true` to view units openly."
             ))
             return
 
         if faction_id is not None and faction_id != viewer_faction_id:
-            await interaction.response.send_message(embed=error_embed(
+            await interaction.followup.send(embed=error_embed(
                 "Intelligence insufficient",
                 "You can only look up your own faction. Use `ref:true` to view another faction openly."
             ))
             return
 
         if world_id is not None and not await has_presence_at_world(viewer_faction_id, world_id):
-            await interaction.response.send_message(embed=error_embed(
+            await interaction.followup.send(embed=error_embed(
                 "Intelligence insufficient",
                 "You have no units or territory at this world."
             ))
@@ -400,7 +405,7 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
         ]
 
     if not units:
-        await interaction.response.send_message(embed=error_embed("No Units Found", "No units found matching the given filters."))
+        await interaction.followup.send(embed=error_embed("No Units Found", "No units found matching the given filters."))
         return
 
     if faction_data:
@@ -416,10 +421,7 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
 
     view = UnitView(list(units), view_faction_id, view_name, interaction.user.id, view_color,
                     world_mode=world_mode, viewer_faction_id=viewer_faction_id, ref_mode=ref)
-    ephemeral = False if ref else await resolve_ephemeral(interaction)
-    await interaction.response.send_message(
-        embed=await view.create_list_embed(), view=view, ephemeral=ephemeral
-    )
+    await interaction.followup.send(embed=await view.create_list_embed(), view=view)
 
 
 async def setup(bot):

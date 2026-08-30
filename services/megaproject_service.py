@@ -93,6 +93,93 @@ async def get_type(code: str) -> MegaprojectType:
     return project_type
 
 
+async def _get_progress_targets(project_type: MegaprojectType, world_id: Optional[int]) -> dict:
+    if project_type.code == TERRAFORMER:
+        if world_id is None:
+            raise ValueError("A world is required to contribute to a Terraformer.")
+        hex_count = await megaproject_repo.get_world_hex_count(world_id)
+        if hex_count is None:
+            raise ValueError("This world has no recorded hex count.")
+        return calculate_terraformer_cost(hex_count)
+    if project_type.code == RECYCLING_CENTER:
+        return calculate_recycling_center_cost()
+    if project_type.code == EXTRACTORS_UPGRADE:
+        return calculate_extractors_upgrade_cost()
+    raise ValueError(f"Megaproject type '{project_type.code}' does not support incremental contributions.")
+
+
+async def get_megaproject_progress(faction_id: int, type_code: str, world_id: Optional[int]) -> dict:
+    project_type = await get_type(type_code)
+    effective_world_id = world_id if project_type.is_world_scoped else None
+    targets = await _get_progress_targets(project_type, effective_world_id)
+
+    rows = await megaproject_repo.get_megaproject_progress_rows(faction_id, project_type.id, effective_world_id)
+    progress = {row.resource_name: row.current_amount for row in rows}
+    for resource_name in targets:
+        progress.setdefault(resource_name, 0)
+
+    completed = all(progress.get(res, 0) >= target for res, target in targets.items())
+    return {'progress': progress, 'targets': targets, 'completed': completed}
+
+
+async def contribute_to_megaproject(faction_id: int, type_code: str, world_id: Optional[int], resources: dict) -> dict:
+    project_type = await get_type(type_code)
+    effective_world_id = world_id if project_type.is_world_scoped else None
+
+    existing = await megaproject_repo.get_faction_project_by_type(faction_id, project_type.id, effective_world_id)
+    if existing:
+        raise ValueError("This megaproject has already been built.")
+
+    targets = await _get_progress_targets(project_type, effective_world_id)
+
+    rows = await megaproject_repo.get_megaproject_progress_rows(faction_id, project_type.id, effective_world_id)
+    progress = {row.resource_name: row.current_amount for row in rows}
+
+    clamped_contributions = {}
+    for resource_name, amount in resources.items():
+        if amount <= 0:
+            continue
+        target = targets.get(resource_name)
+        if not target:
+            continue
+        current = progress.get(resource_name, 0)
+        remaining = target - current
+        if remaining <= 0:
+            continue
+        clamped_contributions[resource_name] = min(amount, remaining)
+
+    if not clamped_contributions:
+        raise ValueError("No contribution was needed for the resources provided.")
+
+    async with megaproject_repo.get_connection() as conn:
+        async with conn.transaction():
+            await deduct_resources(faction_id, effective_world_id, clamped_contributions, conn=conn)
+
+            new_progress = dict(progress)
+            for resource_name, amount in clamped_contributions.items():
+                new_amount = await megaproject_repo.upsert_megaproject_progress_resource(
+                    conn, faction_id, project_type.id, effective_world_id, resource_name, amount,
+                )
+                new_progress[resource_name] = new_amount
+            for resource_name in targets:
+                new_progress.setdefault(resource_name, 0)
+
+            completed = all(new_progress.get(res, 0) >= target for res, target in targets.items())
+
+            project_id = None
+            if completed:
+                project_id = await megaproject_repo.insert_project(conn, faction_id, project_type.id, effective_world_id)
+                await megaproject_repo.delete_megaproject_progress(conn, faction_id, project_type.id, effective_world_id)
+
+    return {
+        'contributed': clamped_contributions,
+        'progress': new_progress,
+        'targets': targets,
+        'completed': completed,
+        'project_id': project_id,
+    }
+
+
 async def build_terraformer(faction_id: int, world_id: int, world_name: str) -> dict:
     project_type = await get_type(TERRAFORMER)
     existing = await megaproject_repo.get_faction_project_by_type(faction_id, project_type.id, world_id)

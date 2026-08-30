@@ -203,6 +203,7 @@ async def get_pending_transfers_rows(where_clause: str, params: list) -> List[Pe
     rows = await db.fetch(
         f"""
         SELECT rt.id, ts.name as status, rt.arrival_time,
+               rt.from_faction_id, rt.to_faction_id, rt.from_world_id, rt.to_world_id,
                COALESCE(ff.formal_name, ff.name) as from_faction_name,
                COALESCE(tf.formal_name, tf.name) as to_faction_name,
                fw.name as from_world_name, tw.name as to_world_name,

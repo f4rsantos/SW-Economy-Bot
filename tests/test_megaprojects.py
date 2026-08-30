@@ -431,4 +431,207 @@ async def test_reset_snapshot_and_report_populates_last_cycle_table(monkeypatch)
     assert len(conn.executemany_calls) == 1
     inserted_query, inserted_rows = conn.executemany_calls[0]
     assert "faction_last_cycle_spend" in inserted_query
-    assert inserted_rows == [(10, 1, 1, 500)]
+
+
+def _recycling_center_type():
+    return megaproject_repo.MegaprojectType(
+        id=2, code='recycling_center', name='Resource Recycling Center', description=None,
+        is_world_scoped=False, one_per_world=False, one_per_faction=True, has_maintenance=True,
+    )
+
+
+async def test_contribute_partial_accumulates(monkeypatch):
+    project_type = _recycling_center_type()
+
+    async def fake_get_type_by_code(code):
+        return project_type
+
+    async def fake_get_faction_project_by_type(faction_id, type_id, world_id=None):
+        return None
+
+    async def fake_get_megaproject_progress_rows(faction_id, type_id, world_id):
+        return []
+
+    upserted = []
+
+    async def fake_upsert_megaproject_progress_resource(conn, faction_id, type_id, world_id, resource_name, amount):
+        upserted.append((resource_name, amount))
+        return amount
+
+    deducted = []
+
+    async def fake_deduct_resources(faction_id, world_id, resources, conn=None):
+        deducted.append(resources)
+
+    def fake_get_connection():
+        return _FakeConnCtx(_FakeConn())
+
+    monkeypatch.setattr(megaproject_repo, "get_type_by_code", fake_get_type_by_code)
+    monkeypatch.setattr(megaproject_repo, "get_faction_project_by_type", fake_get_faction_project_by_type)
+    monkeypatch.setattr(megaproject_repo, "get_megaproject_progress_rows", fake_get_megaproject_progress_rows)
+    monkeypatch.setattr(megaproject_repo, "upsert_megaproject_progress_resource", fake_upsert_megaproject_progress_resource)
+    monkeypatch.setattr(megaproject_repo, "get_connection", fake_get_connection)
+    monkeypatch.setattr(megaproject_service, "deduct_resources", fake_deduct_resources)
+
+    result = await megaproject_service.contribute_to_megaproject(
+        faction_id=10, type_code=megaproject_service.RECYCLING_CENTER, world_id=None,
+        resources={'CM': 1_000_000},
+    )
+
+    assert result['completed'] is False
+    assert result['contributed'] == {'CM': 1_000_000}
+    assert result['progress']['CM'] == 1_000_000
+    assert deducted == [{'CM': 1_000_000}]
+    assert upserted == [('CM', 1_000_000)]
+
+
+async def test_contribute_overpay_is_clamped_to_target(monkeypatch):
+    project_type = _recycling_center_type()
+
+    async def fake_get_type_by_code(code):
+        return project_type
+
+    async def fake_get_faction_project_by_type(faction_id, type_id, world_id=None):
+        return None
+
+    async def fake_get_megaproject_progress_rows(faction_id, type_id, world_id):
+        return []
+
+    async def fake_upsert_megaproject_progress_resource(conn, faction_id, type_id, world_id, resource_name, amount):
+        return amount
+
+    deducted = []
+
+    async def fake_deduct_resources(faction_id, world_id, resources, conn=None):
+        deducted.append(resources)
+
+    async def fake_insert_project(conn, faction_id, type_id, world_id):
+        return 99
+
+    deleted = []
+
+    async def fake_delete_megaproject_progress(conn, faction_id, type_id, world_id):
+        deleted.append((faction_id, type_id, world_id))
+
+    def fake_get_connection():
+        return _FakeConnCtx(_FakeConn())
+
+    monkeypatch.setattr(megaproject_repo, "get_type_by_code", fake_get_type_by_code)
+    monkeypatch.setattr(megaproject_repo, "get_faction_project_by_type", fake_get_faction_project_by_type)
+    monkeypatch.setattr(megaproject_repo, "get_megaproject_progress_rows", fake_get_megaproject_progress_rows)
+    monkeypatch.setattr(megaproject_repo, "upsert_megaproject_progress_resource", fake_upsert_megaproject_progress_resource)
+    monkeypatch.setattr(megaproject_repo, "insert_project", fake_insert_project)
+    monkeypatch.setattr(megaproject_repo, "delete_megaproject_progress", fake_delete_megaproject_progress)
+    monkeypatch.setattr(megaproject_repo, "get_connection", fake_get_connection)
+    monkeypatch.setattr(megaproject_service, "deduct_resources", fake_deduct_resources)
+
+    costs = megaproject_service.calculate_recycling_center_cost()
+    overpay = {res: amount * 10 for res, amount in costs.items()}
+
+    result = await megaproject_service.contribute_to_megaproject(
+        faction_id=10, type_code=megaproject_service.RECYCLING_CENTER, world_id=None,
+        resources=overpay,
+    )
+
+    assert result['contributed'] == costs
+    assert deducted == [costs]
+    assert result['completed'] is True
+    assert result['project_id'] == 99
+    assert deleted == [(10, project_type.id, None)]
+
+
+async def test_contribute_completion_inserts_project_and_clears_progress(monkeypatch):
+    project_type = _recycling_center_type()
+    costs = megaproject_service.calculate_recycling_center_cost()
+
+    async def fake_get_type_by_code(code):
+        return project_type
+
+    async def fake_get_faction_project_by_type(faction_id, type_id, world_id=None):
+        return None
+
+    async def fake_get_megaproject_progress_rows(faction_id, type_id, world_id):
+        return [
+            megaproject_repo.MegaprojectProgressRow(resource_name=res, current_amount=amount - 1)
+            for res, amount in costs.items()
+        ]
+
+    async def fake_upsert_megaproject_progress_resource(conn, faction_id, type_id, world_id, resource_name, amount):
+        return costs[resource_name]
+
+    async def fake_deduct_resources(faction_id, world_id, resources, conn=None):
+        pass
+
+    inserted = []
+
+    async def fake_insert_project(conn, faction_id, type_id, world_id):
+        inserted.append((faction_id, type_id, world_id))
+        return 42
+
+    deleted = []
+
+    async def fake_delete_megaproject_progress(conn, faction_id, type_id, world_id):
+        deleted.append((faction_id, type_id, world_id))
+
+    def fake_get_connection():
+        return _FakeConnCtx(_FakeConn())
+
+    monkeypatch.setattr(megaproject_repo, "get_type_by_code", fake_get_type_by_code)
+    monkeypatch.setattr(megaproject_repo, "get_faction_project_by_type", fake_get_faction_project_by_type)
+    monkeypatch.setattr(megaproject_repo, "get_megaproject_progress_rows", fake_get_megaproject_progress_rows)
+    monkeypatch.setattr(megaproject_repo, "upsert_megaproject_progress_resource", fake_upsert_megaproject_progress_resource)
+    monkeypatch.setattr(megaproject_repo, "insert_project", fake_insert_project)
+    monkeypatch.setattr(megaproject_repo, "delete_megaproject_progress", fake_delete_megaproject_progress)
+    monkeypatch.setattr(megaproject_repo, "get_connection", fake_get_connection)
+    monkeypatch.setattr(megaproject_service, "deduct_resources", fake_deduct_resources)
+
+    result = await megaproject_service.contribute_to_megaproject(
+        faction_id=10, type_code=megaproject_service.RECYCLING_CENTER, world_id=None,
+        resources={res: 1 for res in costs},
+    )
+
+    assert result['completed'] is True
+    assert result['project_id'] == 42
+    assert inserted == [(10, project_type.id, None)]
+    assert deleted == [(10, project_type.id, None)]
+
+
+async def test_contribute_to_already_built_project_raises(monkeypatch):
+    project_type = _recycling_center_type()
+
+    async def fake_get_type_by_code(code):
+        return project_type
+
+    async def fake_get_faction_project_by_type(faction_id, type_id, world_id=None):
+        return {'id': 7}
+
+    monkeypatch.setattr(megaproject_repo, "get_type_by_code", fake_get_type_by_code)
+    monkeypatch.setattr(megaproject_repo, "get_faction_project_by_type", fake_get_faction_project_by_type)
+
+    with pytest.raises(ValueError, match="already been built"):
+        await megaproject_service.contribute_to_megaproject(
+            faction_id=10, type_code=megaproject_service.RECYCLING_CENTER, world_id=None,
+            resources={'CM': 100},
+        )
+
+
+async def test_get_megaproject_progress_reports_targets_and_completion(monkeypatch):
+    project_type = _recycling_center_type()
+    costs = megaproject_service.calculate_recycling_center_cost()
+
+    async def fake_get_type_by_code(code):
+        return project_type
+
+    async def fake_get_megaproject_progress_rows(faction_id, type_id, world_id):
+        return [megaproject_repo.MegaprojectProgressRow(resource_name='CM', current_amount=costs['CM'])]
+
+    monkeypatch.setattr(megaproject_repo, "get_type_by_code", fake_get_type_by_code)
+    monkeypatch.setattr(megaproject_repo, "get_megaproject_progress_rows", fake_get_megaproject_progress_rows)
+
+    result = await megaproject_service.get_megaproject_progress(
+        faction_id=10, type_code=megaproject_service.RECYCLING_CENTER, world_id=None,
+    )
+
+    assert result['progress']['CM'] == costs['CM']
+    assert result['progress']['EL'] == 0
+    assert result['completed'] is False

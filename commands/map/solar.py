@@ -4,7 +4,6 @@
 # permission from the copyright holder. Contact: f4rsantos@gmail.com
 
 import io
-import math
 from typing import Optional
 import discord
 from discord import app_commands
@@ -14,9 +13,11 @@ from utils.embeds import error_embed
 from services.solar_map_service import (
     render_solar_map,
     resolve_system,
+    resolve_body,
+    list_pageable_bodies,
+    list_focus_bodies,
+    center_pan_for_body,
     SolarMapError,
-    radial_pan_step,
-    angular_pan_step,
 )
 
 
@@ -31,7 +32,6 @@ class SolarMapView(discord.ui.View):
         pan_x: float = 0.0,
         pan_y: float = 0.0,
         focus: Optional[str] = None,
-        closest_body: Optional[str] = None,
     ):
         super().__init__(timeout=300)
         self.user_id = user_id
@@ -42,22 +42,51 @@ class SolarMapView(discord.ui.View):
         self.pan_x = pan_x
         self.pan_y = pan_y
         self.focus = focus
-        self.closest_body = closest_body
+
+        canonical_system, system_data = resolve_system(system)
+        canonical_focus = None
+        if focus:
+            try:
+                canonical_focus = resolve_body(focus, system_data)
+            except SolarMapError:
+                canonical_focus = focus
+        self.focus = canonical_focus
+
+        self._reload_pager_bodies()
+        self.index = 0
+        if canonical_focus:
+            for i, name in enumerate(self.bodies):
+                if name.lower() == canonical_focus.lower():
+                    self.index = i
+                    break
+
         self._update_button_states()
 
-    def _update_button_states(self):
+    def _reload_pager_bodies(self):
         if self.focus:
-            self.focus_btn.label = f"⊙ Focus ({self.focus})"
+            self.bodies = list_focus_bodies(self.system, self.focus)
+        else:
+            self.bodies = list_pageable_bodies(self.system)
+
+    def _current_body(self) -> Optional[str]:
+        if not self.bodies:
+            return None
+        return self.bodies[self.index]
+
+    def _update_button_states(self):
+        centered = self._current_body()
+        if self.focus:
+            self.focus_btn.label = f"Focus ({self.focus})"
             self.focus_btn.disabled = True
-            self.unfocus_btn.label = "↺ Overview"
+            self.unfocus_btn.label = "Overview"
             self.unfocus_btn.disabled = False
         else:
-            if self.closest_body:
-                self.focus_btn.label = f"⊙ Focus ({self.closest_body})"
+            if centered:
+                self.focus_btn.label = f"Focus ({centered})"
             else:
-                self.focus_btn.label = "⊙ Focus"
+                self.focus_btn.label = "Focus"
             self.focus_btn.disabled = False
-            self.unfocus_btn.label = "↺ Overview"
+            self.unfocus_btn.label = "Overview"
             self.unfocus_btn.disabled = (self.pan_x == 0 and self.pan_y == 0 and self.zoom == 1.0)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -68,6 +97,10 @@ class SolarMapView(discord.ui.View):
             )
             return False
         return True
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
 
     async def _rerender(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -85,7 +118,6 @@ class SolarMapView(discord.ui.View):
             await interaction.followup.send(embed=error_embed(str(e)), ephemeral=True)
             return
 
-        self.closest_body = closest_body
         self._update_button_states()
 
         file = discord.File(fp=io.BytesIO(image_bytes), filename="solar_map.png")
@@ -99,60 +131,72 @@ class SolarMapView(discord.ui.View):
         embed.set_footer(text=" • ".join(footer_parts))
         await interaction.edit_original_response(embed=embed, attachments=[file], view=self)
 
-    @discord.ui.button(label="＋ In", style=discord.ButtonStyle.primary, row=0)
+    def _center_on_current(self):
+        body = self._current_body()
+        if body is None:
+            return
+        self.pan_x, self.pan_y = center_pan_for_body(
+            self.system,
+            body,
+            date_str=self.date,
+            mode=self.mode,
+            zoom=self.zoom,
+            focus=self.focus,
+        )
+
+    @discord.ui.button(label="Zoom In", style=discord.ButtonStyle.primary, row=0)
     async def zoom_in_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
         self.zoom = min(round(self.zoom * 1.35, 2), 20.0)
+        self._center_on_current()
         await self._rerender(interaction)
 
-    @discord.ui.button(label="－ Out", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Zoom Out", style=discord.ButtonStyle.primary, row=0)
     async def zoom_out_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
         self.zoom = max(round(self.zoom / 1.35, 2), 0.2)
+        self._center_on_current()
         await self._rerender(interaction)
 
-    @discord.ui.button(label="◆ In", style=discord.ButtonStyle.secondary, row=1)
-    async def radial_in_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
-        step = max(60, int(300 / math.sqrt(self.zoom)))
-        self.pan_x, self.pan_y = radial_pan_step(self.pan_x, self.pan_y, step, "in")
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, row=1)
+    async def previous_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
+        if self.bodies:
+            self.index = (self.index - 1) % len(self.bodies)
+            self._center_on_current()
         await self._rerender(interaction)
 
-    @discord.ui.button(label="◇ Out", style=discord.ButtonStyle.secondary, row=1)
-    async def radial_out_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
-        step = max(60, int(300 / math.sqrt(self.zoom)))
-        self.pan_x, self.pan_y = radial_pan_step(self.pan_x, self.pan_y, step, "out")
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, row=1)
+    async def next_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
+        if self.bodies:
+            self.index = (self.index + 1) % len(self.bodies)
+            self._center_on_current()
         await self._rerender(interaction)
 
-    @discord.ui.button(label="↺ CCW", style=discord.ButtonStyle.secondary, row=1)
-    async def rotate_ccw_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
-        step = max(60, int(300 / math.sqrt(self.zoom)))
-        self.pan_x, self.pan_y = angular_pan_step(self.pan_x, self.pan_y, step, "ccw")
-        await self._rerender(interaction)
-
-    @discord.ui.button(label="↻ CW", style=discord.ButtonStyle.secondary, row=1)
-    async def rotate_cw_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
-        step = max(60, int(300 / math.sqrt(self.zoom)))
-        self.pan_x, self.pan_y = angular_pan_step(self.pan_x, self.pan_y, step, "cw")
-        await self._rerender(interaction)
-
-    @discord.ui.button(label="⊙ Focus", style=discord.ButtonStyle.success, row=2)
+    @discord.ui.button(label="Focus", style=discord.ButtonStyle.success, row=2)
     async def focus_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
-        if not self.focus and self.closest_body:
-            canonical_system, system_data = resolve_system(self.system)
-            moons = [name for name, data in system_data.items() if data.get("parent") == self.closest_body]
-            if moons:
-                self.focus = self.closest_body
-                self.pan_x = 0.0
-                self.pan_y = 0.0
-                self.zoom = 1.0
-            else:
-                self.zoom = min(round(self.zoom * 1.8, 2), 20.0)
+        if not self.focus:
+            centered = self._current_body()
+            if centered:
+                canonical_system, system_data = resolve_system(self.system)
+                moons = [name for name, data in system_data.items() if data.get("parent") == centered]
+                if moons:
+                    self.focus = centered
+                    self.pan_x = 0.0
+                    self.pan_y = 0.0
+                    self.zoom = 1.0
+                    self._reload_pager_bodies()
+                    self.index = 0
+                else:
+                    self.zoom = min(round(self.zoom * 1.8, 2), 20.0)
+                    self._center_on_current()
         await self._rerender(interaction)
 
-    @discord.ui.button(label="↺ Overview", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="Overview", style=discord.ButtonStyle.secondary, row=2)
     async def unfocus_btn(self, interaction: discord.Interaction, _: discord.ui.Button):
         self.focus = None
         self.pan_x = 0.0
         self.pan_y = 0.0
         self.zoom = 1.0
+        self._reload_pager_bodies()
+        self.index = 0
         await self._rerender(interaction)
 
 
@@ -206,13 +250,12 @@ async def solar(
         pan_x=0.0,
         pan_y=0.0,
         focus=focus,
-        closest_body=closest_body,
     )
 
     file = discord.File(fp=io.BytesIO(image_bytes), filename="solar_map.png")
     embed = discord.Embed(title=title, color=0x2B2D31)
     embed.set_image(url="attachment://solar_map.png")
-    
+
     footer_parts = [f"In-game date: {game_date_label}"]
     if focus:
         footer_parts.append(f"Focus: {focus}")
@@ -223,4 +266,3 @@ async def solar(
 
 async def setup(bot):
     bot.tree.add_command(solar)
-

@@ -115,6 +115,10 @@ class TransfersView(discord.ui.View):
         self.page = (self.page + 1) % self.total_pages
         await self._update(interaction)
 
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
 
 @app_commands.command(name="transfers", description="View pending resource transfers")
 @app_commands.describe(

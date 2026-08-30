@@ -5,7 +5,7 @@
 
 from typing import Optional
 from database.db_manager import db
-from dtos.megaproject import MegaprojectType, FactionMegaproject
+from dtos.megaproject import MegaprojectType, FactionMegaproject, MegaprojectProgressRow
 
 
 def get_connection():
@@ -169,6 +169,80 @@ async def snapshot_last_cycle_spend(conn) -> None:
         SELECT faction_id, resource_id, direction, amount FROM faction_weekly_spend
         """
     )
+
+
+async def get_megaproject_progress_rows(faction_id: int, megaproject_type_id: int, world_id: Optional[int]) -> list[MegaprojectProgressRow]:
+    if world_id is not None:
+        rows = await db.fetch(
+            """
+            SELECT r.name AS resource_name, mpr.current_amount
+            FROM megaproject_progress_resources mpr
+            JOIN resources r ON r.id = mpr.resource_id
+            WHERE mpr.faction_id = $1 AND mpr.megaproject_type_id = $2 AND mpr.world_id = $3
+            """,
+            faction_id, megaproject_type_id, world_id,
+        )
+    else:
+        rows = await db.fetch(
+            """
+            SELECT r.name AS resource_name, mpr.current_amount
+            FROM megaproject_progress_resources mpr
+            JOIN resources r ON r.id = mpr.resource_id
+            WHERE mpr.faction_id = $1 AND mpr.megaproject_type_id = $2 AND mpr.world_id IS NULL
+            """,
+            faction_id, megaproject_type_id,
+        )
+    return MegaprojectProgressRow.from_rows(rows)
+
+
+async def upsert_megaproject_progress_resource(
+    conn,
+    faction_id: int,
+    megaproject_type_id: int,
+    world_id: Optional[int],
+    resource_name: str,
+    amount: int,
+) -> int:
+    executor = conn if conn is not None else db
+    if world_id is not None:
+        row = await executor.fetchrow(
+            """
+            INSERT INTO megaproject_progress_resources (faction_id, megaproject_type_id, world_id, resource_id, current_amount, updated_at)
+            VALUES ($1, $2, $3, (SELECT id FROM resources WHERE name = $4), $5, CURRENT_TIMESTAMP)
+            ON CONFLICT (faction_id, megaproject_type_id, world_id, resource_id) WHERE world_id IS NOT NULL
+            DO UPDATE SET current_amount = megaproject_progress_resources.current_amount + $5,
+                          updated_at = CURRENT_TIMESTAMP
+            RETURNING current_amount
+            """,
+            faction_id, megaproject_type_id, world_id, resource_name, amount,
+        )
+    else:
+        row = await executor.fetchrow(
+            """
+            INSERT INTO megaproject_progress_resources (faction_id, megaproject_type_id, world_id, resource_id, current_amount, updated_at)
+            VALUES ($1, $2, NULL, (SELECT id FROM resources WHERE name = $3), $4, CURRENT_TIMESTAMP)
+            ON CONFLICT (faction_id, megaproject_type_id, resource_id) WHERE world_id IS NULL
+            DO UPDATE SET current_amount = megaproject_progress_resources.current_amount + $4,
+                          updated_at = CURRENT_TIMESTAMP
+            RETURNING current_amount
+            """,
+            faction_id, megaproject_type_id, resource_name, amount,
+        )
+    return row["current_amount"]
+
+
+async def delete_megaproject_progress(conn, faction_id: int, megaproject_type_id: int, world_id: Optional[int]) -> None:
+    executor = conn if conn is not None else db
+    if world_id is not None:
+        await executor.execute(
+            "DELETE FROM megaproject_progress_resources WHERE faction_id = $1 AND megaproject_type_id = $2 AND world_id = $3",
+            faction_id, megaproject_type_id, world_id,
+        )
+    else:
+        await executor.execute(
+            "DELETE FROM megaproject_progress_resources WHERE faction_id = $1 AND megaproject_type_id = $2 AND world_id IS NULL",
+            faction_id, megaproject_type_id,
+        )
 
 
 async def get_last_cycle_refined_spend(faction_id: int) -> dict:
