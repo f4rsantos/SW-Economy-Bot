@@ -65,7 +65,11 @@ async def get_vehicle_in_fleet(identifier: str, fleet_id: int, faction_id: int =
               AND (LOWER(v.name) = LOWER($2)
                 OR LOWER(CONCAT(v.name, ' ', v.designation)) = LOWER($2))
         """
-        return await db.fetchrow(query, fleet_id, identifier)
+        params = [fleet_id, identifier]
+        if faction_id is not None:
+            query += " AND v.faction_id = $3"
+            params.append(faction_id)
+        return await db.fetchrow(query, *params)
 
 
 async def get_vehicle_by_id_or_name(identifier: str, faction_id: int = None) -> dict:

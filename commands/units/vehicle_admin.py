@@ -81,7 +81,8 @@ async def buy_vehicle_free(
     unit_id="Unit ID or name",
     vehicle_id="Vehicle name or ID",
     amount="Number of vehicles to refund",
-    percentage="Refund percentage"
+    percentage="Refund percentage",
+    source_faction="Faction that owns the vehicle design (defaults to the unit's faction)"
 )
 @require_access_level(0)
 @ephemeral_capable('faction')
@@ -91,7 +92,8 @@ async def refund_vehicle_cmd(
     unit_id: str,
     vehicle_id: str,
     amount: int,
-    percentage: Literal["100%", "75%", "50%", "0%"]
+    percentage: Literal["100%", "75%", "50%", "0%"],
+    source_faction: Optional[str] = None
 ):
     await defer_response(interaction)
 
@@ -111,7 +113,14 @@ async def refund_vehicle_cmd(
     if not r_unit_data.ok: return await interaction.followup.send(embed=error_embed("Error", r_unit_data.error))
     unit_data = r_unit_data.data
 
-    target_vehicle = await get_vehicle_in_fleet(vehicle_id, unit_data['id'])
+    if source_faction:
+        r_src_faction = await require_faction(source_faction)
+        if not r_src_faction.ok: return await interaction.followup.send(embed=error_embed("Error", r_src_faction.error))
+        design_faction_id = r_src_faction.data.id
+    else:
+        design_faction_id = user_faction.id
+
+    target_vehicle = await get_vehicle_in_fleet(vehicle_id, unit_data['id'], design_faction_id)
     if not target_vehicle:
         await interaction.followup.send(embed=error_embed("Error", f"Vehicle '{vehicle_id}' not found in unit."))
         return

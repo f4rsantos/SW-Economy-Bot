@@ -23,40 +23,18 @@ from services.notification_service import (
     MODE_CHANNEL,
 )
 
-ALLEGIANCE_HELP = (
-    "Your allegiance is the faction you serve, shown on your user info card. "
-    "Declaring an allegiance sends a request that the faction's leader must approve "
-    "before it takes effect. Clearing your allegiance takes effect immediately."
-)
+ALLEGIANCE_HELP = "Declaring an allegiance sends a request that the faction's leader must approve. Clearing it is immediate."
 
-TREATMENT_HELP = (
-    "Your treatment is the title or style others use to address you, shown on your user info card. "
-    "You do not need to be a faction leader to set your own treatment."
-)
+TREATMENT_HELP = "Your treatment is the title others use to address you, shown on your user info card."
 
-EPHEMERAL_HELP = (
-    "When enabled, unit, vehicle, building, military and treasury commands reply "
-    "only to you, but only for factions you lead. Everything else stays public."
-)
+EPHEMERAL_HELP = "Unit, vehicle, building, military and treasury commands reply only to you, for factions you lead."
 
-VIEW_HELP = (
-    "Your personal bot settings. These replies are public, so anyone in the channel "
-    "can see them. Private Replies below controls your faction command replies, not this one."
-)
+VIEW_HELP = "Your personal bot settings. This reply is public."
 
-NOTIFY_HELP = (
-    "Get alerted when a transfer or a unit movement leaves or heads to a world where your "
-    "faction holds land or keeps a unit with vehicles. Alerts reach the faction's leader and "
-    "any member whose allegiance is approved for that faction, as long as they opt in below. "
-    "Turn on Own Activity to also be alerted about your own faction's transfers and movements."
-)
+NOTIFY_HELP = "Alerts on transfers and unit movements touching worlds where your faction holds land or keeps a unit."
 
-ACTIVITY_HELP = (
-    "Get alerted about your own faction's recruitment, fleet arrivals, battles "
-    "and income cycles. Alerts reach the faction's leader and any member whose allegiance is "
-    "approved for that faction, as long as they opt in below, and these alerts never cover "
-    "other factions' activity."
-)
+ACTIVITY_HELP = "Alerts on your own faction's recruitment, fleet arrivals, battles and income cycles."
+
 
 settings_group = app_commands.Group(name="settings", description="Manage your personal bot settings")
 

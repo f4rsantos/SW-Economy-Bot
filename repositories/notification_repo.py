@@ -20,11 +20,13 @@ async def get_interested_leader_rows(world_id: int, acting_faction_id: Optional[
             EXISTS (
               SELECT 1 FROM world_factions wf
               WHERE wf.world_id = $1 AND wf.faction_id = f.id
+                AND COALESCE(wf.territory, 0) > 0
             )
             OR EXISTS (
               SELECT 1 FROM fleets fl
               JOIN fleet_vehicles fv ON fv.fleet_id = fl.id
               WHERE fl.faction_id = f.id AND fl.position = $1
+                AND fv.amount > 0
             )
           )
 
@@ -39,11 +41,13 @@ async def get_interested_leader_rows(world_id: int, acting_faction_id: Optional[
             EXISTS (
               SELECT 1 FROM world_factions wf
               WHERE wf.world_id = $1 AND wf.faction_id = f.id
+                AND COALESCE(wf.territory, 0) > 0
             )
             OR EXISTS (
               SELECT 1 FROM fleets fl
               JOIN fleet_vehicles fv ON fv.fleet_id = fl.id
               WHERE fl.faction_id = f.id AND fl.position = $1
+                AND fv.amount > 0
             )
           )
         """,
@@ -86,7 +90,7 @@ async def get_fleet_context(fleet_id: int) -> Optional[dict]:
         """
         SELECT f.faction_id, f.name as fleet_name, w.id as world_id, w.name as world_name
         FROM fleets f
-        JOIN worlds w ON w.id = f.position
+        JOIN worlds w ON w.id = COALESCE(f.moving_to, f.position)
         WHERE f.id = $1
         """,
         fleet_id,

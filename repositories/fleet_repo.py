@@ -115,6 +115,55 @@ async def rename_fleet(fleet_id: int, new_name: str):
     await db.execute("UPDATE fleets SET name = $1 WHERE id = $2", new_name, fleet_id)
 
 
+async def set_fleet_number(fleet_id: int, faction_id: int, new_number: int) -> Optional[dict]:
+    async with db.get_connection() as conn:
+        async with conn.transaction():
+            current = await conn.fetchrow(
+                "SELECT faction_fleet_number FROM fleets WHERE id = $1 AND faction_id = $2 FOR UPDATE",
+                fleet_id, faction_id
+            )
+            if current is None:
+                return None
+            old_number = current['faction_fleet_number']
+            if old_number == new_number:
+                return {'old_number': old_number, 'swapped_fleet_id': None, 'swapped_name': None}
+
+            other = await conn.fetchrow(
+                """SELECT id, name FROM fleets
+                   WHERE faction_id = $1 AND faction_fleet_number = $2 FOR UPDATE""",
+                faction_id, new_number
+            )
+
+            if other is None:
+                await conn.execute(
+                    "UPDATE fleets SET faction_fleet_number = $1 WHERE id = $2",
+                    new_number, fleet_id
+                )
+                return {'old_number': old_number, 'swapped_fleet_id': None, 'swapped_name': None}
+
+            placeholder = await conn.fetchval(
+                "SELECT COALESCE(MIN(faction_fleet_number), 0) - 1 FROM fleets WHERE faction_id = $1",
+                faction_id
+            )
+            await conn.execute(
+                "UPDATE fleets SET faction_fleet_number = $1 WHERE id = $2",
+                placeholder, fleet_id
+            )
+            await conn.execute(
+                "UPDATE fleets SET faction_fleet_number = $1 WHERE id = $2",
+                old_number, other['id']
+            )
+            await conn.execute(
+                "UPDATE fleets SET faction_fleet_number = $1 WHERE id = $2",
+                new_number, fleet_id
+            )
+            return {
+                'old_number': old_number,
+                'swapped_fleet_id': other['id'],
+                'swapped_name': other['name'],
+            }
+
+
 async def delete_fleet(fleet_id: int):
     await db.execute("DELETE FROM fleets WHERE id = $1", fleet_id)
 

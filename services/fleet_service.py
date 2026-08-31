@@ -170,6 +170,18 @@ async def rename_fleet(fleet_id: int, new_name: str):
     await fleet_repo.rename_fleet(fleet_id, new_name)
 
 
+async def set_fleet_number(fleet_id: int, faction_id: int, new_number: int) -> dict:
+    if new_number < 1:
+        raise ValueError("Unit number must be at least 1.")
+    try:
+        result = await fleet_repo.set_fleet_number(fleet_id, faction_id, new_number)
+    except asyncpg.exceptions.RaiseError as e:
+        raise ValueError(str(e)) from e
+    if result is None:
+        raise ValueError("Unit not found for that faction.")
+    return result
+
+
 async def delete_fleet(fleet_id: int):
     await fleet_repo.delete_fleet(fleet_id)
 
