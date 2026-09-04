@@ -180,6 +180,15 @@ async def get_fleet_vehicles_rows(fleet_id: int):
     """, fleet_id)
 
 
+async def get_fleet_vehicle_data_rows(fleet_ids: list):
+    return await db.fetch("""
+        SELECT fv.fleet_id, fv.amount, v.vehicle_data
+        FROM fleet_vehicles fv
+        JOIN vehicles v ON fv.vehicle_id = v.id
+        WHERE fv.fleet_id = ANY($1)
+    """, fleet_ids)
+
+
 async def get_fleet_vehicle_count_row(fleet_id: int):
     return await db.fetchrow("""
         SELECT COALESCE(SUM(fv.amount), 0) as total

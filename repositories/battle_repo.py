@@ -94,17 +94,6 @@ async def get_fleet_costs(fleet_id: int) -> list:
     """, fleet_id)
 
 
-async def get_fleet_for_battle(fleet_identifier: str, faction_id: int) -> Optional[dict]:
-    return await db.fetchrow("""
-        SELECT f.id, f.name, f.position, w.name as position_name,
-               f.status_id, fs.name as status_name, f.total_cs
-        FROM fleets f
-        JOIN worlds w ON f.position = w.id
-        JOIN fleet_status fs ON f.status_id = fs.id
-        WHERE f.faction_id = $1 AND (f.id::text = $2 OR LOWER(f.name) = LOWER($2))
-    """, faction_id, fleet_identifier)
-
-
 async def get_battles(faction_id=None, world_id=None) -> List[BattleSummary]:
     _SIDES_SUBQUERY = """
         COALESCE(json_agg(DISTINCT jsonb_build_object(
@@ -163,7 +152,7 @@ async def set_fleet_status(fleet_id: int, status_id: int) -> None:
 
 async def get_user_fleets_in_battle(battle_id: int, faction_id: int) -> list:
     return await db.fetch("""
-        SELECT f.id, f.name FROM fleets f JOIN battle_participants bp ON f.id = bp.fleet_id
+        SELECT f.id, f.name, f.faction_fleet_number FROM fleets f JOIN battle_participants bp ON f.id = bp.fleet_id
         WHERE bp.battle_id = $1 AND f.faction_id = $2
     """, battle_id, faction_id)
 

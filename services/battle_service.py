@@ -71,10 +71,6 @@ async def get_fleet_costs(fleet_id: int) -> list:
     return await battle_repo.get_fleet_costs(fleet_id)
 
 
-async def get_fleet_for_battle(fleet_identifier: str, faction_id: int) -> Optional[dict]:
-    return await battle_repo.get_fleet_for_battle(fleet_identifier, faction_id)
-
-
 async def get_battles(faction_id=None, world_id=None) -> list:
     return await battle_repo.get_battles(faction_id, world_id)
 
@@ -95,7 +91,7 @@ async def leave_battle(battle_id: int, faction_id: int) -> dict:
     if not user_fleets:
         raise ValueError("Faction has no fleets in this battle.")
     fleet_ids = [f['id'] for f in user_fleets]
-    fleet_names = [f['name'] or f"Fleet #{f['id']}" for f in user_fleets]
+    fleet_names = [f['name'] or f"Unit #{f['faction_fleet_number']}" for f in user_fleets]
     await battle_repo.remove_battle_participants(battle_id, fleet_ids)
     idle_status = await battle_repo.get_fleet_status_by_name('idle')
     if idle_status:
@@ -111,6 +107,63 @@ async def create_standalone_war(world_name: str, faction_id: int, side: str) -> 
     war_id = row['id']
     await battle_repo.add_war_participant(war_id, faction_id, side)
     return war_id
+
+
+SIDE_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def next_side_letter(existing_sides) -> str:
+    taken = {str(side).strip().upper() for side in existing_sides if side}
+    for letter in SIDE_LETTERS:
+        if letter not in taken:
+            return letter
+    raise ValueError("No side labels remain available for this battle.")
+
+
+def sides_of(battle) -> list:
+    raw = getattr(battle, 'sides', None)
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+    sides = []
+    for entry in (raw or []):
+        if not isinstance(entry, dict):
+            continue
+        side = entry.get('side')
+        if side and side not in sides:
+            sides.append(side)
+    return sides
+
+
+async def enter_battle(fleet_id: int, faction_id: int, world_id: int, world_name: str,
+                       battle_id: Optional[int] = None, side: Optional[str] = None) -> dict:
+    if battle_id is None:
+        chosen_side = side or SIDE_LETTERS[0]
+        war_id = await create_standalone_war(world_name, faction_id, chosen_side)
+        new_battle_id = await start_battle(war_id, fleet_id, chosen_side, world_id)
+        stats = await battle_repo.get_battle_stats(new_battle_id)
+        return {
+            'battle_id': new_battle_id,
+            'war_id': war_id,
+            'side': chosen_side,
+            'created': True,
+            'stats': stats,
+        }
+
+    if side is None:
+        raise ValueError("A side must be chosen to join an existing battle.")
+
+    result = await join_battle(battle_id, fleet_id, side)
+    battle = await battle_repo.get_battle(battle_id)
+    return {
+        'battle_id': battle_id,
+        'war_id': battle.war_id if battle else None,
+        'side': side,
+        'created': False,
+        'stats': result['stats'],
+    }
 
 
 async def get_fleet_side_in_battle(battle_id: int, fleet_id: int) -> Optional[str]:

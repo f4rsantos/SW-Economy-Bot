@@ -107,6 +107,43 @@ def filter_visible_vehicles(vehicles: list, is_own: bool, status_name: Optional[
     return visible, hidden
 
 
+async def get_stealth_fleet_map(fleet_ids: list) -> dict:
+    from repositories import fleet_repo
+    if not fleet_ids:
+        return {}
+    rows = await fleet_repo.get_fleet_vehicle_data_rows(list(fleet_ids))
+    totals = {}
+    for row in rows:
+        fleet_id = row['fleet_id']
+        amount = row['amount'] or 0
+        all_stealth, ships = totals.get(fleet_id, (True, 0))
+        if not is_stealth_vehicle(row['vehicle_data']):
+            all_stealth = False
+        totals[fleet_id] = (all_stealth, ships + amount)
+    return {
+        fleet_id: ships
+        for fleet_id, (all_stealth, ships) in totals.items()
+        if all_stealth and ships > 0
+    }
+
+
+def is_masked_contact(is_own: bool, status_name, fleet_id: int, stealth_map: dict) -> bool:
+    if is_own or is_in_battle(status_name):
+        return False
+    return fleet_id in (stealth_map or {})
+
+
+def build_contact_labels(units, stealth_map: dict, viewer_faction_id, ref_mode: bool = False) -> dict:
+    labels = {}
+    counter = 0
+    for unit in units:
+        is_own = ref_mode or (viewer_faction_id is not None and unit.faction_id == viewer_faction_id)
+        if is_masked_contact(is_own, unit.status, unit.id, stealth_map):
+            counter += 1
+            labels[unit.id] = f"Contact {counter}"
+    return labels
+
+
 def filter_visible_buildings(buildings: list, is_own: bool, observed_worlds: set,
                              foreign_worlds: dict = None, owner_faction_id: int = None) -> tuple:
     if is_own:

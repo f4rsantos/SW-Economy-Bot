@@ -9,7 +9,7 @@ from utils.checks import require_access_level, ephemeral_capable, defer_response
 from utils.embeds import error_embed, manifest_block
 from utils.faction_utils import hex_to_int
 from utils.autocomplete import faction_autocomplete
-from services.building_efficiency_service import get_efficiency_info, round_efficiency, format_efficiency_pct, ceil_efficiency_pct, get_faction_infantry_penalty
+from services.building_efficiency_service import get_efficiency_info, round_efficiency, format_efficiency_pct, ceil_efficiency_pct, get_faction_infantry_penalty, EFFICIENCY_DECIMALS
 from services.building_service import get_company_er
 from services.national_spirit_service import get_national_spirits
 from services.validation_service import require_faction
@@ -85,9 +85,10 @@ async def efficiency(interaction: discord.Interaction, faction: str):
 
     modifier_rows = [["Base", "100%"]]
     building_eff = info.get('building_efficiency', 1.0)
-    building_penalty = max(0.0, round_efficiency(1.0 - building_eff))
-    if building_penalty > 0:
-        modifier_rows.append(["Buildings", f"-{format_efficiency_pct(building_penalty, 2)}%"])
+    building_penalty = max(0.0, round(1.0 - building_eff, EFFICIENCY_DECIMALS))
+    building_penalty_pct = format_efficiency_pct(building_penalty, 2)
+    if building_penalty_pct != "0":
+        modifier_rows.append(["Buildings", f"-{building_penalty_pct}%"])
 
     if info['is_specialized']:
         spec_label = f"Spec ({info['specialization_type'].upper()})"
@@ -96,8 +97,9 @@ async def efficiency(interaction: discord.Interaction, faction: str):
     for s in efficiency_spirits:
         modifier_rows.append([s.display_name, f"+{format_efficiency_pct(s.modifier_value, 2)}%"])
     infantry_penalty = info.get('infantry_penalty', await get_faction_infantry_penalty(faction_id))
-    if infantry_penalty > 0:
-        modifier_rows.append(["Infantry", f"-{format_efficiency_pct(infantry_penalty, 2)}%"])
+    infantry_penalty_pct = format_efficiency_pct(infantry_penalty, 2)
+    if infantry_penalty_pct != "0":
+        modifier_rows.append(["Infantry", f"-{infantry_penalty_pct}%"])
 
     fields.append({
         'name': "MODIFIERS",

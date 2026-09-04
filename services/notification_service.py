@@ -300,6 +300,7 @@ async def notify_fleet_departure(
     to_world_name: str,
     from_world_id: int,
     to_world_id: int,
+    is_stealth: bool = False,
 ):
     recipients = await _collect_recipients(
         from_world_id, to_world_id, faction_id, EVENT_MOVEMENT
@@ -310,21 +311,30 @@ async def notify_fleet_departure(
     owner = cache_manager.get_faction(faction_id)
     owner_name = owner.display_name if owner else "Unknown faction"
 
-    fields = [
+    own_fields = [
         {"name": "Faction", "value": owner_name, "inline": True},
         {"name": "From", "value": from_world_name, "inline": True},
         {"name": "To", "value": to_world_name, "inline": True},
         {"name": "Unit", "value": fleet_name, "inline": True},
         {"name": "Vehicles", "value": str(vehicle_count), "inline": True},
     ]
+    contact_fields = [
+        {"name": "From", "value": from_world_name, "inline": True},
+        {"name": "To", "value": to_world_name, "inline": True},
+        {"name": "Ships", "value": str(vehicle_count), "inline": True},
+    ]
 
     def build_embed(is_own: bool) -> discord.Embed:
-        description = (
-            f"Your unit has left {from_world_name} and is travelling to {to_world_name}."
-            if is_own
-            else f"A unit from {owner_name} has left {from_world_name} and is travelling to {to_world_name}."
-        )
-        return create_embed(title="Unit Movement Detected", description=description, fields=fields)
+        if is_own:
+            description = f"Your unit has left {from_world_name} and is travelling to {to_world_name}."
+            return create_embed(title="Unit Movement Detected", description=description, fields=own_fields)
+        if is_stealth:
+            description = (
+                f"An unidentified contact has left {from_world_name} and is travelling to {to_world_name}."
+            )
+            return create_embed(title="Unit Movement Detected", description=description, fields=contact_fields)
+        description = f"A unit from {owner_name} has left {from_world_name} and is travelling to {to_world_name}."
+        return create_embed(title="Unit Movement Detected", description=description, fields=own_fields)
 
     await _dispatch_variant(recipients, build_embed)
 

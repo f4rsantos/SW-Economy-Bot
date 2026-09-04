@@ -25,9 +25,12 @@ from services.intelligence_service import (
     has_presence_at_world,
     get_observed_worlds,
     filter_visible_vehicles,
+    get_stealth_fleet_map,
+    build_contact_labels,
 )
 
 UNITS_PER_PAGE = 10
+CONTACT_COLOR = 0x7f8c8d
 
 UPKEEP_DIVISORS = {
     'idle': 8, 'defence': 6, 'patrol': 6,
@@ -52,9 +55,14 @@ class UnitDetailView(View):
     def __init__(self, unit_data: dict, vehicles: list, faction_name: str, user_id: int,
                  faction_color: int, all_units: list, faction_id: int, world_mode: bool = False,
                  vehicle_resource_totals: dict = None, hidden_count: int = 0, ref_mode: bool = False,
-                 viewer_faction_id: int = None):
+                 viewer_faction_id: int = None, contact_labels: dict = None,
+                 stealth_map: dict = None, contact_label: str = None, ship_count: int = 0):
         super().__init__(timeout=180)
         self.viewer_faction_id = viewer_faction_id
+        self.contact_labels = contact_labels or {}
+        self.stealth_map = stealth_map or {}
+        self.contact_label = contact_label
+        self.ship_count = ship_count
         self.unit_data = unit_data
         self.vehicles = vehicles
         self.faction_name = faction_name
@@ -69,6 +77,11 @@ class UnitDetailView(View):
         self.vehicle_resource_totals = vehicle_resource_totals or {}
 
     async def create_detail_embed(self) -> discord.Embed:
+        if self.contact_label:
+            if self.hidden:
+                return discord.Embed(title=self.contact_label, description="[HIDDEN]", color=CONTACT_COLOR)
+            return await self.create_contact_embed()
+
         unit_name = self.unit_data['name'] or f"Unit #{self.unit_data['faction_fleet_number']}"
         if self.hidden:
             return discord.Embed(title=unit_name, description="[HIDDEN]", color=self.faction_color)
@@ -124,6 +137,25 @@ class UnitDetailView(View):
             embed.add_field(name=field['name'], value=field['value'], inline=field['inline'])
         return embed
 
+    async def create_contact_embed(self) -> discord.Embed:
+        position_text = self.unit_data['position']
+        if self.unit_data.get('moving_to_name'):
+            position_text = f"{self.unit_data['position']} → **{self.unit_data['moving_to_name']}**"
+            arrival_ts = await get_arrival_timestamp(
+                self.unit_data['position'], self.unit_data['moving_to_name'], self.unit_data.get('moving_since')
+            )
+            if arrival_ts:
+                position_text += f" (arrives <t:{arrival_ts}:R>)"
+        health = self.unit_data['health']
+        embed = discord.Embed(title=self.contact_label, color=CONTACT_COLOR)
+        embed.description = (
+            f"**Status:** {self.unit_data['status']}\n"
+            f"**Position:** {position_text}\n"
+            f"**Health:** `{progress_bar(health, 100)}` {health}%"
+        )
+        embed.add_field(name="Ships", value=f"{self.ship_count:,}", inline=False)
+        return embed
+
     @discord.ui.button(label="◀ Back to List", style=discord.ButtonStyle.secondary, row=0)
     async def back_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
@@ -131,7 +163,8 @@ class UnitDetailView(View):
             return
         view = UnitView(self.all_units, self.faction_id, self.faction_name, self.user_id,
                         self.faction_color, world_mode=self.world_mode,
-                        viewer_faction_id=self.viewer_faction_id, ref_mode=self.ref_mode)
+                        viewer_faction_id=self.viewer_faction_id, ref_mode=self.ref_mode,
+                        contact_labels=self.contact_labels, stealth_map=self.stealth_map)
         await interaction.response.edit_message(embed=await view.create_list_embed(), view=view)
 
     @discord.ui.button(label="Hide", style=discord.ButtonStyle.secondary, row=0)
@@ -166,8 +199,11 @@ class PageJumpModal(discord.ui.Modal, title="Jump to Page"):
 class UnitView(View):
     def __init__(self, units: list, faction_id: int, faction_name: str, user_id: int,
                  faction_color: int = 0x2ecc71, world_mode: bool = False,
-                 viewer_faction_id: int = None, ref_mode: bool = False):
+                 viewer_faction_id: int = None, ref_mode: bool = False,
+                 contact_labels: dict = None, stealth_map: dict = None):
         super().__init__(timeout=180)
+        self.contact_labels = contact_labels or {}
+        self.stealth_map = stealth_map or {}
         self.units = units
         self.faction_id = faction_id
         self.faction_name = faction_name
@@ -189,9 +225,14 @@ class UnitView(View):
         page_units = self.units[start:start + UNITS_PER_PAGE]
         options = []
         for u in page_units:
-            uname = u.name or f"Unit #{u.faction_fleet_number}"
+            contact_label = self.contact_labels.get(u.id)
+            if contact_label:
+                label = contact_label
+            else:
+                uname = u.name or f"Unit #{u.faction_fleet_number}"
+                label = f"#{u.faction_fleet_number} - {uname}"
             options.append(discord.SelectOption(
-                label=f"#{u.faction_fleet_number} - {uname}"[:100],
+                label=label[:100],
                 description=f"{u.status} at {u.position}"[:100],
                 value=str(u.id)
             ))
@@ -231,16 +272,25 @@ class UnitView(View):
         is_own = self.ref_mode or (
             self.viewer_faction_id is not None and unit_row.faction_id == self.viewer_faction_id
         )
-        vehicles, hidden_count = filter_visible_vehicles(
-            [dict(v) for v in vehicles], is_own, unit_row.status_name
-        )
+        contact_label = self.contact_labels.get(unit_id)
+        if contact_label:
+            vehicles, hidden_count = [], 0
+            vehicle_resource_totals = {}
+        else:
+            vehicles, hidden_count = filter_visible_vehicles(
+                [dict(v) for v in vehicles], is_own, unit_row.status_name
+            )
 
         detail_view = UnitDetailView(unit_data, vehicles, self.faction_name,
                                      self.user_id, self.faction_color, self.units,
                                      self.faction_id, world_mode=self.world_mode,
                                      vehicle_resource_totals=vehicle_resource_totals,
                                      hidden_count=hidden_count, ref_mode=self.ref_mode,
-                                     viewer_faction_id=self.viewer_faction_id)
+                                     viewer_faction_id=self.viewer_faction_id,
+                                     contact_labels=self.contact_labels,
+                                     stealth_map=self.stealth_map,
+                                     contact_label=contact_label,
+                                     ship_count=self.stealth_map.get(unit_id, 0))
         await interaction.response.edit_message(embed=await detail_view.create_detail_embed(), view=detail_view)
 
     async def create_list_embed(self) -> discord.Embed:
@@ -255,14 +305,27 @@ class UnitView(View):
             color=self.faction_color
         )
         for unit in page_units:
-            unit_name = unit.name or f"Unit #{unit.faction_fleet_number}"
-            upkeep = calculate_unit_upkeep(unit.total_cs, unit.status)
             position_text = unit.position
             if unit.moving_to_name:
                 position_text = f"{unit.position} → **{unit.moving_to_name}**"
                 arrival_ts = await get_arrival_timestamp(unit.position, unit.moving_to_name, unit.moving_since)
                 if arrival_ts:
                     position_text += f" <t:{arrival_ts}:R>"
+
+            contact_label = self.contact_labels.get(unit.id)
+            if contact_label:
+                info = (
+                    f"**Status:** {unit.status}\n"
+                    f"**Position:** {position_text}\n"
+                    f"**Health:** `{progress_bar(unit.health, 100)}` {unit.health}%\n"
+                    f"**Ships:** {self.stealth_map.get(unit.id, 0):,}"
+                    "\n​"
+                )
+                embed.add_field(name=contact_label, value=info, inline=False)
+                continue
+
+            unit_name = unit.name or f"Unit #{unit.faction_fleet_number}"
+            upkeep = calculate_unit_upkeep(unit.total_cs, unit.status)
             info = (
                 f"**ID:** #{unit.faction_fleet_number}\n"
                 + (f"**Faction:** {unit.faction_name}\n" if self.world_mode else "")
@@ -378,13 +441,6 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
             ))
             return
 
-        if faction_id is not None and faction_id != viewer_faction_id:
-            await interaction.followup.send(embed=error_embed(
-                "Intelligence insufficient",
-                "You can only look up your own faction. Use `ref:true` to view another faction openly."
-            ))
-            return
-
         if world_id is not None and not await has_presence_at_world(viewer_faction_id, world_id):
             await interaction.followup.send(embed=error_embed(
                 "Intelligence insufficient",
@@ -419,8 +475,17 @@ async def list_units(interaction: discord.Interaction, faction: str = None, worl
         view_faction_id = 0
         world_mode = True
 
-    view = UnitView(list(units), view_faction_id, view_name, interaction.user.id, view_color,
-                    world_mode=world_mode, viewer_faction_id=viewer_faction_id, ref_mode=ref)
+    units = list(units)
+    foreign_ids = [
+        u.id for u in units
+        if not (ref or (viewer_faction_id is not None and u.faction_id == viewer_faction_id))
+    ]
+    stealth_map = await get_stealth_fleet_map(foreign_ids)
+    contact_labels = build_contact_labels(units, stealth_map, viewer_faction_id, ref_mode=ref)
+
+    view = UnitView(units, view_faction_id, view_name, interaction.user.id, view_color,
+                    world_mode=world_mode, viewer_faction_id=viewer_faction_id, ref_mode=ref,
+                    contact_labels=contact_labels, stealth_map=stealth_map)
     await interaction.followup.send(embed=await view.create_list_embed(), view=view)
 
 

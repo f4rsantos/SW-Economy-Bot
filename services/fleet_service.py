@@ -64,11 +64,16 @@ async def _notify_movement(origin, destination_id: int):
     if not destination:
         return
 
+    from services.intelligence_service import get_stealth_fleet_map
+
     fleet_name = origin.name or f"Unit #{origin.faction_fleet_number}"
+    stealth_map = await get_stealth_fleet_map([origin.id])
+    is_stealth = origin.id in stealth_map
     await notification_service.notify_fleet_departure(
         origin.faction_id, fleet_name, vehicle_count,
         origin.position_name, destination['name'],
-        origin.position, destination_id
+        origin.position, destination_id,
+        is_stealth=is_stealth
     )
 
 
