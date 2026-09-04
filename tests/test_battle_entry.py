@@ -81,7 +81,7 @@ async def test_enter_battle_joins_existing_battle(monkeypatch):
         calls['join'] = (battle_id, fleet_id, side)
         return {'stats': []}
 
-    async def fake_get_battle(battle_id):
+    async def fake_get_battle(_battle_id):
         return SimpleNamespace(war_id=77)
 
     monkeypatch.setattr(battle_service, "join_battle", fake_join)
