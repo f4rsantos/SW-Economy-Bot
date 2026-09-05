@@ -234,10 +234,11 @@ async def test_weekly_spend_report_computes_net_change(monkeypatch):
 
     assert len(fake_channel.sent) == 1
     description = fake_channel.sent[0].description
-    assert "Total resources earned: 1 050" in description
+    assert "Total resources earned: 1 000 CM" in description
+    assert "50 ER" in description
     assert "Population change: -20" in description
-    assert "Total resources spent: 300" in description
-    assert "Change: +750" in description
+    assert "Total resources spent: 300 CM" in description
+    assert "Change: 700 CM" in description
 
 
 async def test_weekly_spend_report_skips_when_channel_missing(monkeypatch):

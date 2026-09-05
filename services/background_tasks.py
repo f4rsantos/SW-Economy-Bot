@@ -293,7 +293,7 @@ async def run_casino_weekly_trim():
 
 async def post_weekly_spend_report(resources_earned: dict, population_change: int):
     from services import spend_service
-    from utils.currency import handle_return
+    from utils.currency import handle_return, handle_return_multiple
     from utils.embeds import create_embed
 
     channel = await _find_channel_by_name(NATIONAL_UPDATES_CHANNEL_NAME)
@@ -302,17 +302,17 @@ async def post_weekly_spend_report(resources_earned: dict, population_change: in
         return
 
     async def post(spend_totals) -> bool:
-        earned_total = sum(resources_earned.values())
-        spent_total = sum(t.amount for t in spend_totals)
-        net_change = earned_total - spent_total
+        spent_by_resource = {t.resource_name: t.amount for t in spend_totals}
+        net_by_resource = dict(resources_earned)
+        for name, amount in spent_by_resource.items():
+            net_by_resource[name] = net_by_resource.get(name, 0) - amount
         try:
             population_sign = "+" if population_change > 0 else ""
-            net_sign = "+" if net_change > 0 else ""
             lines = [
-                f"Total resources earned: {handle_return(earned_total)}",
+                f"Total resources earned: {handle_return_multiple(resources_earned) or '0'}",
                 f"Population change: {population_sign}{handle_return(population_change)}",
-                f"Total resources spent: {handle_return(spent_total)}",
-                f"Change: {net_sign}{handle_return(net_change)}",
+                f"Total resources spent: {handle_return_multiple(spent_by_resource) or '0'}",
+                f"Change: {handle_return_multiple(net_by_resource) or '0'}",
             ]
             embed = create_embed(
                 title="Weekly National Report",

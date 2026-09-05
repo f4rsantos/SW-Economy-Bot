@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+import traceback
 import discord
 from discord import app_commands
 from utils.checks import require_access_level
