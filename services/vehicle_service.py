@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+import asyncpg
 from typing import Dict, Optional
 from repositories import vehicle_repo
 from dtos.vehicle import Vehicle
@@ -162,8 +163,8 @@ async def get_vehicle_costs(vehicle_id: int) -> Dict[str, int]:
     return {row.name: row.amount for row in results}
 
 
-async def list_vehicles(faction_id: int) -> list:
-    return await vehicle_repo.list_vehicles(faction_id)
+async def list_vehicles(faction_id: int, type_id: Optional[int] = None) -> list:
+    return await vehicle_repo.list_vehicles(faction_id, type_id)
 
 
 async def rename_vehicle(vehicle_id: int, faction_id: int, new_name: Optional[str], designation: Optional[str]) -> dict:
@@ -178,6 +179,21 @@ async def rename_vehicle(vehicle_id: int, faction_id: int, new_name: Optional[st
 async def set_vehicle_type(vehicle_id: int, type_id: int):
     await vehicle_repo.update_vehicle_type(vehicle_id, type_id)
     invalidate_vehicle_definition(vehicle_id)
+
+
+async def set_vehicle_number(vehicle_id: int, faction_id: int, new_number: int) -> dict:
+    if new_number < 1:
+        raise ValueError("Vehicle number must be at least 1.")
+    try:
+        result = await vehicle_repo.set_vehicle_number(vehicle_id, faction_id, new_number)
+    except asyncpg.exceptions.RaiseError as e:
+        raise ValueError(str(e)) from e
+    if result is None:
+        raise ValueError("Vehicle not found for that faction.")
+    invalidate_vehicle_definition(vehicle_id)
+    if result['swapped_vehicle_id'] is not None:
+        invalidate_vehicle_definition(result['swapped_vehicle_id'])
+    return result
 
 
 async def deregister_vehicle(vehicle_id: int):

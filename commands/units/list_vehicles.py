@@ -14,6 +14,7 @@ from utils.faction_utils import hex_to_int
 from utils.views import OwnerOnlyView
 from services.vehicle_service import list_vehicles as list_vehicles_service, get_vehicle_details
 from services.validation_service import require_faction
+from utils.autocomplete import vehicle_type_autocomplete
 
 VEHICLES_PER_PAGE = 10
 
@@ -263,10 +264,11 @@ class VehiclePaginationView(OwnerOnlyView):
 
 
 @app_commands.command(name="list", description="List all vehicles for a faction")
-@app_commands.describe(faction="Faction name")
+@app_commands.describe(faction="Faction name", type="Filter by vehicle type")
+@app_commands.autocomplete(type=vehicle_type_autocomplete)
 @require_access_level(0)
 @ephemeral_capable('faction')
-async def list_vehicles(interaction: discord.Interaction, faction: str):
+async def list_vehicles(interaction: discord.Interaction, faction: str, type: str = None):
     await defer_response(interaction)
 
     r_faction_data = await require_faction(faction)
@@ -275,7 +277,15 @@ async def list_vehicles(interaction: discord.Interaction, faction: str):
         return
     faction_data = r_faction_data.data
 
-    vehicles = await list_vehicles_service(faction_data.id)
+    type_id = None
+    if type:
+        from database.static_cache import static_cache
+        type_id = static_cache.get_vehicle_type_id(type)
+        if type_id is None:
+            await interaction.followup.send(embed=error_embed("Error", f"Vehicle type '{type}' not found."))
+            return
+
+    vehicles = await list_vehicles_service(faction_data.id, type_id)
 
     if not vehicles:
         await interaction.followup.send(embed=error_embed("Error", f"No vehicles found for {faction_data.display_name}."))

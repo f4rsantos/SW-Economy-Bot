@@ -117,8 +117,8 @@ async def get_vehicle_costs(vehicle_id: int) -> List[VehicleCostRow]:
     return VehicleCostRow.from_rows(rows)
 
 
-async def list_vehicles(faction_id: int) -> list:
-    rows = await db.fetch("""
+async def list_vehicles(faction_id: int, type_id: Optional[int] = None) -> list:
+    query = """
         SELECT v.id, v.name, v.designation, v.faction_vehicle_number,
                vt.name as type_name, v.vehicle_data,
                COALESCE(
@@ -130,9 +130,16 @@ async def list_vehicles(faction_id: int) -> list:
         LEFT JOIN vehicle_costs vc ON v.id = vc.vehicle_id
         LEFT JOIN resources r ON vc.resource_id = r.id
         WHERE v.faction_id = $1
+    """
+    args = [faction_id]
+    if type_id is not None:
+        query += " AND v.type = $2"
+        args.append(type_id)
+    query += """
         GROUP BY v.id, v.name, v.designation, v.faction_vehicle_number, vt.name, v.vehicle_data
         ORDER BY v.id
-    """, faction_id)
+    """
+    rows = await db.fetch(query, *args)
     return [dict(r) for r in rows]
 
 
@@ -153,6 +160,55 @@ async def update_vehicle_name_designation(new_name: Optional[str], designation: 
 
 async def update_vehicle_type(vehicle_id: int, type_id: int) -> None:
     await db.execute("UPDATE vehicles SET type = $1 WHERE id = $2", type_id, vehicle_id)
+
+
+async def set_vehicle_number(vehicle_id: int, faction_id: int, new_number: int) -> Optional[dict]:
+    async with db.get_connection() as conn:
+        async with conn.transaction():
+            current = await conn.fetchrow(
+                "SELECT faction_vehicle_number FROM vehicles WHERE id = $1 AND faction_id = $2 FOR UPDATE",
+                vehicle_id, faction_id
+            )
+            if current is None:
+                return None
+            old_number = current['faction_vehicle_number']
+            if old_number == new_number:
+                return {'old_number': old_number, 'swapped_vehicle_id': None, 'swapped_name': None}
+
+            other = await conn.fetchrow(
+                """SELECT id, name FROM vehicles
+                   WHERE faction_id = $1 AND faction_vehicle_number = $2 FOR UPDATE""",
+                faction_id, new_number
+            )
+
+            if other is None:
+                await conn.execute(
+                    "UPDATE vehicles SET faction_vehicle_number = $1 WHERE id = $2",
+                    new_number, vehicle_id
+                )
+                return {'old_number': old_number, 'swapped_vehicle_id': None, 'swapped_name': None}
+
+            placeholder = await conn.fetchval(
+                "SELECT COALESCE(MIN(faction_vehicle_number), 0) - 1 FROM vehicles WHERE faction_id = $1",
+                faction_id
+            )
+            await conn.execute(
+                "UPDATE vehicles SET faction_vehicle_number = $1 WHERE id = $2",
+                placeholder, vehicle_id
+            )
+            await conn.execute(
+                "UPDATE vehicles SET faction_vehicle_number = $1 WHERE id = $2",
+                old_number, other['id']
+            )
+            await conn.execute(
+                "UPDATE vehicles SET faction_vehicle_number = $1 WHERE id = $2",
+                new_number, vehicle_id
+            )
+            return {
+                'old_number': old_number,
+                'swapped_vehicle_id': other['id'],
+                'swapped_name': other['name']
+            }
 
 
 async def get_fleet_vehicle_total(vehicle_id: int) -> Optional[dict]:

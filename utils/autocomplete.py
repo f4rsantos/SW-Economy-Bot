@@ -64,6 +64,20 @@ async def port_world_autocomplete(interaction: discord.Interaction, current: str
     return choices
 
 
+async def vehicle_type_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    from database.static_cache import static_cache
+
+    current_lower = current.lower()
+    choices = []
+    for name in static_cache.vehicle_types_by_id.values():
+        if current_lower and current_lower not in name.lower():
+            continue
+        choices.append(app_commands.Choice(name=name, value=name))
+        if len(choices) >= 25:
+            break
+    return choices
+
+
 async def debris_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     from services.fleet_service import list_debris_fleets
     from services.validation_service import require_faction

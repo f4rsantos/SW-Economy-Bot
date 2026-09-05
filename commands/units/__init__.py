@@ -21,7 +21,7 @@ async def setup(bot):
         list_units, unit_create, delete_unit, unit_rename, unit_move, unit_status,
         buy_vehicle, list_vehicles, rename_vehicle, deregister_vehicle, transfer_vehicle,
         set_vehicle_type, factory_progress, vehicle_admin, repair_unit, damage_unit,
-        unit_type, refit, unit_number
+        unit_type, refit, unit_number, vehicle_number
     )
 
     unit_group = UnitGroup()
@@ -47,6 +47,7 @@ async def setup(bot):
     vehicle_group.add_command(vehicle_admin.buy_vehicle_free)
     vehicle_group.add_command(vehicle_admin.refund_vehicle_cmd)
     vehicle_group.add_command(refit.refit_cmd)
+    vehicle_group.add_command(vehicle_number.vehicle_number)
 
     bot.tree.add_command(unit_group)
     bot.tree.add_command(vehicle_group)
