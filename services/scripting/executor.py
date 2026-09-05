@@ -547,7 +547,14 @@ async def run_income_day_scripts(
 
     logger.info(f"  Running {len(scripts)} faction script(s) for income day ({income_weekday_name})")
 
-    faction_is_company = {f["id"]: f.get("is_company", False) for f in factions}
+    def _fval(row, key, default=None):
+        try:
+            value = row[key]
+        except (KeyError, IndexError, TypeError):
+            value = getattr(row, key, None)
+        return default if value is None else value
+
+    faction_is_company = {_fval(f, "id"): _fval(f, "is_company", False) for f in factions}
 
     for script_row in scripts:
         start = time.monotonic()

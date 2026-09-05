@@ -17,8 +17,21 @@ logger = logging.getLogger(__name__)
 
 INCOME_INTERVAL = timedelta(days=7)
 
+
+class IncomeCycleFailed(Exception):
+    pass
+
+
 _bot = None
 _skip_income = False
+
+
+def _row_value(row, key, default=None):
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        value = getattr(row, key, None)
+    return default if value is None else value
 
 
 async def handle_transfer_arrival(payload: dict):
@@ -165,15 +178,25 @@ async def check_income_cycle(skip_income: bool = False):
             global_resources_earned = {}
             global_population_change = 0
 
+            failed_factions = []
+
             async def _run_one(faction):
+                faction_id = _row_value(faction, 'id')
+                faction_label = _row_value(faction, 'name', default=f"id={faction_id}")
                 try:
-                    result = await execute_income(faction.id, shared_cache)
-                    return result
+                    return await execute_income(faction_id, shared_cache)
                 except Exception as e:
-                    logger.exception(f"  Error processing income for {faction.name}: {e}")
+                    failed_factions.append(faction_label)
+                    logger.exception(f"  Error processing income for {faction_label}: {e}")
                     return None
 
-            batch_results = await asyncio.gather(*[_run_one(f) for f in factions])
+            try:
+                batch_results = await asyncio.gather(*[_run_one(f) for f in factions])
+            finally:
+                spinner_running = False
+                await spinner_task
+                print("\r  Processing... done!    ")
+
             for result in batch_results:
                 if not result:
                     continue
@@ -181,9 +204,14 @@ async def check_income_cycle(skip_income: bool = False):
                     global_resources_earned[resource_name] = global_resources_earned.get(resource_name, 0) + amount
                 global_population_change += result['population_change']
 
-            spinner_running = False
-            await spinner_task
-            print("\r  Processing... done!    ")
+            if failed_factions:
+                logger.error(
+                    f"  Income failed for {len(failed_factions)}/{len(factions)} faction(s): "
+                    f"{', '.join(failed_factions)}"
+                )
+
+            if factions and len(failed_factions) == len(factions):
+                raise IncomeCycleFailed("INCOME ABORTED, all factions failed")
 
             try:
                 from services.scripting.executor import run_income_day_scripts
@@ -303,15 +331,30 @@ async def post_weekly_spend_report(resources_earned: dict, population_change: in
 
 
 async def handle_income_cycle(payload: dict):
-    await check_income_cycle(skip_income=_skip_income)
-    await event_queue.push_income_event()
+    reschedule = True
+    try:
+        await check_income_cycle(skip_income=_skip_income)
+    except IncomeCycleFailed as e:
+        reschedule = False
+        logger.error(str(e))
+    finally:
+        if reschedule:
+            try:
+                await event_queue.push_income_event()
+            except Exception as e:
+                logger.exception(f"Failed to reschedule income cycle event: {e}")
 
 
 async def handle_scripting_run(payload: dict):
     from services.scripting.executor import run_scheduled_scripts
-    await run_scheduled_scripts(current_time=datetime.now(timezone.utc))
-    next_run = datetime.now(timezone.utc) + timedelta(days=1)
-    await event_queue.push(next_run, 'scripting_run', {})
+    try:
+        await run_scheduled_scripts(current_time=datetime.now(timezone.utc))
+    finally:
+        next_run = datetime.now(timezone.utc) + timedelta(days=1)
+        try:
+            await event_queue.push(next_run, 'scripting_run', {})
+        except Exception as e:
+            logger.exception(f"Failed to reschedule scripting run: {e}")
 
 
 def _register_handlers():
