@@ -97,12 +97,12 @@ async def get_faction_building_ids_at_level(faction_id: int, level: int) -> set:
     return {r["building_id"] for r in rows}
 
 
-async def get_building_ids_supporting_level(level: int) -> set:
+async def get_levelable_building_ids() -> set:
     rows = await db.fetch("""
-        SELECT building_id FROM buildings_generators WHERE max_levels >= $1
+        SELECT building_id FROM buildings_generators
         UNION
-        SELECT building_id FROM buildings_storages WHERE max_levels >= $1
-    """, level)
+        SELECT building_id FROM buildings_storages
+    """)
     return {r["building_id"] for r in rows}
 
 

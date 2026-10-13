@@ -8,7 +8,7 @@ import logging
 import math
 from typing import List, Optional
 from repositories import fleet_repo
-from dtos.fleet import Fleet, FleetDamageInfo, FleetListing
+from dtos.fleet import Fleet, FleetListing
 from services import spend_service
 from services.building_efficiency_service import calculate_effective_efficiency
 from services.local_deduction import deduct_local_proportional
@@ -211,12 +211,6 @@ async def get_factory_progress(faction_id: int, world_id: Optional[int] = None) 
 
 async def get_fleets(faction_id: Optional[int] = None, world_id: Optional[int] = None) -> List[FleetListing]:
     return await fleet_repo.get_fleets(faction_id, world_id)
-
-
-async def get_fleet_for_damage(fleet_identifier: str, faction_id: Optional[int]) -> Optional[FleetDamageInfo]:
-    if faction_id:
-        return await fleet_repo.get_fleet_for_damage_row_with_faction(fleet_identifier, faction_id)
-    return await fleet_repo.get_fleet_for_damage_row(fleet_identifier)
 
 
 async def list_debris_fleets(faction_id: Optional[int] = None, world_id: Optional[int] = None) -> list[dict]:

@@ -124,66 +124,46 @@ async def get_fleet_vehicle_count(fleet_id: int) -> int:
     return int(row["total"]) if row else 0
 
 
-async def set_user_notify_mode(user_id: int, mode: str, channel_id: Optional[int]) -> Optional[User]:
+async def set_user_notify_settings(
+    user_id: int,
+    mode: str,
+    channel_id: Optional[int],
+    flags: dict,
+    world_mode: str,
+    world_ids: list,
+) -> Optional[User]:
     row = await db.fetchrow(
-        "UPDATE users SET notify_mode = $2, notify_channel_id = $3 WHERE id = $1 RETURNING *",
+        """
+        UPDATE users
+        SET notify_mode = $2,
+            notify_channel_id = $3,
+            notify_transfers = $4,
+            notify_movements = $5,
+            notify_origin = $6,
+            notify_destination = $7,
+            notify_own = $8,
+            notify_recruitment = $9,
+            notify_fleet_arrival = $10,
+            notify_battle = $11,
+            notify_income = $12,
+            notify_world_mode = $13,
+            notify_world_ids = $14::int[]
+        WHERE id = $1
+        RETURNING *
+        """,
         user_id,
         mode,
         channel_id,
-    )
-    return User.from_row(row) if row else None
-
-
-async def set_user_notify_events(
-    user_id: int,
-    transfers: bool,
-    movements: bool,
-    origin: bool,
-    destination: bool,
-    own: bool,
-) -> Optional[User]:
-    row = await db.fetchrow(
-        """
-        UPDATE users
-        SET notify_transfers = $2,
-            notify_movements = $3,
-            notify_origin = $4,
-            notify_destination = $5,
-            notify_own = $6
-        WHERE id = $1
-        RETURNING *
-        """,
-        user_id,
-        transfers,
-        movements,
-        origin,
-        destination,
-        own,
-    )
-    return User.from_row(row) if row else None
-
-
-async def set_user_notify_activity(
-    user_id: int,
-    recruitment: bool,
-    fleet_arrival: bool,
-    battle: bool,
-    income: bool,
-) -> Optional[User]:
-    row = await db.fetchrow(
-        """
-        UPDATE users
-        SET notify_recruitment = $2,
-            notify_fleet_arrival = $3,
-            notify_battle = $4,
-            notify_income = $5
-        WHERE id = $1
-        RETURNING *
-        """,
-        user_id,
-        recruitment,
-        fleet_arrival,
-        battle,
-        income,
+        flags["transfers"],
+        flags["movements"],
+        flags["origin"],
+        flags["destination"],
+        flags["own"],
+        flags["recruitment"],
+        flags["fleet_arrival"],
+        flags["battle"],
+        flags["income"],
+        world_mode,
+        world_ids,
     )
     return User.from_row(row) if row else None

@@ -233,12 +233,11 @@ async def test_weekly_spend_report_computes_net_change(monkeypatch):
     )
 
     assert len(fake_channel.sent) == 1
-    description = fake_channel.sent[0].description
-    assert "Total resources earned: 1 000 CM" in description
-    assert "50 ER" in description
-    assert "Population change: -20" in description
-    assert "Total resources spent: 300 CM" in description
-    assert "Change: 700 CM" in description
+    embed = fake_channel.sent[0]
+    assert embed.title == "Weekly National Report"
+    assert "CM" in embed.description and "+700" in embed.description
+    assert "ER" in embed.description and "+50" in embed.description
+    assert "Population fell by 20" in embed.description
 
 
 async def test_weekly_spend_report_skips_when_channel_missing(monkeypatch):
@@ -335,5 +334,5 @@ async def test_multi_cycle_catch_up_reports_and_resets_each_cycle_independently(
 
     assert call_count['n'] == 2
     assert len(fake_channel.sent) == 2
-    assert "Total resources spent: 100" in fake_channel.sent[0].description
-    assert "Total resources spent: 50" in fake_channel.sent[1].description
+    assert "+400" in fake_channel.sent[0].description
+    assert "+150" in fake_channel.sent[1].description

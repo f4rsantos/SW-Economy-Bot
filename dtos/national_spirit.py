@@ -21,7 +21,7 @@ class NationalSpirit:
         return cls(
             display_name=row["display_name"],
             effect_type=row["effect_type"],
-            modifier_value=row["modifier_value"],
+            modifier_value=float(row["modifier_value"]),
             granted_at=row["granted_at"],
             expires_at=row["expires_at"],
         )

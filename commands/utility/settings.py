@@ -15,13 +15,13 @@ from services.user_service import (
 from services.validation_service import require_faction
 from services.notification_service import (
     get_user_notification_settings,
-    set_notification_mode,
-    set_notification_events,
-    set_notification_activity,
     MODE_OFF,
     MODE_DM,
     MODE_CHANNEL,
+    WORLD_MODE_ALL,
 )
+from database.static_cache import static_cache
+from commands.utility._notification_modal import NotificationSettingsModal, WORLD_MODE_LABELS
 
 ALLEGIANCE_HELP = "Declaring an allegiance sends a request that the faction's leader must approve. Clearing it is immediate."
 
@@ -31,9 +31,6 @@ EPHEMERAL_HELP = "Unit, vehicle, building, military and treasury commands reply 
 
 VIEW_HELP = "Your personal bot settings. This reply is public."
 
-NOTIFY_HELP = "Alerts on transfers and unit movements touching worlds where your faction holds land or keeps a unit."
-
-ACTIVITY_HELP = "Alerts on your own faction's recruitment, fleet arrivals, battles and income cycles."
 
 
 settings_group = app_commands.Group(name="settings", description="Manage your personal bot settings")
@@ -59,109 +56,20 @@ async def settings_ephemeral(interaction: discord.Interaction, enabled: bool):
     await interaction.followup.send(embed=embed)
 
 
-@settings_group.command(name="notifications", description="Choose where movement alerts are sent")
-@app_commands.describe(
-    mode="Where to receive alerts",
-    channel="Channel to post alerts in, required when mode is channel"
-)
-@app_commands.choices(mode=[
-    app_commands.Choice(name="Off", value=MODE_OFF),
-    app_commands.Choice(name="Direct message", value=MODE_DM),
-    app_commands.Choice(name="Channel", value=MODE_CHANNEL),
-])
+def _world_names(world_ids) -> list:
+    names = []
+    for world_id in world_ids:
+        world = static_cache.get_world_by_id(world_id)
+        names.append(world["name"] if world else str(world_id))
+    return names
+
+
+@settings_group.command(name="notifications", description="Configure where alerts go, which alerts you get and for which worlds")
 @require_access_level(0)
-async def settings_notifications(
-    interaction: discord.Interaction,
-    mode: app_commands.Choice[str],
-    channel: discord.TextChannel = None
-):
-    await interaction.response.defer()
-
-    try:
-        await set_notification_mode(interaction.user.id, mode.value, channel.id if channel else None)
-    except ValueError as e:
-        await interaction.followup.send(embed=error_embed("Error", str(e)))
-        return
-
-    if mode.value == MODE_CHANNEL:
-        target = f"in {channel.mention}"
-    elif mode.value == MODE_DM:
-        target = "by direct message"
-    else:
-        target = "nowhere, alerts are off"
-
-    embed = success_embed(
-        title="Notifications Updated",
-        description=f"Movement alerts will be sent {target}.\n\n{NOTIFY_HELP}"
-    )
-    await interaction.followup.send(embed=embed)
-
-
-@settings_group.command(name="notification_events", description="Pick which movement alerts you receive")
-@app_commands.describe(
-    transfers="Alert on resource transfers",
-    movements="Alert on unit movements",
-    origin="Alert when something leaves one of your worlds",
-    destination="Alert when something is heading to one of your worlds",
-    own_activity="Also alert on your own faction's transfers and movements"
-)
-@require_access_level(0)
-async def settings_notification_events(
-    interaction: discord.Interaction,
-    transfers: bool,
-    movements: bool,
-    origin: bool,
-    destination: bool,
-    own_activity: bool
-):
-    await interaction.response.defer()
-
-    try:
-        await set_notification_events(interaction.user.id, transfers, movements, origin, destination, own_activity)
-    except ValueError as e:
-        await interaction.followup.send(embed=error_embed("Error", str(e)))
-        return
-
-    embed = success_embed(title="Notification Events Updated", description=NOTIFY_HELP)
-    embed.add_field(name="Transfers", value=f"`{'On' if transfers else 'Off'}`", inline=True)
-    embed.add_field(name="Unit Movements", value=f"`{'On' if movements else 'Off'}`", inline=True)
-    embed.add_field(name="Leaving Your Worlds", value=f"`{'On' if origin else 'Off'}`", inline=True)
-    embed.add_field(name="Heading To Your Worlds", value=f"`{'On' if destination else 'Off'}`", inline=True)
-    embed.add_field(name="Own Activity", value=f"`{'On' if own_activity else 'Off'}`", inline=True)
-    await interaction.followup.send(embed=embed)
-
-
-@settings_group.command(name="activity_events", description="Pick which own faction activity alerts you receive")
-@app_commands.describe(
-    recruitment="Alert when your recruitment orders finish",
-    fleet_arrival="Alert when your units arrive at a destination",
-    battle="Alert when a battle your faction is in ends",
-    income="Alert when the weekly income cycle completes"
-)
-@require_access_level(0)
-async def settings_activity_events(
-    interaction: discord.Interaction,
-    recruitment: bool,
-    fleet_arrival: bool,
-    battle: bool,
-    income: bool
-):
-    await interaction.response.defer()
-
-    try:
-        await set_notification_activity(
-            interaction.user.id, recruitment, fleet_arrival, battle, income
-        )
-    except ValueError as e:
-        await interaction.followup.send(embed=error_embed("Error", str(e)))
-        return
-
-    embed = success_embed(title="Activity Alerts Updated", description=ACTIVITY_HELP)
-    embed.add_field(name="Recruitment", value=f"`{'On' if recruitment else 'Off'}`", inline=True)
-    embed.add_field(name="Fleet Arrival", value=f"`{'On' if fleet_arrival else 'Off'}`", inline=True)
-    embed.add_field(name="Battle", value=f"`{'On' if battle else 'Off'}`", inline=True)
-    embed.add_field(name="Income Cycle", value=f"`{'On' if income else 'Off'}`", inline=True)
-    await interaction.followup.send(embed=embed)
+async def settings_notifications(interaction: discord.Interaction):
+    current = await get_user_notification_settings(interaction.user.id)
+    modal = NotificationSettingsModal(current, _world_names(current["world_ids"]))
+    await interaction.response.send_modal(modal)
 
 
 @settings_group.command(name="allegiance", description="Request the faction you serve on your user info card")
@@ -253,6 +161,10 @@ async def settings_view(interaction: discord.Interaction):
         embed.add_field(name="Fleet Arrival Alerts", value=f"`{'On' if notify['fleet_arrival'] else 'Off'}`", inline=True)
         embed.add_field(name="Battle Alerts", value=f"`{'On' if notify['battle'] else 'Off'}`", inline=True)
         embed.add_field(name="Income Cycle Alerts", value=f"`{'On' if notify['income'] else 'Off'}`", inline=True)
+        world_filter = dict(WORLD_MODE_LABELS)[notify["world_mode"]]
+        if notify["world_mode"] != WORLD_MODE_ALL:
+            world_filter += f": {', '.join(_world_names(notify['world_ids']))}"
+        embed.add_field(name="World Filter", value=world_filter[:1024], inline=False)
     await interaction.followup.send(embed=embed)
 
 

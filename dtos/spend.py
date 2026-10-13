@@ -11,12 +11,14 @@ from typing import List
 class WeeklySpendTotal:
     resource_name: str
     amount: int
+    refunded: int = 0
 
     @classmethod
     def from_row(cls, row) -> "WeeklySpendTotal":
         return cls(
             resource_name=row["resource_name"],
             amount=row["amount"],
+            refunded=row["refunded"] if "refunded" in row else 0,
         )
 
     @classmethod

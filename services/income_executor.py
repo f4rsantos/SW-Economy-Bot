@@ -52,11 +52,13 @@ from repositories.income_repo import (
     apply_fleet_damage,
     mark_fleets_as_debris,
     apply_income_cycle,
+    transfer_treasury_resource,
 )
 from repositories.econ_repo import get_max_population_capacity
 from services.income_calculator import (
     POPULATION_PER_CS,
     STORABLE_RESOURCES,
+    WORLD_TRADE_RESOURCES,
     calculate_influence_cost_from_pacts,
     calculate_fleet_cs_cost,
     calculate_fleet_cs_cost_by_system,
@@ -157,6 +159,8 @@ async def _process_trade_deals(
 
     for trade in trades:
         resource_name = trade['resource_name']
+        if resource_name not in WORLD_TRADE_RESOURCES:
+            continue
         resource_id = trade['resource_id']
         amount = trade['amount']
         receiver_id = trade['receiver_faction_id']
@@ -240,6 +244,20 @@ async def _process_trade_deals(
             transfers_to_create.append(transfer)
 
     return world_resources, transfers_to_create
+
+
+async def _apply_treasury_trades(faction_id: int, trades: list):
+    for trade in trades:
+        resource_name = trade['resource_name']
+        try:
+            moved = await transfer_treasury_resource(
+                faction_id, trade['receiver_faction_id'], trade['resource_id'], trade['amount']
+            )
+        except Exception:
+            logger.exception(f"  [Trade #{trade['id']}] Treasury transfer failed")
+            continue
+        if moved < trade['amount']:
+            logger.warning(f"  [Trade #{trade['id']}] Partial: {moved:,}/{trade['amount']:,} {resource_name}")
 
 
 async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
@@ -346,6 +364,9 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
         faction_id, world_resources, stock_map, blockaded_world_ids
     )
     preview['transfers'] = transfers
+    preview['treasury_trades'] = [
+        dict(trade) for trade in trade_rows if trade['resource_name'] not in WORLD_TRADE_RESOURCES
+    ]
 
     for wid, resources in world_resources.items():
         preview['worlds'][wid]['net_cs_pre_upkeep'] = resources.get('CS', 0)
@@ -357,10 +378,15 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
     for wid in world_resources.keys():
         worlds_by_system.setdefault(static_cache.get_system_id(wid), []).append(wid)
 
+    upkeep_trace: Dict[int, Dict] = {
+        sid: {'needed': needed, 'flow_drawn': 0, 'stock_drawn': 0, 'worlds': [], 'stock_worlds': []}
+        for sid, needed in remaining_by_system.items()
+    }
     for system_id, remaining in remaining_by_system.items():
         if remaining <= 0:
             continue
         for wid in worlds_by_system.get(system_id, []):
+            upkeep_trace[system_id]['worlds'].append((wid, world_resources[wid].get('CS', 0)))
             if remaining <= 0:
                 break
             available = max(0, world_resources[wid].get('CS', 0))
@@ -368,6 +394,7 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
             if drawn > 0:
                 world_resources[wid]['CS'] = world_resources[wid].get('CS', 0) - drawn
                 remaining -= drawn
+                upkeep_trace[system_id]['flow_drawn'] += drawn
         remaining_by_system[system_id] = remaining
 
     total_remaining_fleet_cs = sum(max(0, r) for r in remaining_by_system.values())
@@ -383,7 +410,12 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
         needed_for_stock_withdrawal = {sid: r for sid, r in remaining_by_system.items() if r > 0}
         cs_withdrawals_by_system = plan_cs_withdrawals_by_system(needed_for_stock_withdrawal, worlds_cs_by_system)
 
+        for system_id, rows in worlds_cs_by_system.items():
+            if system_id in upkeep_trace:
+                upkeep_trace[system_id]['stock_worlds'] = [(r['world_id'], r['cs_amount']) for r in rows]
+
         for system_id, withdrawals in cs_withdrawals_by_system.items():
+            upkeep_trace[system_id]['stock_drawn'] = sum(withdrawals.values())
             for wid, withdrawn in withdrawals.items():
                 world_resources.setdefault(wid, {})
                 world_resources[wid]['CS'] = world_resources[wid].get('CS', 0) - withdrawn
@@ -392,6 +424,7 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
 
     preview['usages']['fleet_cs_paid'] = fleet_cs_needed - sum(max(0, r) for r in remaining_by_system.values())
     preview['_cs_deficit_by_system'] = {sid: r for sid, r in remaining_by_system.items() if r > 0}
+    preview['_cs_upkeep_trace'] = upkeep_trace
 
     for wid, resources in world_resources.items():
         if wid not in preview['worlds']:
@@ -533,6 +566,12 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
     if scope_level >= SCOPE_LEVELS['extractors_refineries_trade_upkeep']:
         cs_deficit_by_system = preview.get('_cs_deficit_by_system', {})
         if cs_deficit_by_system:
+            trace = preview.get('_cs_upkeep_trace', {})
+            for system_id, deficit in cs_deficit_by_system.items():
+                logger.warning(
+                    f"  [CS upkeep] faction {faction_id} system {system_id} "
+                    f"({static_cache.get_system_name(system_id)}) deficit {deficit:,}: {trace.get(system_id)}"
+                )
             await process_fleet_cs_damage_by_system(faction_id, cs_deficit_by_system)
 
     if scope_level >= SCOPE_LEVELS['extractors_refineries_trade']:
@@ -618,6 +657,9 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
         json.dumps(population_deltas),
         json.dumps(transfers_payload),
     )
+
+    if scope_level >= SCOPE_LEVELS['extractors_refineries_trade']:
+        await _apply_treasury_trades(faction_id, preview.get('treasury_trades', []))
 
     if transfers_payload:
         try:

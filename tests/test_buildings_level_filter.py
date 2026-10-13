@@ -26,3 +26,10 @@ async def test_building_ids_supporting_level(fake_db):
     fake_db.fetch_queue.append([{"building_id": 1}, {"building_id": 2}])
     ids = await get_building_ids_supporting_level(level=3)
     assert ids == {1, 2}
+
+
+@pytest.mark.asyncio
+async def test_building_ids_supporting_level_out_of_range(fake_db):
+    assert await get_building_ids_supporting_level(level=11) == set()
+    assert await get_building_ids_supporting_level(level=0) == set()
+    assert fake_db.executed == []

@@ -24,6 +24,8 @@ class User:
     notify_fleet_arrival: bool
     notify_battle: bool
     notify_income: bool
+    notify_world_mode: str
+    notify_world_ids: Tuple[int, ...]
     allegiance: Optional[str]
     treatment: Optional[str]
 
@@ -42,6 +44,8 @@ class User:
         notify_fleet_arrival = row["notify_fleet_arrival"] if "notify_fleet_arrival" in row else True
         notify_battle = row["notify_battle"] if "notify_battle" in row else True
         notify_income = row["notify_income"] if "notify_income" in row else True
+        notify_world_mode = row["notify_world_mode"] if "notify_world_mode" in row else None
+        notify_world_ids = row["notify_world_ids"] if "notify_world_ids" in row else None
         allegiance = row["allegiance"] if "allegiance" in row else None
         treatment = row["treatment"] if "treatment" in row else None
         return cls(
@@ -60,6 +64,8 @@ class User:
             notify_fleet_arrival=bool(notify_fleet_arrival),
             notify_battle=bool(notify_battle),
             notify_income=bool(notify_income),
+            notify_world_mode=notify_world_mode or "all",
+            notify_world_ids=tuple(notify_world_ids) if notify_world_ids else (),
             allegiance=allegiance,
             treatment=treatment,
         )

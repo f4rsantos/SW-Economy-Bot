@@ -21,10 +21,14 @@ async def require_faction_by_id(faction_id: int) -> Result:
 
 
 async def require_world(name: str) -> Result:
+    name = name.strip()
     data = static_cache.get_world(name)
     if not data:
         from services.map_service import get_world
         data = await get_world(name)
+    if not data and name.isdigit():
+        from services.map_service import get_world_by_id
+        data = static_cache.get_world_by_id(int(name)) or await get_world_by_id(int(name))
     return Result.success(data) if data else Result.fail(f"World '{name}' not found.")
 
 

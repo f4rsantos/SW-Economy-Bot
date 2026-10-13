@@ -87,32 +87,3 @@ class FleetListing:
     @classmethod
     def from_rows(cls, rows) -> List["FleetListing"]:
         return [cls.from_row(row) for row in rows]
-
-
-@dataclass(frozen=True, slots=True)
-class FleetDamageInfo:
-    id: int
-    name: Optional[str]
-    faction_id: int
-    faction_name: str
-    faction_color: str
-    health: int
-    total_cs: int
-    status_name: str
-
-    @classmethod
-    def from_row(cls, row) -> "FleetDamageInfo":
-        return cls(
-            id=row["id"],
-            name=row["name"],
-            faction_id=row["faction_id"],
-            faction_name=row["faction_name"],
-            faction_color=row["faction_color"],
-            health=row["health"],
-            total_cs=row["total_cs"],
-            status_name=row["status_name"],
-        )
-
-    @classmethod
-    def from_rows(cls, rows) -> List["FleetDamageInfo"]:
-        return [cls.from_row(row) for row in rows]

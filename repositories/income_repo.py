@@ -493,6 +493,29 @@ async def apply_income_cycle(faction_id: int, er_delta, influence_delta,
     )
 
 
+async def transfer_treasury_resource(from_faction_id: int, to_faction_id: int, resource_id: int, amount: int) -> int:
+    async with db.get_connection() as conn:
+        async with conn.transaction():
+            available = await conn.fetchval(
+                "SELECT amount FROM faction_treasury WHERE faction_id = $1 AND resource_id = $2 FOR UPDATE",
+                from_faction_id, resource_id,
+            )
+            moved = min(int(available or 0), int(amount))
+            if moved <= 0:
+                return 0
+            await conn.execute(
+                "UPDATE faction_treasury SET amount = amount - $3 WHERE faction_id = $1 AND resource_id = $2",
+                from_faction_id, resource_id, moved,
+            )
+            await conn.execute("""
+                INSERT INTO faction_treasury (faction_id, resource_id, amount)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (faction_id, resource_id)
+                DO UPDATE SET amount = faction_treasury.amount + $3
+            """, to_faction_id, resource_id, moved)
+            return moved
+
+
 async def fetch_all_population_by_world(faction_id: int) -> Dict[int, int]:
     rows = await db.fetch("""
         SELECT lt.world_id, COALESCE(lt.amount, 0) as pop

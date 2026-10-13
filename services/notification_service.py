@@ -35,6 +35,23 @@ OWN_ONLY_EVENTS = (
     EVENT_INCOME,
 )
 
+WORLD_MODE_ALL = "all"
+WORLD_MODE_INCLUDE = "include"
+WORLD_MODE_EXCLUDE = "exclude"
+VALID_WORLD_MODES = (WORLD_MODE_ALL, WORLD_MODE_INCLUDE, WORLD_MODE_EXCLUDE)
+
+ALERT_FLAGS = (
+    "transfers",
+    "movements",
+    "origin",
+    "destination",
+    "own",
+    "recruitment",
+    "fleet_arrival",
+    "battle",
+    "income",
+)
+
 ROLE_ORIGIN = "origin"
 ROLE_DESTINATION = "destination"
 
@@ -61,6 +78,8 @@ async def get_user_notification_settings(user_id: int) -> dict:
             "fleet_arrival": True,
             "battle": True,
             "income": True,
+            "world_mode": WORLD_MODE_ALL,
+            "world_ids": (),
         }
     return {
         "mode": user.notify_mode,
@@ -74,34 +93,35 @@ async def get_user_notification_settings(user_id: int) -> dict:
         "fleet_arrival": user.notify_fleet_arrival,
         "battle": user.notify_battle,
         "income": user.notify_income,
+        "world_mode": user.notify_world_mode,
+        "world_ids": user.notify_world_ids,
     }
 
 
-async def set_notification_mode(user_id: int, mode: str, channel_id: Optional[int] = None):
+async def save_notification_settings(
+    user_id: int,
+    mode: str,
+    channel_id: Optional[int],
+    flags: dict,
+    world_mode: str,
+    world_ids: list,
+):
     if mode not in VALID_MODES:
         raise ValueError("Mode must be off, dm or channel.")
     if mode == MODE_CHANNEL and channel_id is None:
         raise ValueError("Pick a channel to receive notifications in.")
     if mode != MODE_CHANNEL:
         channel_id = None
+    if world_mode not in VALID_WORLD_MODES:
+        raise ValueError("World filter must be all, include or exclude.")
+    if world_mode != WORLD_MODE_ALL and not world_ids:
+        raise ValueError("List at least one world for this world filter.")
+    if world_mode == WORLD_MODE_ALL:
+        world_ids = []
 
-    user_data = await notification_repo.set_user_notify_mode(user_id, mode, channel_id)
-    if user_data is None:
-        raise ValueError("You are not registered in the database yet.")
-    cache_manager.users[user_id] = user_data
-    return user_data
-
-
-async def set_notification_events(
-    user_id: int,
-    transfers: bool,
-    movements: bool,
-    origin: bool,
-    destination: bool,
-    own: bool,
-):
-    user_data = await notification_repo.set_user_notify_events(
-        user_id, transfers, movements, origin, destination, own
+    clean_flags = {flag: bool(flags.get(flag, False)) for flag in ALERT_FLAGS}
+    user_data = await notification_repo.set_user_notify_settings(
+        user_id, mode, channel_id, clean_flags, world_mode, sorted(set(world_ids))
     )
     if user_data is None:
         raise ValueError("You are not registered in the database yet.")
@@ -109,20 +129,12 @@ async def set_notification_events(
     return user_data
 
 
-async def set_notification_activity(
-    user_id: int,
-    recruitment: bool,
-    fleet_arrival: bool,
-    battle: bool,
-    income: bool,
-):
-    user_data = await notification_repo.set_user_notify_activity(
-        user_id, recruitment, fleet_arrival, battle, income
-    )
-    if user_data is None:
-        raise ValueError("You are not registered in the database yet.")
-    cache_manager.users[user_id] = user_data
-    return user_data
+def _world_allowed(settings: dict, world_id: Optional[int]) -> bool:
+    mode = settings.get("world_mode", WORLD_MODE_ALL)
+    if mode == WORLD_MODE_ALL or world_id is None:
+        return True
+    listed = world_id in settings.get("world_ids", ())
+    return listed if mode == WORLD_MODE_INCLUDE else not listed
 
 
 def _wants(settings: dict, event_type: str, role: Optional[str], is_own: bool) -> bool:
@@ -174,7 +186,7 @@ async def _collect_recipients(
             is_own = bool(row["is_own"])
             if user_id not in recipients:
                 settings = await get_user_notification_settings(user_id)
-                if _wants(settings, event_type, role, is_own):
+                if _wants(settings, event_type, role, is_own) and _world_allowed(settings, world_id):
                     recipients[user_id] = (settings, is_own)
 
             if is_own or not row["is_leader"]:
@@ -188,13 +200,17 @@ async def _collect_recipients(
                 if partner_user_id in recipients:
                     continue
                 partner_settings = await get_user_notification_settings(partner_user_id)
-                if _wants(partner_settings, event_type, role, False):
+                if _wants(partner_settings, event_type, role, False) and _world_allowed(partner_settings, world_id):
                     recipients[partner_user_id] = (partner_settings, False)
 
     return recipients
 
 
-async def _collect_faction_recipients(faction_id: Optional[int], event_type: str) -> dict:
+async def _collect_faction_recipients(
+    faction_id: Optional[int],
+    event_type: str,
+    world_id: Optional[int] = None,
+) -> dict:
     if faction_id is None:
         return {}
     rows = await notification_repo.get_faction_recipient_rows(faction_id)
@@ -204,7 +220,7 @@ async def _collect_faction_recipients(faction_id: Optional[int], event_type: str
         if user_id in recipients:
             continue
         settings = await get_user_notification_settings(user_id)
-        if _wants(settings, event_type, None, True):
+        if _wants(settings, event_type, None, True) and _world_allowed(settings, world_id):
             recipients[user_id] = (settings, True)
     return recipients
 
@@ -364,8 +380,9 @@ async def notify_fleet_arrival(
     faction_id: int,
     fleet_name: str,
     world_name: str,
+    world_id: Optional[int] = None,
 ):
-    recipients = await _collect_faction_recipients(faction_id, EVENT_FLEET_ARRIVAL)
+    recipients = await _collect_faction_recipients(faction_id, EVENT_FLEET_ARRIVAL, world_id)
     if not recipients:
         return
 
@@ -442,8 +459,9 @@ async def notify_transfer_intercepted(
     to_world_name: str,
     interception_world_name: Optional[str] = None,
     intercepting_faction_name: Optional[str] = None,
+    interception_world_id: Optional[int] = None,
 ):
-    recipients = await _collect_faction_recipients(owner_faction_id, EVENT_INTERCEPTION)
+    recipients = await _collect_faction_recipients(owner_faction_id, EVENT_INTERCEPTION, interception_world_id)
     if not recipients:
         return
 

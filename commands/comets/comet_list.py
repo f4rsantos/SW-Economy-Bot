@@ -58,8 +58,8 @@ class CometListView(View):
         page_comets = self.comets[start:start + COMETS_PER_PAGE]
         options = [
             discord.SelectOption(
-                label=c['name'][:100],
-                value=str(c['id'])
+                label=c.name[:100],
+                value=str(c.id)
             )
             for c in page_comets
         ]
@@ -99,8 +99,8 @@ class CometListView(View):
         )
         for c in page_comets:
             embed.add_field(
-                name=c['name'],
-                value=f"Discoverer: <@{c['discoverer']}>",
+                name=c.name,
+                value=f"Discoverer: <@{c.discoverer}>",
                 inline=False
             )
         embed.set_footer(text="Select a comet from the dropdown to view details")

@@ -25,6 +25,7 @@ def is_mega_factory(building_id: int) -> bool:
 
 
 MEGA_FACTORY_SCALE_RATE = 0.075
+MAX_BUILDING_LEVEL = 10
 
 
 def _calculate_mega_factory_cost(base_costs: dict, current_count: int, amount: int, level: int) -> dict:
@@ -151,7 +152,9 @@ async def get_faction_building_ids_at_level(faction_id: int, level: int) -> set:
 
 
 async def get_building_ids_supporting_level(level: int) -> set:
-    return await building_repo.get_building_ids_supporting_level(level)
+    if not 1 <= level <= MAX_BUILDING_LEVEL:
+        return set()
+    return await building_repo.get_levelable_building_ids()
 
 
 async def get_faction_mega_factory_count(faction_id: int) -> int:

@@ -18,6 +18,7 @@ def get_influence_cap() -> int:
         return int(resource['hard_limit'])
     return INFLUENCE_CAP
 STORABLE_RESOURCES = {'CM', 'EL', 'CS', 'U-CM', 'U-EL', 'U-CS'}
+WORLD_TRADE_RESOURCES = STORABLE_RESOURCES | {'Population'}
 
 
 def calculate_influence_cost_from_pacts(pact_rows) -> int:

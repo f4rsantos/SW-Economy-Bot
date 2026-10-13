@@ -112,6 +112,7 @@ async def intercept_transfer(transfer_id: int, fleet_id: int, world_id: int):
             transfer_id,
             transfer.from_world_name,
             transfer.to_world_name,
+            interception_world_id=world_id,
         )
     except Exception:
         logger.exception(f"Transfer {transfer_id} interception notification failed")

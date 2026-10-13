@@ -70,11 +70,13 @@ async def reset_snapshot_and_report(on_reset: Callable[[List[WeeklySpendTotal]],
 
             rows = await conn.fetch("""
                 SELECT r.name AS resource_name,
-                       SUM(fls.amount * fls.direction) AS amount
+                       SUM(fls.amount * fls.direction) AS amount,
+                       SUM(CASE WHEN fls.direction = -1 THEN fls.amount ELSE 0 END) AS refunded
                 FROM faction_last_cycle_spend fls
                 JOIN resources r ON r.id = fls.resource_id
                 GROUP BY r.name
                 HAVING SUM(fls.amount * fls.direction) != 0
+                    OR SUM(CASE WHEN fls.direction = -1 THEN fls.amount ELSE 0 END) != 0
                 ORDER BY r.name
             """)
             totals = WeeklySpendTotal.from_rows(rows)

@@ -5,7 +5,7 @@
 
 from typing import List, Optional
 from database.db_manager import db
-from dtos.fleet import Fleet, FleetDamageInfo, FleetListing
+from dtos.fleet import Fleet, FleetListing
 
 
 def get_connection():
@@ -256,35 +256,6 @@ async def get_fleets(faction_id: Optional[int] = None, world_id: Optional[int] =
         *args
     )
     return FleetListing.from_rows(rows)
-
-
-async def get_fleet_for_damage_row_with_faction(fleet_identifier: str, faction_id) -> Optional[FleetDamageInfo]:
-    row = await db.fetchrow("""
-        SELECT f.id, f.name, f.faction_id,
-               COALESCE(fa.formal_name, fa.name) as faction_name,
-               fa.color as faction_color,
-               f.health, f.total_cs, fs.name as status_name
-        FROM fleets f
-        JOIN factions fa ON f.faction_id = fa.id
-        JOIN fleet_status fs ON f.status_id = fs.id
-        WHERE (f.id::text = $1 OR LOWER(f.name) = LOWER($1))
-          AND (LOWER(fa.name) = LOWER($2) OR LOWER(fa.formal_name) = LOWER($2))
-    """, fleet_identifier, faction_id)
-    return FleetDamageInfo.from_row(row) if row else None
-
-
-async def get_fleet_for_damage_row(fleet_identifier: str) -> Optional[FleetDamageInfo]:
-    row = await db.fetchrow("""
-        SELECT f.id, f.name, f.faction_id,
-               COALESCE(fa.formal_name, fa.name) as faction_name,
-               fa.color as faction_color,
-               f.health, f.total_cs, fs.name as status_name
-        FROM fleets f
-        JOIN factions fa ON f.faction_id = fa.id
-        JOIN fleet_status fs ON f.status_id = fs.id
-        WHERE (f.id::text = $1 OR LOWER(f.name) = LOWER($1))
-    """, fleet_identifier)
-    return FleetDamageInfo.from_row(row) if row else None
 
 
 async def get_debris_fleets(faction_id: Optional[int] = None, world_id: Optional[int] = None):
