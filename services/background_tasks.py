@@ -152,7 +152,7 @@ async def check_income_cycle(skip_income: bool = False):
         weekday_names = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]
         income_weekday_name = weekday_names[target_weekday]
 
-        pending_resources_earned = {}
+        pending_flows = {}
         pending_population_change = 0
 
         for i in range(cycles_to_run):
@@ -160,7 +160,7 @@ async def check_income_cycle(skip_income: bool = False):
 
             if i > 0:
                 try:
-                    await post_weekly_spend_report(pending_resources_earned, pending_population_change)
+                    await post_weekly_spend_report(pending_population_change, **pending_flows)
                 except Exception as e:
                     logger.error(f"  Weekly spend report error: {e}")
 
@@ -176,7 +176,7 @@ async def check_income_cycle(skip_income: bool = False):
 
             spinner_task = asyncio.create_task(spin())
 
-            global_resources_earned = {}
+            global_flows = {key: {} for key in CYCLE_FLOW_KEYS}
             global_population_change = 0
 
             failed_factions = []
@@ -201,8 +201,10 @@ async def check_income_cycle(skip_income: bool = False):
             for result in batch_results:
                 if not result:
                     continue
-                for resource_name, amount in result['resources_earned'].items():
-                    global_resources_earned[resource_name] = global_resources_earned.get(resource_name, 0) + amount
+                for key in CYCLE_FLOW_KEYS:
+                    totals = global_flows[key]
+                    for resource_name, amount in result.get(key, {}).items():
+                        totals[resource_name] = totals.get(resource_name, 0) + amount
                 global_population_change += result['population_change']
 
             if failed_factions:
@@ -224,7 +226,7 @@ async def check_income_cycle(skip_income: bool = False):
             except Exception as e:
                 logger.error(f"  Script runner (income day) error: {e}")
 
-            pending_resources_earned = global_resources_earned
+            pending_flows = global_flows
             pending_population_change = global_population_change
 
             try:
@@ -233,7 +235,7 @@ async def check_income_cycle(skip_income: bool = False):
                 logger.warning(f"Income cycle notification failed: {e}")
 
         try:
-            await post_weekly_spend_report(pending_resources_earned, pending_population_change)
+            await post_weekly_spend_report(pending_population_change, **pending_flows)
         except Exception as e:
             logger.error(f"  Weekly spend report error: {e}")
 
@@ -258,6 +260,7 @@ async def check_income_cycle(skip_income: bool = False):
 
 
 NATIONAL_UPDATES_CHANNEL_NAME = "national-updates"
+CYCLE_FLOW_KEYS = ('resources_earned', 'resources_produced', 'resources_capped')
 
 
 async def _find_channel_by_name(channel_name: str):
@@ -292,7 +295,8 @@ async def run_casino_weekly_trim():
     await channel.send("\n".join(lines))
 
 
-async def post_weekly_spend_report(resources_earned: dict, population_change: int):
+async def post_weekly_spend_report(population_change: int, resources_earned: dict = None,
+                                   resources_produced: dict = None, resources_capped: dict = None):
     from services import spend_service
     from services.weekly_report_service import build_weekly_report
     from utils.embeds import create_embed
@@ -304,7 +308,10 @@ async def post_weekly_spend_report(resources_earned: dict, population_change: in
 
     async def post(spend_totals) -> bool:
         try:
-            report = build_weekly_report(resources_earned, population_change, spend_totals)
+            report = build_weekly_report(
+                resources_earned or {}, population_change, spend_totals,
+                resources_produced or {}, resources_capped or {},
+            )
             await channel.send(embed=create_embed(**report))
             return True
         except Exception as e:

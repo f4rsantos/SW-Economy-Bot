@@ -78,6 +78,7 @@ from services.income_calculator import (
     compute_world_production,
     plan_cs_withdrawals,
 )
+from services.income_flows import gross_production, storage_overflow
 
 
 async def _get_status_ids(shared_cache: dict) -> dict:
@@ -324,6 +325,7 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
     refined_stock_map = build_stock_map(refined_stock_rows)
     storage_capacity_map = build_storage_capacity_map(storage_rows, efficiency_cache)
     preview['_storage_capacity_map'] = storage_capacity_map
+    preview['_stock_map'] = stock_map
 
     outgoing_trade_map: Dict[int, Dict[str, int]] = {}
     for trade in trade_rows:
@@ -353,6 +355,7 @@ async def preview_income(faction_id: int, shared_cache: dict = None) -> Dict:
         preview['worlds'][wid] = {
             'production': wr.copy(),
             'unrefined_production': unrefined_prod.copy(),
+            'refined_production': refined.copy(),
             'gross_cs': refined.get('CS', 0),
             'population_growth': 0,
             'pop_cap': world['pop_cap'],
@@ -554,6 +557,7 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
         shared_cache = {}
 
     scope_level = SCOPE_LEVELS.get(scope, 5)
+    cycle_refund = {}
 
     if preview is None:
         preview = await preview_income(faction_id, shared_cache)
@@ -584,6 +588,7 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
             if refund:
                 target_world_id = await fetch_best_destination_world(faction_id)
                 if target_world_id is not None:
+                    cycle_refund = refund
                     preview['worlds'].setdefault(target_world_id, {})
                     preview['worlds'][target_world_id].setdefault('final', {})
                     for resource_name, amount in refund.items():
@@ -592,8 +597,10 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
                         )
 
     storage_capacity_map = preview.get('_storage_capacity_map', {})
+    stock_map = preview.get('_stock_map', {})
     local_deltas = []
     resources_earned = {}
+    resources_capped = {}
     for wid, data in preview['worlds'].items():
         if scope_level == SCOPE_LEVELS['extractors']:
             resources_to_apply = data.get('unrefined_production', {})
@@ -617,6 +624,10 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
                 'storable': storable,
             })
             resources_earned[resource_name] = resources_earned.get(resource_name, 0) + int(amount)
+            if storable:
+                lost = storage_overflow(stock_map.get(wid, {}).get(resource_name, 0), int(amount), int(cap))
+                if lost:
+                    resources_capped[resource_name] = resources_capped.get(resource_name, 0) + lost
 
     population_deltas = []
     population_change_total = 0
@@ -684,11 +695,19 @@ async def execute_income(faction_id: int, shared_cache: dict = None, scope: str 
     if influence_delta:
         resources_earned['Influence'] = resources_earned.get('Influence', 0) + influence_delta
 
+    resources_produced = gross_production(preview, scope_level >= SCOPE_LEVELS['extractors_refineries'], cycle_refund)
+    if er_delta > 0:
+        resources_produced['ER'] = resources_produced.get('ER', 0) + er_delta
+    if influence_delta > 0:
+        resources_produced['Influence'] = resources_produced.get('Influence', 0) + influence_delta
+
     if scope_level >= SCOPE_LEVELS['full']:
         from services import megaproject_service
         await megaproject_service.charge_megaproject_maintenance(faction_id)
 
     return {
         'resources_earned': resources_earned,
+        'resources_produced': resources_produced,
+        'resources_capped': resources_capped,
         'population_change': population_change_total,
     }

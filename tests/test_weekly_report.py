@@ -37,7 +37,7 @@ def test_table_rows_align():
     lines = table.strip("`\n").split("\n")
     assert lines[0].startswith("RES")
     assert "25%" in lines[2]
-    assert len({line.index("REINVESTED") for line in lines[:1]}) == 1
+    assert len({line.index("USAGE") for line in lines[:1]}) == 1
 
 
 def test_headline_flags_deficit():
@@ -49,7 +49,7 @@ def test_headline_flags_deficit():
 
 def test_headline_no_spending():
     flows = build_flows({'ER': 100}, [])
-    assert "No spending" in build_headline(flows, 0)
+    assert "Nothing was consumed" in build_headline(flows, 0)
 
 
 def test_population_note_mentions_recruits():
@@ -62,3 +62,39 @@ def test_empty_report():
     report = build_weekly_report({}, 0, [])
     assert "No economic activity" in report["description"]
     assert [f["name"] for f in report["fields"]] == ["Population"]
+
+
+def test_refining_counts_as_use_not_missing_income():
+    flows = build_flows(
+        {'U-CS': -3_800_000, 'CS': 4_500_000},
+        [],
+        resources_produced={'U-CS': 2_000_000, 'CS': 5_800_000},
+    )
+    ucs = next(f for f in flows if f.name == 'U-CS')
+    assert ucs.used == 5_800_000
+    assert ucs.net == -3_800_000
+    assert round(ucs.ratio * 100) == 290
+    headline = build_headline(flows, 0)
+    assert "not produced" not in headline
+    assert "U-CS is the weak point" in headline
+
+
+def test_capped_column_and_headline():
+    flows = build_flows(
+        {'CM': 1_000},
+        [],
+        resources_produced={'CM': 1_000},
+        resources_capped={'CM': 250},
+    )
+    cm = flows[0]
+    assert cm.net == 750
+    assert cm.capped_ratio == 0.25
+    lines = build_table(flows).strip("`\n").split("\n")
+    assert lines[0].split() == ["RES", "PRODUCED", "USED", "CAPPED", "NET", "USAGE"]
+    assert lines[2].split() == ["CM", "1", "k", "0", "250", "+750", "0%"]
+    assert "destroyed 250 CM" in build_headline(flows, 0)
+
+
+def test_no_capped_column_without_losses():
+    flows = build_flows({'CM': 10}, [], resources_produced={'CM': 10})
+    assert "CAPPED" not in build_table(flows)
